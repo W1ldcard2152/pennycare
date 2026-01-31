@@ -1,0 +1,448 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id            String              @id @default(cuid())
+  email         String              @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  isActive      Boolean             @default(true)
+
+  // Relations
+  companyAccess UserCompanyAccess[]
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+model UserCompanyAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   // 'owner', 'admin', 'payroll', 'viewer'
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+}
+
+// ============================================
+// COMPANY SETTINGS
+// ============================================
+
+model Company {
+  id                String   @id @default(cuid())
+
+  // Company Information
+  companyName       String
+  legalBusinessName String?
+  fein              String?  // Federal Employer Identification Number
+
+  // Contact Information
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  phone             String?
+  email             String?
+  website           String?
+
+  // Business Details
+  industryType      String?
+  fiscalYearEnd     String?  // e.g., "12-31" for December 31
+
+  // Payroll Settings
+  defaultPayPeriod  String?  // "weekly", "biweekly", "semimonthly", "monthly"
+  overtimeEnabled   Boolean  @default(true)
+  overtimeMultiplier Float   @default(1.5)
+
+  // State Tax IDs (can be expanded for multi-state)
+  stateUIClientId   String?  // State Unemployment Insurance Client ID
+  stateTaxId        String?  // State Tax ID
+  localTaxId        String?  // Local Tax ID (if applicable)
+  suiRate           Float?   // NY State Unemployment Insurance rate (employer-specific, 2.1%-9.9%)
+
+  // Workers Comp
+  workersCompPolicy String?
+  workersCompCarrier String?
+
+  // Bank Account (for payroll ACH)
+  bankName          String?
+  bankRoutingNumberEncrypted String?
+  bankAccountNumberEncrypted String?
+
+  // PTO/Leave Policies
+  defaultPTODays    Int?     @default(0)
+  defaultSickDays   Int?     @default(0)
+  ptoAccrualEnabled Boolean  @default(false)
+
+  // Relations
+  userAccess        UserCompanyAccess[]
+  employees         Employee[]
+  timeEntries       TimeEntry[]
+  payrollRecords    PayrollRecord[]
+  accounts          Account[]
+  transactions      Transaction[]
+  vendors           Vendor[]
+  expenses          Expense[]
+  documentTemplates DocumentTemplate[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// ============================================
+// EMPLOYEE & PAYROLL MODELS
+// ============================================
+
+model Employee {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  firstName         String
+  lastName          String
+  email             String?
+  phone             String?
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+
+  // Employment details
+  employeeNumber    String
+  position          String
+  employmentType    String   // "full-time" or "part-time"
+  department        String?
+  hireDate          DateTime
+  terminationDate   DateTime?
+  isActive          Boolean  @default(true)
+
+  // Pay information
+  payType           String   // "hourly" or "salary"
+  hourlyRate        Float?
+  annualSalary      Float?
+
+  // Tax information (encrypted)
+  taxIdEncrypted    String?  // Encrypted SSN
+
+  // Federal Tax Settings
+  w4FormType        String?  // "2019_prior" or "2020_later"
+  w4FilingStatus    String?  // "single", "married", "head_of_household"
+  w4Allowances      Int?     // For 2019 & prior forms
+  additionalWithholding Float?
+  additionalWithholdingPercentage Float?
+  overrideAmount    Float?
+  overridePercentage Float?
+  federalTaxability String?  // "taxable" or "exempt"
+  federalTaxesWithheld Boolean @default(true)
+  federalResidency  String?  // "resident" or "nonresident"
+
+  // Social Security & Medicare
+  socialSecurityTaxability String? // "taxable" or "exempt"
+  medicareTaxability String?       // "taxable" or "exempt"
+
+  // State Tax Settings (NY specific, can be adapted for other states)
+  stateFilingStatus String?  // "single", "married", "head_of_household"
+  stateResidency    String?  // "resident" or "nonresident"
+  stateAllowances   Int?
+  stateTaxesWithheld Boolean @default(true)
+  stateTaxability   String?  // "taxable" or "exempt"
+
+  // State Unemployment
+  unemploymentTaxability String? // "taxable" or "exempt"
+  worksiteCode      String?
+  dependentHealthInsurance Boolean @default(false)
+
+  // State Disability
+  disabilityTaxability String? // "taxable" or "exempt"
+  disabilityTaxesWithheld Boolean @default(true)
+
+  // Paid Family Leave
+  paidFamilyLeaveTaxability String? // "taxable" or "exempt"
+  paidFamilyLeaveTaxesWithheld Boolean @default(true)
+
+  // Relations
+  timeEntries       TimeEntry[]
+  payrollRecords    PayrollRecord[]
+  paymentInfo       PaymentInfo?
+  emergencyContact  EmergencyContact?
+  documents         EmployeeDocument[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model PaymentInfo {
+  id                String   @id @default(cuid())
+  employeeId        String   @unique
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  paymentMethod     String   // "direct_deposit" or "check"
+
+  // Direct deposit info (encrypted)
+  routingNumberEncrypted  String?
+  accountNumberEncrypted  String?
+  accountType             String?  // "checking" or "savings"
+  bankName                String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model EmergencyContact {
+  id                String   @id @default(cuid())
+  employeeId        String   @unique
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  name              String
+  relationship      String
+  phone             String
+  alternatePhone    String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model EmployeeDocument {
+  id                String   @id @default(cuid())
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  documentType      String   // "w4", "i9", "license", "other"
+  fileName          String
+  filePath          String
+  fileSize          Int
+  mimeType          String?
+
+  description       String?
+  expirationDate    DateTime?
+  uploadedBy        String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([documentType])
+}
+
+model DocumentTemplate {
+  id                String   @id @default(cuid())
+  companyId         String?  // null = available to all companies (system templates)
+  company           Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  documentTypeId    String   // links to DOCUMENT_TYPES
+  name              String   // "Federal W-4 Form (2024)"
+  fileName          String   // "W-4.pdf"
+  filePath          String   // "document-templates/federal/W-4.pdf"
+  fileSize          Int
+  category          String   // "federal", "state", "company"
+
+  description       String?
+  isActive          Boolean  @default(true)
+  isSystemTemplate  Boolean  @default(false) // true = provided by system, false = uploaded by company
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([documentTypeId])
+  @@index([category])
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date        DateTime
+  hoursWorked Float
+  overtimeHours Float  @default(0)
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, employeeId, date])
+  @@index([employeeId, date])
+}
+
+model PayrollRecord {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  payPeriodStart  DateTime
+  payPeriodEnd    DateTime
+  payDate         DateTime
+
+  // Earnings
+  regularHours    Float
+  overtimeHours   Float    @default(0)
+  regularPay      Float
+  overtimePay     Float    @default(0)
+  grossPay        Float
+
+  // Deductions
+  federalTax      Float
+  stateTax        Float
+  socialSecurity  Float
+  medicare        Float
+  otherDeductions Float    @default(0)
+  totalDeductions Float
+
+  netPay          Float
+
+  notes           String?
+  isPaid          Boolean  @default(false)
+  paidDate        DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, employeeId, payPeriodStart])
+  @@index([employeeId, payPeriodStart])
+}
+
+// ============================================
+// BOOKKEEPING MODELS
+// ============================================
+
+model Account {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  type        String   // "asset", "liability", "equity", "revenue", "expense"
+  subtype     String?  // "current_asset", "fixed_asset", "current_liability", etc.
+  description String?
+
+  isActive    Boolean  @default(true)
+
+  // Relations
+  debitTransactions  Transaction[] @relation("DebitAccount")
+  creditTransactions Transaction[] @relation("CreditAccount")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date          DateTime
+  description   String
+  referenceNumber String?
+
+  // Double-entry bookkeeping
+  debitAccountId  String
+  debitAccount    Account  @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccountId String
+  creditAccount   Account  @relation("CreditAccount", fields: [creditAccountId], references: [id])
+
+  amount        Float
+
+  // Optional categorization
+  category      String?
+  tags          String?  // JSON array of tags
+
+  // Reconciliation
+  isReconciled  Boolean  @default(false)
+  reconciledDate DateTime?
+
+  notes         String?
+  attachments   String?  // JSON array of file paths
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([date])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+}
+
+model Vendor {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+
+  taxId       String?
+
+  // Relations
+  expenses    Expense[]
+
+  isActive    Boolean  @default(true)
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date        DateTime
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+
+  description String
+  category    String   // "parts", "supplies", "utilities", "rent", etc.
+  amount      Float
+
+  paymentMethod String? // "cash", "check", "card", "transfer"
+  referenceNumber String?
+
+  isPaid      Boolean  @default(false)
+  paidDate    DateTime?
+
+  notes       String?
+  attachments String?  // JSON array of file paths
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([date])
+  @@index([category])
+  @@index([vendorId])
+}
