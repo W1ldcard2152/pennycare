@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -8,6 +8,42 @@ export default function NewEmployeePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [phone, setPhone] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [emergencyAltPhone, setEmergencyAltPhone] = useState('');
+  const [employeeNumber, setEmployeeNumber] = useState('');
+  const [loadingEmployeeNumber, setLoadingEmployeeNumber] = useState(true);
+
+  // Fetch next employee number on page load
+  useEffect(() => {
+    const fetchNextEmployeeNumber = async () => {
+      try {
+        const response = await fetch('/api/employees/next-number');
+        if (response.ok) {
+          const data = await response.json();
+          setEmployeeNumber(data.nextEmployeeNumber);
+        }
+      } catch (err) {
+        console.error('Error fetching next employee number:', err);
+      } finally {
+        setLoadingEmployeeNumber(false);
+      }
+    };
+    fetchNextEmployeeNumber();
+  }, []);
+
+  // Format phone as (XXX) XXX-XXXX
+  const formatPhone = (value: string): string => {
+    const digits = value.replace(/[^0-9]/g, '').slice(0, 10);
+    if (digits.length > 6) {
+      return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+    } else if (digits.length > 3) {
+      return '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+    } else if (digits.length > 0) {
+      return '(' + digits;
+    }
+    return '';
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -84,6 +120,22 @@ export default function NewEmployeePage() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
+                <input
+                  type="text"
+                  name="middleName"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                <input
+                  type="date"
+                  name="dateOfBirth"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <input
                   type="email"
@@ -96,6 +148,10 @@ export default function NewEmployeePage() {
                 <input
                   type="tel"
                   name="phone"
+                  value={phone}
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
+                  placeholder="(XXX) XXX-XXXX"
+                  maxLength={14}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -148,8 +204,12 @@ export default function NewEmployeePage() {
                   type="text"
                   name="employeeNumber"
                   required
+                  value={employeeNumber}
+                  onChange={(e) => setEmployeeNumber(e.target.value)}
+                  placeholder={loadingEmployeeNumber ? 'Loading...' : '001'}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-xs text-gray-500 mt-1">Auto-generated, but can be edited</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -282,10 +342,10 @@ export default function NewEmployeePage() {
                   Filing Status
                 </label>
                 <select
-                  name="filingStatus"
+                  name="w4FilingStatus"
+                  defaultValue="single"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select status</option>
                   <option value="single">Single</option>
                   <option value="married">Married</option>
                   <option value="head_of_household">Head of Household</option>
@@ -299,6 +359,7 @@ export default function NewEmployeePage() {
                   type="number"
                   name="w4Allowances"
                   min="0"
+                  defaultValue="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -314,6 +375,54 @@ export default function NewEmployeePage() {
                   placeholder="0.00"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+            </div>
+
+            {/* Tax Withholding Checkboxes */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-medium text-blue-900 mb-3">Tax Withholding</h3>
+              <p className="text-sm text-blue-700 mb-4">Enable tax withholding for this employee. These should typically all be checked.</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
+                  <input
+                    type="checkbox"
+                    name="federalTaxesWithheld"
+                    value="true"
+                    defaultChecked
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm text-gray-900">Federal</span>
+                </label>
+                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
+                  <input
+                    type="checkbox"
+                    name="stateTaxesWithheld"
+                    value="true"
+                    defaultChecked
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm text-gray-900">NY State</span>
+                </label>
+                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
+                  <input
+                    type="checkbox"
+                    name="disabilityTaxesWithheld"
+                    value="true"
+                    defaultChecked
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm text-gray-900">SDI</span>
+                </label>
+                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
+                  <input
+                    type="checkbox"
+                    name="paidFamilyLeaveTaxesWithheld"
+                    value="true"
+                    defaultChecked
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm text-gray-900">PFL</span>
+                </label>
               </div>
             </div>
           </div>
@@ -430,6 +539,10 @@ export default function NewEmployeePage() {
                 <input
                   type="tel"
                   name="emergencyContactPhone"
+                  value={emergencyPhone}
+                  onChange={(e) => setEmergencyPhone(formatPhone(e.target.value))}
+                  placeholder="(XXX) XXX-XXXX"
+                  maxLength={14}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -440,6 +553,10 @@ export default function NewEmployeePage() {
                 <input
                   type="tel"
                   name="emergencyContactAlternatePhone"
+                  value={emergencyAltPhone}
+                  onChange={(e) => setEmergencyAltPhone(formatPhone(e.target.value))}
+                  placeholder="(XXX) XXX-XXXX"
+                  maxLength={14}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

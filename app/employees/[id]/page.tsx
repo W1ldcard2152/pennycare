@@ -10,6 +10,8 @@ interface Employee {
   id: string;
   firstName: string;
   lastName: string;
+  middleName?: string;
+  dateOfBirth?: string;
   email?: string;
   phone?: string;
   address?: string;
@@ -229,6 +231,18 @@ export default function EmployeeDetailPage() {
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-xl font-semibold mb-4">Personal Information</h2>
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-600">Middle Name</p>
+                  <p className="font-medium">{employee.middleName || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Date of Birth</p>
+                  <p className="font-medium">
+                    {employee.dateOfBirth
+                      ? new Date(employee.dateOfBirth).toLocaleDateString()
+                      : '-'}
+                  </p>
+                </div>
                 <div>
                   <p className="text-sm text-gray-600">Email</p>
                   <p className="font-medium">{employee.email || '-'}</p>
@@ -482,6 +496,51 @@ export default function EmployeeDetailPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Print Forms */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-xl font-semibold mb-4">Print Forms</h2>
+              <p className="text-sm text-gray-500 mb-3">
+                Pre-filled with employee and company information.
+              </p>
+              <div className="space-y-2">
+                {[
+                  { type: 'w-4', label: 'W-4', desc: 'Federal Withholding' },
+                  { type: 'i-9', label: 'I-9', desc: 'Employment Eligibility' },
+                  { type: 'it-2104', label: 'IT-2104', desc: 'NYS Withholding' },
+                  { type: 'ls-54', label: 'LS-54', desc: 'NYS Pay Notice' },
+                ].map((form) => (
+                  <a
+                    key={form.type}
+                    href={`/api/employees/${employee.id}/forms/${form.type}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors group"
+                  >
+                    <div>
+                      <span className="font-medium text-gray-900 group-hover:text-blue-700">
+                        {form.label}
+                      </span>
+                      <span className="text-sm text-gray-500 ml-2">{form.desc}</span>
+                    </div>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5 text-gray-400 group-hover:text-blue-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                      />
+                    </svg>
+                  </a>
+                ))}
+              </div>
+            </div>
+
             {/* Documents - reorganized order */}
             <EmployeeDocuments
               employeeId={employee.id}

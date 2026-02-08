@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CalendarIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { CalendarIcon, ClockIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface Employee {
   id: string;
@@ -18,6 +18,11 @@ interface TimeEntry {
   hoursWorked: number;
   overtimeHours: number;
   notes: string | null;
+}
+
+interface TimePair {
+  clockIn: string;
+  clockOut: string;
 }
 
 export default function TimeTrackingPage() {
@@ -237,44 +242,190 @@ function TimeEntryCell({
   onSave: (regularHours: number, overtimeHours: number, notes: string) => void;
   onCancel: () => void;
 }) {
-  const [regularHours, setRegularHours] = useState(entry?.hoursWorked || 0);
-  const [overtimeHours, setOvertimeHours] = useState(entry?.overtimeHours || 0);
+  // Initialize with one empty time pair
+  const [timePairs, setTimePairs] = useState<TimePair[]>([{ clockIn: '', clockOut: '' }]);
   const [notes, setNotes] = useState(entry?.notes || '');
+  const [manualOverride, setManualOverride] = useState(false);
+  const [manualRegular, setManualRegular] = useState(entry?.hoursWorked || 0);
+  const [manualOvertime, setManualOvertime] = useState(entry?.overtimeHours || 0);
+
+  // Calculate hours from time pairs
+  const calculateHoursFromPairs = (): { regular: number; overtime: number } => {
+    let totalMinutes = 0;
+
+    for (const pair of timePairs) {
+      if (pair.clockIn && pair.clockOut) {
+        const clockInMinutes = timeToMinutes(pair.clockIn);
+        const clockOutMinutes = timeToMinutes(pair.clockOut);
+
+        if (clockOutMinutes > clockInMinutes) {
+          totalMinutes += clockOutMinutes - clockInMinutes;
+        }
+      }
+    }
+
+    const totalHours = totalMinutes / 60;
+    const regular = Math.min(totalHours, 8);
+    const overtime = Math.max(0, totalHours - 8);
+
+    return { regular: Math.round(regular * 100) / 100, overtime: Math.round(overtime * 100) / 100 };
+  };
+
+  const timeToMinutes = (time: string): number => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const { regular: calculatedRegular, overtime: calculatedOvertime } = calculateHoursFromPairs();
+  const totalCalculatedHours = calculatedRegular + calculatedOvertime;
+
+  const addTimePair = () => {
+    setTimePairs([...timePairs, { clockIn: '', clockOut: '' }]);
+  };
+
+  const removeTimePair = (index: number) => {
+    if (timePairs.length > 1) {
+      setTimePairs(timePairs.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateTimePair = (index: number, field: 'clockIn' | 'clockOut', value: string) => {
+    const updated = [...timePairs];
+    updated[index] = { ...updated[index], [field]: value };
+    setTimePairs(updated);
+  };
 
   const handleSave = () => {
-    onSave(regularHours, overtimeHours, notes);
+    if (manualOverride) {
+      onSave(manualRegular, manualOvertime, notes);
+    } else {
+      onSave(calculatedRegular, calculatedOvertime, notes);
+    }
   };
 
   return (
-    <div className="space-y-2 rounded border-2 border-blue-500 bg-white p-3 shadow-lg">
-      <input
-        type="number"
-        step="0.25"
-        value={regularHours}
-        onChange={(e) => setRegularHours(parseFloat(e.target.value) || 0)}
-        placeholder="Reg hours"
-        className="w-full rounded border px-2 py-1 text-sm"
-        autoFocus
-      />
-      <input
-        type="number"
-        step="0.25"
-        value={overtimeHours}
-        onChange={(e) => setOvertimeHours(parseFloat(e.target.value) || 0)}
-        placeholder="OT hours"
-        className="w-full rounded border px-2 py-1 text-sm"
-      />
+    <div className="space-y-3 rounded border-2 border-blue-500 bg-white p-3 shadow-lg min-w-[220px]">
+      {/* Time Pairs */}
+      <div className="space-y-2">
+        {timePairs.map((pair, index) => (
+          <div key={index} className="flex items-center gap-1">
+            <div className="flex-1">
+              <input
+                type="time"
+                value={pair.clockIn}
+                onChange={(e) => updateTimePair(index, 'clockIn', e.target.value)}
+                className="w-full rounded border px-1 py-1 text-xs"
+                placeholder="In"
+                autoFocus={index === 0}
+              />
+            </div>
+            <span className="text-gray-400 text-xs">-</span>
+            <div className="flex-1">
+              <input
+                type="time"
+                value={pair.clockOut}
+                onChange={(e) => updateTimePair(index, 'clockOut', e.target.value)}
+                className="w-full rounded border px-1 py-1 text-xs"
+                placeholder="Out"
+              />
+            </div>
+            {timePairs.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeTimePair(index)}
+                className="p-1 text-red-500 hover:text-red-700"
+              >
+                <TrashIcon className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Add Time Pair Button */}
+      <button
+        type="button"
+        onClick={addTimePair}
+        className="flex items-center justify-center w-full gap-1 text-xs text-blue-600 hover:text-blue-700 py-1 border border-dashed border-blue-300 rounded hover:bg-blue-50"
+      >
+        <PlusIcon className="h-3 w-3" />
+        Add Clock In/Out
+      </button>
+
+      {/* Calculated Hours Display */}
+      {totalCalculatedHours > 0 && !manualOverride && (
+        <div className="text-xs bg-gray-50 rounded p-2">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Regular:</span>
+            <span className="font-medium">{calculatedRegular}h</span>
+          </div>
+          {calculatedOvertime > 0 && (
+            <div className="flex justify-between text-orange-600">
+              <span>Overtime:</span>
+              <span className="font-medium">{calculatedOvertime}h</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
+            <span>Total:</span>
+            <span>{totalCalculatedHours}h</span>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Override Toggle */}
+      <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={manualOverride}
+          onChange={(e) => setManualOverride(e.target.checked)}
+          className="rounded text-blue-600"
+        />
+        Enter hours manually
+      </label>
+
+      {/* Manual Hours Input (shown when override is checked) */}
+      {manualOverride && (
+        <div className="space-y-2 pt-2 border-t">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500">Regular</label>
+              <input
+                type="number"
+                step="0.25"
+                value={manualRegular}
+                onChange={(e) => setManualRegular(parseFloat(e.target.value) || 0)}
+                className="w-full rounded border px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-gray-500">Overtime</label>
+              <input
+                type="number"
+                step="0.25"
+                value={manualOvertime}
+                onChange={(e) => setManualOvertime(parseFloat(e.target.value) || 0)}
+                className="w-full rounded border px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notes */}
       <input
         type="text"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes (optional)"
-        className="w-full rounded border px-2 py-1 text-sm"
+        className="w-full rounded border px-2 py-1 text-xs"
       />
+
+      {/* Action Buttons */}
       <div className="flex space-x-2">
         <button
           onClick={handleSave}
-          className="flex-1 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+          disabled={!manualOverride && totalCalculatedHours === 0}
+          className="flex-1 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
           Save
         </button>

@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import TaxDeadlineBanner from './TaxDeadlineBanner';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -23,6 +24,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top Bar */}
         <TopBar />
+
+        {/* Tax Deadline Banner */}
+        <TaxDeadlineBanner />
 
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto">

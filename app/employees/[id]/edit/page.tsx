@@ -8,6 +8,8 @@ interface Employee {
   id: string;
   firstName: string;
   lastName: string;
+  middleName?: string;
+  dateOfBirth?: string;
   email?: string;
   phone?: string;
   address?: string;
@@ -75,7 +77,38 @@ interface Employee {
     phone: string;
     alternatePhone?: string;
   };
+  deductions?: Deduction[];
 }
+
+interface Deduction {
+  id: string;
+  deductionType: string;
+  name: string;
+  amountType: 'fixed' | 'percentage';
+  amount: number;
+  preTax: boolean;
+  annualLimit?: number | null;
+  ytdAmount: number;
+  isActive: boolean;
+  effectiveDate: string;
+  endDate?: string | null;
+}
+
+const DEDUCTION_TYPES = [
+  { value: '401k', label: '401(k)', preTax: true },
+  { value: '401k_roth', label: 'Roth 401(k)', preTax: false },
+  { value: 'health_insurance', label: 'Health Insurance', preTax: true },
+  { value: 'dental', label: 'Dental Insurance', preTax: true },
+  { value: 'vision', label: 'Vision Insurance', preTax: true },
+  { value: 'hsa', label: 'HSA Contribution', preTax: true },
+  { value: 'fsa', label: 'FSA Contribution', preTax: true },
+  { value: 'life_insurance', label: 'Life Insurance', preTax: false },
+  { value: 'garnishment', label: 'Wage Garnishment', preTax: false },
+  { value: 'child_support', label: 'Child Support', preTax: false },
+  { value: 'loan_repayment', label: 'Loan Repayment', preTax: false },
+  { value: 'union_dues', label: 'Union Dues', preTax: false },
+  { value: 'other', label: 'Other', preTax: false },
+];
 
 export default function EditEmployeePage() {
   const params = useParams();
@@ -84,6 +117,20 @@ export default function EditEmployeePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Deductions state
+  const [deductions, setDeductions] = useState<Deduction[]>([]);
+  const [showDeductionForm, setShowDeductionForm] = useState(false);
+  const [editingDeduction, setEditingDeduction] = useState<Deduction | null>(null);
+  const [deductionForm, setDeductionForm] = useState({
+    deductionType: '',
+    name: '',
+    amountType: 'fixed' as 'fixed' | 'percentage',
+    amount: '',
+    preTax: true,
+    annualLimit: '',
+    isActive: true,
+  });
 
   useEffect(() => {
     fetchEmployee();
@@ -95,11 +142,100 @@ export default function EditEmployeePage() {
       if (!response.ok) throw new Error('Failed to fetch employee');
       const data = await response.json();
       setEmployee(data);
+      setDeductions(data.deductions || []);
     } catch (error) {
       console.error('Error fetching employee:', error);
       setError('Failed to load employee data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resetDeductionForm = () => {
+    setDeductionForm({
+      deductionType: '',
+      name: '',
+      amountType: 'fixed',
+      amount: '',
+      preTax: true,
+      annualLimit: '',
+      isActive: true,
+    });
+    setEditingDeduction(null);
+    setShowDeductionForm(false);
+  };
+
+  const handleDeductionTypeChange = (value: string) => {
+    const deductionType = DEDUCTION_TYPES.find(d => d.value === value);
+    setDeductionForm({
+      ...deductionForm,
+      deductionType: value,
+      name: deductionType?.label || '',
+      preTax: deductionType?.preTax ?? true,
+    });
+  };
+
+  const handleSaveDeduction = async () => {
+    if (!deductionForm.deductionType || !deductionForm.name || !deductionForm.amount) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      if (editingDeduction) {
+        // Update existing
+        const response = await fetch(`/api/employees/${params.id}/deductions/${editingDeduction.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(deductionForm),
+        });
+        if (!response.ok) throw new Error('Failed to update deduction');
+        const updated = await response.json();
+        setDeductions(deductions.map(d => d.id === updated.id ? updated : d));
+      } else {
+        // Create new
+        const response = await fetch(`/api/employees/${params.id}/deductions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(deductionForm),
+        });
+        if (!response.ok) throw new Error('Failed to create deduction');
+        const created = await response.json();
+        setDeductions([created, ...deductions]);
+      }
+      resetDeductionForm();
+    } catch (err) {
+      console.error('Error saving deduction:', err);
+      alert('Failed to save deduction');
+    }
+  };
+
+  const handleEditDeduction = (deduction: Deduction) => {
+    setEditingDeduction(deduction);
+    setDeductionForm({
+      deductionType: deduction.deductionType,
+      name: deduction.name,
+      amountType: deduction.amountType,
+      amount: deduction.amount.toString(),
+      preTax: deduction.preTax,
+      annualLimit: deduction.annualLimit?.toString() || '',
+      isActive: deduction.isActive,
+    });
+    setShowDeductionForm(true);
+  };
+
+  const handleDeleteDeduction = async (deductionId: string) => {
+    if (!confirm('Are you sure you want to delete this deduction?')) return;
+
+    try {
+      const response = await fetch(`/api/employees/${params.id}/deductions/${deductionId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Failed to delete deduction');
+      setDeductions(deductions.filter(d => d.id !== deductionId));
+    } catch (err) {
+      console.error('Error deleting deduction:', err);
+      alert('Failed to delete deduction');
     }
   };
 
@@ -207,6 +343,24 @@ export default function EditEmployeePage() {
                   name="lastName"
                   required
                   defaultValue={employee.lastName}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
+                <input
+                  type="text"
+                  name="middleName"
+                  defaultValue={employee.middleName || ''}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                <input
+                  type="date"
+                  name="dateOfBirth"
+                  defaultValue={employee.dateOfBirth ? employee.dateOfBirth.split('T')[0] : ''}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -410,6 +564,184 @@ export default function EditEmployeePage() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Deductions & Benefits */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Deductions & Benefits</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  resetDeductionForm();
+                  setShowDeductionForm(true);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+              >
+                + Add Deduction
+              </button>
+            </div>
+
+            {/* Deduction Form */}
+            {showDeductionForm && (
+              <div className="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50">
+                <h3 className="font-medium mb-4">{editingDeduction ? 'Edit Deduction' : 'Add New Deduction'}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                    <select
+                      value={deductionForm.deductionType}
+                      onChange={(e) => handleDeductionTypeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select type</option>
+                      {DEDUCTION_TYPES.map(type => (
+                        <option key={type.value} value={type.value}>{type.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                    <input
+                      type="text"
+                      value={deductionForm.name}
+                      onChange={(e) => setDeductionForm({ ...deductionForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Amount Type</label>
+                    <select
+                      value={deductionForm.amountType}
+                      onChange={(e) => setDeductionForm({ ...deductionForm, amountType: e.target.value as 'fixed' | 'percentage' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="fixed">Fixed Amount ($)</option>
+                      <option value="percentage">Percentage of Gross (%)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Amount * {deductionForm.amountType === 'percentage' ? '(%)' : '($)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={deductionForm.amount}
+                      onChange={(e) => setDeductionForm({ ...deductionForm, amount: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Annual Limit ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g., 23000 for 401k"
+                      value={deductionForm.annualLimit}
+                      onChange={(e) => setDeductionForm({ ...deductionForm, annualLimit: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={deductionForm.preTax}
+                        onChange={(e) => setDeductionForm({ ...deductionForm, preTax: e.target.checked })}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm text-gray-700">Pre-tax</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={deductionForm.isActive}
+                        onChange={(e) => setDeductionForm({ ...deductionForm, isActive: e.target.checked })}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm text-gray-700">Active</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={handleSaveDeduction}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
+                  >
+                    {editingDeduction ? 'Update' : 'Add'} Deduction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetDeductionForm}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Deductions List */}
+            {deductions.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No deductions configured. Click &quot;Add Deduction&quot; to set up payroll deductions like 401(k), health insurance, etc.</p>
+            ) : (
+              <div className="space-y-3">
+                {deductions.map((deduction) => (
+                  <div
+                    key={deduction.id}
+                    className={`flex items-center justify-between p-4 border rounded-lg ${
+                      deduction.isActive ? 'bg-white' : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{deduction.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          deduction.preTax
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          {deduction.preTax ? 'Pre-tax' : 'Post-tax'}
+                        </span>
+                        {!deduction.isActive && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {deduction.amountType === 'fixed'
+                          ? `$${deduction.amount.toFixed(2)} per pay period`
+                          : `${deduction.amount}% of gross pay`
+                        }
+                        {deduction.annualLimit && ` • Annual limit: $${deduction.annualLimit.toLocaleString()}`}
+                        {deduction.ytdAmount > 0 && ` • YTD: $${deduction.ytdAmount.toFixed(2)}`}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleEditDeduction(deduction)}
+                        className="px-3 py-1 text-blue-600 hover:bg-blue-50 rounded text-sm"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDeduction(deduction.id)}
+                        className="px-3 py-1 text-red-600 hover:bg-red-50 rounded text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Tax Information */}

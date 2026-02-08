@@ -65,8 +65,8 @@ export default function TaxSettingsPage() {
       // Populate settings from employee data
       setSettings({
         w4FormType: data.w4FormType || '2019_prior',
-        w4FilingStatus: data.w4FilingStatus || 'married',
-        w4Allowances: data.w4Allowances || 1,
+        w4FilingStatus: data.w4FilingStatus || 'single',
+        w4Allowances: data.w4Allowances ?? 0,
         additionalWithholding: data.additionalWithholding,
         additionalWithholdingPercentage: data.additionalWithholdingPercentage,
         overrideAmount: data.overrideAmount,
@@ -77,9 +77,9 @@ export default function TaxSettingsPage() {
         socialSecurityTaxability: data.socialSecurityTaxability || 'taxable',
         medicareTaxability: data.medicareTaxability || 'taxable',
 
-        stateFilingStatus: data.stateFilingStatus || 'married',
+        stateFilingStatus: data.stateFilingStatus || 'single',
         stateResidency: data.stateResidency || 'resident',
-        stateAllowances: data.stateAllowances || 1,
+        stateAllowances: data.stateAllowances ?? 0,
         stateTaxesWithheld: data.stateTaxesWithheld ?? true,
         stateTaxability: data.stateTaxability || 'taxable',
 
@@ -149,6 +149,54 @@ export default function TaxSettingsPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Tax Withholding Quick Settings */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold mb-2 text-blue-900">Tax Withholding</h2>
+            <p className="text-sm text-blue-700 mb-4">Enable tax withholding for this employee. These should typically all be checked.</p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
+                <input
+                  type="checkbox"
+                  checked={settings.federalTaxesWithheld}
+                  onChange={(e) => setSettings({ ...settings, federalTaxesWithheld: e.target.checked })}
+                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <span className="text-sm font-medium text-gray-900">Federal Income Tax</span>
+              </label>
+
+              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
+                <input
+                  type="checkbox"
+                  checked={settings.stateTaxesWithheld}
+                  onChange={(e) => setSettings({ ...settings, stateTaxesWithheld: e.target.checked })}
+                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <span className="text-sm font-medium text-gray-900">NY State Income Tax</span>
+              </label>
+
+              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
+                <input
+                  type="checkbox"
+                  checked={settings.disabilityTaxesWithheld}
+                  onChange={(e) => setSettings({ ...settings, disabilityTaxesWithheld: e.target.checked })}
+                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <span className="text-sm font-medium text-gray-900">NY Disability (SDI)</span>
+              </label>
+
+              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
+                <input
+                  type="checkbox"
+                  checked={settings.paidFamilyLeaveTaxesWithheld}
+                  onChange={(e) => setSettings({ ...settings, paidFamilyLeaveTaxesWithheld: e.target.checked })}
+                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <span className="text-sm font-medium text-gray-900">NY Paid Family Leave</span>
+              </label>
+            </div>
+          </div>
+
           {/* Federal Tax Settings */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4">Federal Tax Settings</h2>
@@ -217,23 +265,11 @@ export default function TaxSettingsPage() {
                 </label>
                 <input
                   type="number"
-                  value={settings.w4Allowances || ''}
+                  value={settings.w4Allowances ?? 0}
                   onChange={(e) => setSettings({ ...settings, w4Allowances: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   min="0"
                 />
-              </div>
-
-              <div>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={settings.federalTaxesWithheld}
-                    onChange={(e) => setSettings({ ...settings, federalTaxesWithheld: e.target.checked })}
-                    className="mr-2"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Taxes Withheld</span>
-                </label>
               </div>
 
               <div>
@@ -367,7 +403,7 @@ export default function TaxSettingsPage() {
                 </label>
                 <input
                   type="number"
-                  value={settings.stateAllowances || ''}
+                  value={settings.stateAllowances ?? 0}
                   onChange={(e) => setSettings({ ...settings, stateAllowances: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   min="0"
@@ -386,18 +422,6 @@ export default function TaxSettingsPage() {
                   <option value="taxable">Taxable</option>
                   <option value="exempt">Exempt</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={settings.stateTaxesWithheld}
-                    onChange={(e) => setSettings({ ...settings, stateTaxesWithheld: e.target.checked })}
-                    className="mr-2"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Taxes Withheld</span>
-                </label>
               </div>
             </div>
           </div>
@@ -454,7 +478,7 @@ export default function TaxSettingsPage() {
 
               {/* Disability */}
               <div>
-                <h3 className="font-semibold mb-3">Disability</h3>
+                <h3 className="font-semibold mb-3">Disability (SDI)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -469,24 +493,12 @@ export default function TaxSettingsPage() {
                       <option value="exempt">Exempt</option>
                     </select>
                   </div>
-
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.disabilityTaxesWithheld}
-                        onChange={(e) => setSettings({ ...settings, disabilityTaxesWithheld: e.target.checked })}
-                        className="mr-2"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Taxes Withheld</span>
-                    </label>
-                  </div>
                 </div>
               </div>
 
               {/* Paid Family Leave */}
               <div>
-                <h3 className="font-semibold mb-3">Paid Family Leave</h3>
+                <h3 className="font-semibold mb-3">Paid Family Leave (PFL)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -500,18 +512,6 @@ export default function TaxSettingsPage() {
                       <option value="taxable">Taxable</option>
                       <option value="exempt">Exempt</option>
                     </select>
-                  </div>
-
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.paidFamilyLeaveTaxesWithheld}
-                        onChange={(e) => setSettings({ ...settings, paidFamilyLeaveTaxesWithheld: e.target.checked })}
-                        className="mr-2"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Taxes Withheld</span>
-                    </label>
                   </div>
                 </div>
               </div>

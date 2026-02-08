@@ -17,6 +17,9 @@ export async function GET(
         documents: {
           orderBy: { createdAt: 'desc' },
         },
+        deductions: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -72,6 +75,8 @@ export async function PUT(
         // Basic info
         firstName: data.firstName,
         lastName: data.lastName,
+        middleName: data.middleName || null,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
         email: data.email || null,
         phone: data.phone || null,
         address: data.address || null,

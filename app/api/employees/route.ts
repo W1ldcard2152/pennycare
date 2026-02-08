@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
         // Basic info
         firstName: data.firstName,
         lastName: data.lastName,
+        middleName: data.middleName || null,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
         email: data.email || null,
         phone: data.phone || null,
         address: data.address || null,
@@ -74,11 +76,17 @@ export async function POST(request: NextRequest) {
 
         // Tax information
         taxIdEncrypted,
-        w4Allowances: data.w4Allowances ? parseInt(data.w4Allowances) : null,
-        w4FilingStatus: data.filingStatus || null,
+        w4Allowances: data.w4Allowances !== undefined ? parseInt(data.w4Allowances) : 0,
+        w4FilingStatus: data.w4FilingStatus || data.filingStatus || 'single',
         additionalWithholding: data.additionalWithholding
           ? parseFloat(data.additionalWithholding)
           : null,
+
+        // Tax withholding settings (default to true for new employees)
+        federalTaxesWithheld: data.federalTaxesWithheld === 'true' || data.federalTaxesWithheld === true ? true : (data.federalTaxesWithheld === 'false' || data.federalTaxesWithheld === false ? false : true),
+        stateTaxesWithheld: data.stateTaxesWithheld === 'true' || data.stateTaxesWithheld === true ? true : (data.stateTaxesWithheld === 'false' || data.stateTaxesWithheld === false ? false : true),
+        disabilityTaxesWithheld: data.disabilityTaxesWithheld === 'true' || data.disabilityTaxesWithheld === true ? true : (data.disabilityTaxesWithheld === 'false' || data.disabilityTaxesWithheld === false ? false : true),
+        paidFamilyLeaveTaxesWithheld: data.paidFamilyLeaveTaxesWithheld === 'true' || data.paidFamilyLeaveTaxesWithheld === true ? true : (data.paidFamilyLeaveTaxesWithheld === 'false' || data.paidFamilyLeaveTaxesWithheld === false ? false : true),
 
         // Payment info
         paymentInfo: data.paymentMethod
@@ -114,6 +122,25 @@ export async function POST(request: NextRequest) {
         emergencyContact: true,
       },
     });
+
+    // Increment the company's nextEmployeeNumber counter
+    // Parse the employee number to determine what the next number should be
+    const employeeNum = parseInt(data.employeeNumber.replace(/\D/g, ''), 10);
+    if (!isNaN(employeeNum)) {
+      // Get current counter value
+      const company = await prisma.company.findUnique({
+        where: { id: companyId! },
+        select: { nextEmployeeNumber: true },
+      });
+
+      // Only update if the used number is >= current counter (to handle manual overrides)
+      if (company && employeeNum >= (company.nextEmployeeNumber || 1)) {
+        await prisma.company.update({
+          where: { id: companyId! },
+          data: { nextEmployeeNumber: employeeNum + 1 },
+        });
+      }
+    }
 
     return NextResponse.json(employee, { status: 201 });
   } catch (error) {

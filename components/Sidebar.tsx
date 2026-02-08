@@ -11,13 +11,15 @@ import {
   DocumentTextIcon,
   ChartBarIcon,
   Cog6ToothIcon,
-  FolderIcon
+  FolderIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Employees', href: '/employees', icon: UsersIcon },
   { name: 'Payroll', href: '/payroll', icon: CurrencyDollarIcon },
+  { name: 'Tax Forms', href: '/tax-forms', icon: ClipboardDocumentListIcon },
   { name: 'Time Tracking', href: '/time-tracking', icon: ClockIcon },
   { name: 'Documents', href: '/documents', icon: FolderIcon },
   { name: 'Reports', href: '/reports', icon: DocumentTextIcon },

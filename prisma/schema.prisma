@@ -81,6 +81,13 @@ model Company {
   stateTaxId        String?  // State Tax ID
   localTaxId        String?  // Local Tax ID (if applicable)
   suiRate           Float?   // NY State Unemployment Insurance rate (employer-specific, 2.1%-9.9%)
+  futaRate          Float?   @default(0.6) // Federal Unemployment Tax (0.6% after SUTA credit, on first $7,000)
+
+  // NYC Specific
+  nycEmployer       Boolean  @default(false) // Does company have NYC employees?
+
+  // Employee Numbering
+  nextEmployeeNumber Int     @default(1) // Auto-incrementing counter for employee numbers (persists even after deletion)
 
   // Workers Comp
   workersCompPolicy String?
@@ -91,10 +98,22 @@ model Company {
   bankRoutingNumberEncrypted String?
   bankAccountNumberEncrypted String?
 
+  // Tax Deposit & Reminder Settings
+  federalDepositSchedule String  @default("monthly") // "monthly" or "semiweekly"
+  reminderLeadDays       Int     @default(7)          // Days before deadline to show warnings
+
   // PTO/Leave Policies
   defaultPTODays    Int?     @default(0)
-  defaultSickDays   Int?     @default(0)
+  defaultSickDays   Int?     @default(5) // NY requires minimum 40 hours (5 days) for 5-99 employees
   ptoAccrualEnabled Boolean  @default(false)
+  ptoAccrualHoursEarned Float? @default(1) // Hours earned
+  ptoAccrualHoursWorked Float? @default(40) // Per hours worked (e.g., 1 hour per 40 hours = 1/40)
+
+  // Sick Leave Accrual (NY mandates 1 hour per 30 hours worked)
+  sickAccrualEnabled Boolean @default(true) // Mandatory in NY
+  sickAccrualHoursEarned Float? @default(1) // Hours earned
+  sickAccrualHoursWorked Float? @default(30) // Per hours worked (NY: 1 hour per 30 hours)
+  sickAnnualCapHours Float? @default(40) // Annual cap (NY: 40 hours for 5-99 employees)
 
   // Relations
   userAccess        UserCompanyAccess[]
@@ -106,6 +125,7 @@ model Company {
   vendors           Vendor[]
   expenses          Expense[]
   documentTemplates DocumentTemplate[]
+  taxFilings        TaxFiling[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -122,6 +142,8 @@ model Employee {
 
   firstName         String
   lastName          String
+  middleName        String?
+  dateOfBirth       DateTime?
   email             String?
   phone             String?
   address           String?
@@ -182,8 +204,20 @@ model Employee {
   paidFamilyLeaveTaxability String? // "taxable" or "exempt"
   paidFamilyLeaveTaxesWithheld Boolean @default(true)
 
+  // NYC/Yonkers Local Tax (NY specific)
+  nycResident       Boolean  @default(false) // NYC resident withholding
+  yonkersResident   Boolean  @default(false) // Yonkers resident withholding
+  yonkersNonResident Boolean @default(false) // Yonkers non-resident earnings
+
+  // Workers Compensation
+  workersCompClassCode String? // e.g., "8810" for clerical, "5183" for plumbing
+
+  // Pay frequency override (if different from company default)
+  payFrequency      String?  // "weekly", "biweekly", "semimonthly", "monthly"
+
   // Relations
   timeEntries       TimeEntry[]
+  deductions        EmployeeDeduction[]
   payrollRecords    PayrollRecord[]
   paymentInfo       PaymentInfo?
   emergencyContact  EmergencyContact?
@@ -270,6 +304,42 @@ model DocumentTemplate {
   @@index([category])
 }
 
+// Employee Deductions (pre-tax and post-tax)
+model EmployeeDeduction {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  deductionType String   // "401k", "401k_roth", "health_insurance", "dental", "vision", "hsa", "fsa", "life_insurance", "garnishment", "child_support", "loan_repayment", "union_dues", "other"
+  name          String   // Display name, e.g., "401(k) Contribution", "Health Insurance Premium"
+
+  // Amount can be fixed or percentage
+  amountType    String   // "fixed" or "percentage"
+  amount        Float    // Dollar amount or percentage (e.g., 6 for 6%)
+
+  // Pre-tax vs post-tax
+  preTax        Boolean  @default(true) // true = pre-tax (reduces taxable income), false = post-tax
+
+  // Limits
+  annualLimit   Float?   // Annual max (e.g., $23,000 for 401k in 2026)
+  ytdAmount     Float    @default(0) // Year-to-date total deducted
+
+  // For garnishments
+  caseNumber    String?  // Court case number for garnishments
+  totalOwed     Float?   // Total amount owed (for garnishments/loans)
+  remainingBalance Float? // Remaining balance
+
+  isActive      Boolean  @default(true)
+  effectiveDate DateTime @default(now())
+  endDate       DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([deductionType])
+}
+
 model TimeEntry {
   id          String   @id @default(cuid())
   companyId   String
@@ -305,27 +375,74 @@ model PayrollRecord {
   overtimeHours   Float    @default(0)
   regularPay      Float
   overtimePay     Float    @default(0)
+  otherEarnings   Float    @default(0) // Bonuses, commissions, etc.
   grossPay        Float
 
-  // Deductions
+  // Pre-tax Deductions (reduce taxable income)
+  preTax401k      Float    @default(0)
+  preTaxHealthIns Float    @default(0)
+  preTaxDental    Float    @default(0)
+  preTaxVision    Float    @default(0)
+  preTaxHSA       Float    @default(0)
+  preTaxFSA       Float    @default(0)
+  preTaxOther     Float    @default(0)
+  totalPreTaxDeductions Float @default(0)
+
+  // Taxable wages (grossPay - totalPreTaxDeductions)
+  taxableWages    Float?
+
+  // Employee Tax Withholdings
   federalTax      Float
-  stateTax        Float
+  stateTax        Float    // NY State income tax
+  localTax        Float    @default(0) // NYC or Yonkers
   socialSecurity  Float
   medicare        Float
-  otherDeductions Float    @default(0)
-  totalDeductions Float
+  additionalMedicare Float @default(0) // 0.9% on wages over $200k
+  nySDI           Float    @default(0) // NY State Disability Insurance
+  nyPFL           Float    @default(0) // NY Paid Family Leave
+  totalTaxWithholdings Float @default(0)
 
+  // Post-tax Deductions
+  postTaxRoth401k Float    @default(0)
+  garnishments    Float    @default(0)
+  childSupport    Float    @default(0)
+  loanRepayments  Float    @default(0)
+  postTaxOther    Float    @default(0)
+  totalPostTaxDeductions Float @default(0)
+
+  // Total deductions and net pay
+  totalDeductions Float
   netPay          Float
+
+  // Employer Taxes & Contributions (for tax liability tracking)
+  employerSocialSecurity Float @default(0)
+  employerMedicare Float    @default(0)
+  employerSUI      Float    @default(0) // NY State Unemployment Insurance
+  employerFUTA     Float    @default(0) // Federal Unemployment Tax
+  employerWorkersComp Float @default(0)
+  employerHealthIns Float   @default(0) // Employer portion of health insurance
+  totalEmployerCost Float   @default(0)
+
+  // YTD totals (at time of this payroll)
+  ytdGrossPay     Float    @default(0)
+  ytdFederalTax   Float    @default(0)
+  ytdStateTax     Float    @default(0)
+  ytdSocialSecurity Float  @default(0)
+  ytdMedicare     Float    @default(0)
+  ytdNetPay       Float    @default(0)
 
   notes           String?
   isPaid          Boolean  @default(false)
   paidDate        DateTime?
+  paymentMethod   String?  // "direct_deposit" or "check"
+  checkNumber     String?  // If paid by check
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([companyId, employeeId, payPeriodStart])
   @@index([employeeId, payPeriodStart])
+  @@index([payDate])
 }
 
 // ============================================
@@ -445,4 +562,29 @@ model Expense {
   @@index([date])
   @@index([category])
   @@index([vendorId])
+}
+
+// ============================================
+// TAX FILING STATUS TRACKING
+// ============================================
+
+model TaxFiling {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  formType           String    // "941", "nys45", "940", "w2"
+  year               Int
+  quarter            Int?      // 1-4 for quarterly forms, null for annual
+
+  status             String    @default("pending") // "pending", "filed", "extended"
+  filedDate          DateTime?
+  confirmationNumber String?
+  notes              String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([companyId, formType, year, quarter])
+  @@index([companyId])
 }

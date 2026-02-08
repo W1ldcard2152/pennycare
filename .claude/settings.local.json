@@ -15,7 +15,25 @@
       "Bash(del \"C:\\\\Users\\\\W1ldcard\\\\Programming\\\\pennycare\\\\temp-permissions-test.txt\")",
       "Bash(npm run build:*)",
       "Bash(npm run lint:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(npx next build:*)",
+      "Bash(npx next dev:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ0ZXN0IiwiZW1haWwiOiJ0ZXN0QHRlc3QuY29tIiwiZmlyc3ROYW1lIjoiVGVzdCIsImxhc3ROYW1lIjoiVXNlciIsImN1cnJlbnRDb21wYW55SWQiOiJjbWt1MTAzZnQwMDAxaTQ4Y2Y2ZnI3bDFmIiwiaWF0IjoxNzY5OTg5Njg4LCJleHAiOjE3Njk5OTMyODh9.sPf73qScWV8leCzU35jSJCOAEIkmonwBv8UUrxaNhDw\")",
+      "Bash(SCRATCHPAD=\"C:\\\\Users\\\\W1ldcard\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-W1ldcard-Programming-pennycare\\\\891fffac-c9bf-42ee-b66b-8d5f31ac8933\\\\scratchpad\":*)",
+      "Bash(for form in i-9 w-4 it-2104 ls-54)",
+      "Bash(do echo -n \"$form: \")",
+      "Bash(done)",
+      "Bash(taskkill:*)",
+      "Bash(sqlite3:*)",
+      "Bash(npx ts-node:*)",
+      "WebFetch(domain:www.irs.gov)",
+      "WebFetch(domain:www.tax.ny.gov)",
+      "WebFetch(domain:www.halfpricesoft.com)",
+      "Bash(git log:*)",
+      "Bash(npx vitest run:*)"
     ]
   }
 }

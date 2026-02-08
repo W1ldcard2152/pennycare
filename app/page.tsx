@@ -7,6 +7,7 @@ import {
   ChartBarIcon,
   BanknotesIcon
 } from '@heroicons/react/24/outline';
+import UpcomingDeadlinesWidget from '@/components/UpcomingDeadlinesWidget';
 
 export default function Dashboard() {
   const stats = [
@@ -43,14 +44,14 @@ export default function Dashboard() {
       description: 'Generate financial reports and analytics',
       href: '/reports',
       icon: DocumentTextIcon,
-      available: false,
+      available: true,
     },
     {
       title: 'Analytics',
       description: 'View business insights and performance metrics',
       href: '/analytics',
       icon: ChartBarIcon,
-      available: false,
+      available: true,
     },
   ];
 
@@ -90,6 +91,11 @@ export default function Dashboard() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Upcoming Tax Deadlines */}
+      <div className="mb-8">
+        <UpcomingDeadlinesWidget />
       </div>
 
       {/* Quick Links */}
