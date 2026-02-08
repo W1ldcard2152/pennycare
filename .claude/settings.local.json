@@ -11,7 +11,7 @@
       "Bash(npx tsx:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push)",
+      "Bash(git push:*)",
       "Bash(del \"C:\\\\Users\\\\W1ldcard\\\\Programming\\\\pennycare\\\\temp-permissions-test.txt\")",
       "Bash(npm run build:*)",
       "Bash(npm run lint:*)",
