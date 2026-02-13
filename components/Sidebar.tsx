@@ -13,6 +13,7 @@ import {
   Cog6ToothIcon,
   FolderIcon,
   ClipboardDocumentListIcon,
+  BookOpenIcon,
 } from '@heroicons/react/24/outline';
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Employees', href: '/employees', icon: UsersIcon },
   { name: 'Payroll', href: '/payroll', icon: CurrencyDollarIcon },
   { name: 'Tax Forms', href: '/tax-forms', icon: ClipboardDocumentListIcon },
+  { name: 'Bookkeeping', href: '/bookkeeping', icon: BookOpenIcon },
   { name: 'Time Tracking', href: '/time-tracking', icon: ClockIcon },
   { name: 'Documents', href: '/documents', icon: FolderIcon },
   { name: 'Reports', href: '/reports', icon: DocumentTextIcon },

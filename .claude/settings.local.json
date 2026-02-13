@@ -46,7 +46,10 @@
       "Bash(npx vite:*)",
       "Bash(xargs:*)",
       "Bash(wc:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(npx jest:*)",
+      "Bash(npm test:*)",
+      "Bash(tar:*)"
     ]
   }
 }

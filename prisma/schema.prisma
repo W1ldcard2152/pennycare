@@ -87,7 +87,8 @@ model Company {
   nycEmployer       Boolean  @default(false) // Does company have NYC employees?
 
   // Employee Numbering
-  nextEmployeeNumber Int     @default(1) // Auto-incrementing counter for employee numbers (persists even after deletion)
+  nextEmployeeNumber Int     @default(1)
+  nextJournalEntryNumber Int @default(1) // Auto-incrementing counter for journal entry numbers
 
   // Workers Comp
   workersCompPolicy String?
@@ -126,6 +127,7 @@ model Company {
   expenses          Expense[]
   documentTemplates DocumentTemplate[]
   taxFilings        TaxFiling[]
+  journalEntries    JournalEntry[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -492,6 +494,7 @@ model Account {
   // Relations
   debitTransactions  Transaction[] @relation("DebitAccount")
   creditTransactions Transaction[] @relation("CreditAccount")
+  journalEntryLines  JournalEntryLine[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -615,4 +618,62 @@ model TaxFiling {
 
   @@unique([companyId, formType, year, quarter])
   @@index([companyId])
+}
+
+// ============================================
+// JOURNAL ENTRIES (Multi-line Double-Entry)
+// ============================================
+
+model JournalEntry {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  entryNumber   Int      // Auto-incrementing per company
+  date          DateTime
+  memo          String
+  referenceNumber String?
+
+  // Source tracking
+  source        String   @default("manual") // "manual", "payroll", "expense"
+  sourceId      String?  // ID of the source record
+
+  // Status
+  status        String   @default("posted") // "posted", "voided"
+  voidedAt      DateTime?
+  voidedBy      String?
+  voidReason    String?
+
+  // Lines (debits and credits)
+  lines         JournalEntryLine[]
+
+  isReconciled  Boolean  @default(false)
+  reconciledDate DateTime?
+  notes         String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([companyId, entryNumber])
+  @@index([date])
+  @@index([source, sourceId])
+}
+
+model JournalEntryLine {
+  id              String   @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id])
+
+  description     String?
+  debit           Float    @default(0)
+  credit          Float    @default(0)
+
+  createdAt       DateTime @default(now())
+
+  @@index([journalEntryId])
+  @@index([accountId])
 }

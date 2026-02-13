@@ -102,24 +102,24 @@ The `prisma/seed.ts` and `prisma/seed-test-employee.ts` files are for developmen
 
 ### 5. Database Backups
 
-The database is a single SQLite file at `prisma/prisma/dev.db`. **Back it up regularly** — if this file is lost or corrupted, all payroll data is gone.
+The database is a single SQLite file at `prisma/prisma/pennycare.db`. **Back it up regularly** — if this file is lost or corrupted, all payroll data is gone.
 
 Recommended backup routine:
 
-- **Daily**: Copy `prisma/prisma/dev.db` to a USB drive or second disk
+- **Daily**: Copy `prisma/prisma/pennycare.db` to a USB drive or second disk
 - **Weekly**: Keep a dated copy (e.g., `pennycare-backup-2026-02-07.db`)
 - **Before any update**: Always back up before running `npm install`, `prisma db push`, or updating code
 
 To back up (Windows):
 
 ```cmd
-copy prisma\prisma\dev.db backups\pennycare-%date:~-4,4%-%date:~-7,2%-%date:~-10,2%.db
+copy prisma\prisma\pennycare.db backups\pennycare-%date:~-4,4%-%date:~-7,2%-%date:~-10,2%.db
 ```
 
 To restore from a backup, stop the server and replace the database file:
 
 ```cmd
-copy backups\pennycare-2026-02-07.db prisma\prisma\dev.db
+copy backups\pennycare-2026-02-07.db prisma\prisma\pennycare.db
 ```
 
 **Important**: The ENCRYPTION_KEY used when data was entered must match the key used when reading it. If you change the ENCRYPTION_KEY, previously encrypted SSNs and bank account numbers will be unreadable. Keep a secure record of your ENCRYPTION_KEY separate from the database.
@@ -130,7 +130,7 @@ copy backups\pennycare-2026-02-07.db prisma\prisma\dev.db
 |---|---|---|
 | `JWT_SECRET` | Yes | Secret key for signing session tokens. Min 32 chars. |
 | `ENCRYPTION_KEY` | Yes | Key for encrypting SSNs and bank account numbers. |
-| `DATABASE_URL` | No | Defaults to `file:./prisma/dev.db` (SQLite). |
+| `DATABASE_URL` | No | Defaults to `file:./prisma/pennycare.db` (SQLite). |
 
 ## Database Schema
 

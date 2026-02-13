@@ -91,6 +91,28 @@ export async function POST(
       }
     }
 
+    // Void associated journal entries
+    const relatedEntries = await prisma.journalEntry.findMany({
+      where: {
+        companyId: companyId!,
+        source: 'payroll',
+        status: 'posted',
+      },
+    });
+    for (const entry of relatedEntries) {
+      if (entry.sourceId && entry.sourceId.includes(id)) {
+        await prisma.journalEntry.update({
+          where: { id: entry.id },
+          data: {
+            status: 'voided',
+            voidedAt: new Date(),
+            voidedBy: session!.userId,
+            voidReason: `Auto-voided: payroll record ${id} was voided (${reason})`,
+          },
+        });
+      }
+    }
+
     // Audit log
     await logAudit({
       companyId: companyId!,

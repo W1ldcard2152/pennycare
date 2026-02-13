@@ -130,6 +130,84 @@ export const createTimeEntrySchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+// ── Bookkeeping ──────────────────────────────────────
+
+export const createAccountSchema = z.object({
+  code: z.string().min(1, 'Account code is required').max(10, 'Account code must be 10 characters or less'),
+  name: z.string().min(1, 'Account name is required').max(100, 'Account name must be 100 characters or less'),
+  type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense'], {
+    message: 'Account type must be asset, liability, equity, revenue, or expense',
+  }),
+  subtype: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+
+export const updateAccountSchema = z.object({
+  name: z.string().min(1, 'Account name is required').max(100).optional(),
+  subtype: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+const journalEntryLineSchema = z.object({
+  accountId: z.string().min(1, 'Account is required'),
+  description: z.string().optional().nullable(),
+  debit: z.union([z.string(), z.number()]).transform((v) => Number(v) || 0),
+  credit: z.union([z.string(), z.number()]).transform((v) => Number(v) || 0),
+});
+
+export const createJournalEntrySchema = z.object({
+  date: z.string().min(1, 'Date is required'),
+  memo: z.string().min(1, 'Memo/description is required'),
+  referenceNumber: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  lines: z.array(journalEntryLineSchema).min(2, 'At least 2 lines are required'),
+});
+
+export const createVendorSchema = z.object({
+  name: z.string().min(1, 'Vendor name is required'),
+  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  zipCode: z.string().optional().nullable(),
+  taxId: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+export const updateVendorSchema = z.object({
+  name: z.string().min(1, 'Vendor name is required').optional(),
+  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  state: z.string().optional().nullable(),
+  zipCode: z.string().optional().nullable(),
+  taxId: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+export const createExpenseSchema = z.object({
+  date: z.string().min(1, 'Date is required'),
+  vendorId: z.string().optional().nullable(),
+  description: z.string().min(1, 'Description is required'),
+  category: z.string().min(1, 'Category is required'),
+  amount: z.union([z.string(), z.number()]).refine(
+    (val) => Number(val) > 0,
+    { message: 'Amount must be greater than 0' }
+  ),
+  paymentMethod: z.string().optional().nullable(),
+  referenceNumber: z.string().optional().nullable(),
+  debitAccountId: z.string().optional().nullable(),
+  creditAccountId: z.string().optional().nullable(),
+  isPaid: z.union([z.boolean(), z.string()]).optional().transform(
+    (val) => val === true || val === 'true'
+  ),
+  paidDate: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
 // ── Helper ────────────────────────────────────────────
 
 /**

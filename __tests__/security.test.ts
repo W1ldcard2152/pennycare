@@ -117,7 +117,7 @@ describe('path traversal prevention', () => {
   });
 
   it('blocks absolute path injection', () => {
-    const malicious = resolve(uploadsDir, '..', 'prisma', 'dev.db');
+    const malicious = resolve(uploadsDir, '..', 'prisma', 'pennycare.db');
     expect(malicious.startsWith(uploadsDir)).toBe(false);
   });
 });

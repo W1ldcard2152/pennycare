@@ -4,6 +4,7 @@ import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/pa
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { processPayrollSchema, validateRequest } from '@/lib/validation';
 import { logAudit } from '@/lib/audit';
+import { createPayrollJournalEntries } from '@/lib/bookkeeping';
 
 // POST /api/payroll/process - Process and save payroll
 export async function POST(request: NextRequest) {
@@ -333,6 +334,19 @@ export async function POST(request: NextRequest) {
         netPay: result.netPay,
         details: result,
       });
+    }
+
+    // Create bookkeeping journal entry for this payroll run
+    const payrollRecordIds = processedRecords.map((r) => r.payrollRecordId);
+    if (payrollRecordIds.length > 0) {
+      const periodLabel = `${startDate} to ${endDate}`;
+      const journalResult = await createPayrollJournalEntries(
+        companyId!,
+        payrollRecordIds,
+        new Date(payDate),
+        periodLabel,
+      );
+      // journalResult may be null if accounts aren't seeded yet — that's OK
     }
 
     return NextResponse.json({

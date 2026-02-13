@@ -5,7 +5,8 @@ import {
   ClockIcon,
   DocumentTextIcon,
   ChartBarIcon,
-  BanknotesIcon
+  BanknotesIcon,
+  BookOpenIcon,
 } from '@heroicons/react/24/outline';
 import UpcomingDeadlinesWidget from '@/components/UpcomingDeadlinesWidget';
 import { getSession } from '@/lib/auth';
@@ -98,6 +99,13 @@ export default async function Dashboard() {
       description: 'Generate financial reports and analytics',
       href: '/reports',
       icon: DocumentTextIcon,
+      available: true,
+    },
+    {
+      title: 'Bookkeeping',
+      description: 'Manage accounts, record transactions, and generate financial reports',
+      href: '/bookkeeping',
+      icon: BookOpenIcon,
       available: true,
     },
     {
