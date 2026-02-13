@@ -5,7 +5,7 @@ import { computeFilingDeadlines, computeDepositDeadlines } from '@/lib/taxDeadli
 
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const includeFiled = request.nextUrl.searchParams.get('includeFiled') === 'true';

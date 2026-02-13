@@ -5,7 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 // GET /api/tax-filings - List all filings for the company
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const filings = await prisma.taxFiling.findMany({
@@ -23,7 +23,7 @@ export async function GET() {
 // POST /api/tax-filings - Create or upsert a filing record
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('payroll');
     if (error) return error;
 
     const body = await request.json();
@@ -38,33 +38,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Invalid formType. Must be one of: ${validFormTypes.join(', ')}` }, { status: 400 });
     }
 
-    // Upsert based on unique constraint [companyId, formType, year, quarter]
-    const filing = await prisma.taxFiling.upsert({
-      where: {
-        companyId_formType_year_quarter: {
-          companyId: companyId!,
-          formType,
-          year: parseInt(year),
-          quarter: quarter ? parseInt(quarter) : null,
-        },
-      },
-      update: {
-        status: status || 'filed',
-        filedDate: filedDate ? new Date(filedDate) : new Date(),
-        confirmationNumber: confirmationNumber || null,
-        notes: notes || null,
-      },
-      create: {
-        companyId: companyId!,
-        formType,
-        year: parseInt(year),
-        quarter: quarter ? parseInt(quarter) : null,
-        status: status || 'filed',
-        filedDate: filedDate ? new Date(filedDate) : new Date(),
-        confirmationNumber: confirmationNumber || null,
-        notes: notes || null,
-      },
+    // Find existing filing by compound key (using findFirst because quarter can be null)
+    const parsedYear = parseInt(year);
+    const parsedQuarter = quarter ? parseInt(quarter) : null;
+
+    const existing = await prisma.taxFiling.findFirst({
+      where: { companyId: companyId!, formType, year: parsedYear, quarter: parsedQuarter },
     });
+
+    const filing = existing
+      ? await prisma.taxFiling.update({
+          where: { id: existing.id },
+          data: {
+            status: status || 'filed',
+            filedDate: filedDate ? new Date(filedDate) : new Date(),
+            confirmationNumber: confirmationNumber || null,
+            notes: notes || null,
+          },
+        })
+      : await prisma.taxFiling.create({
+          data: {
+            companyId: companyId!,
+            formType,
+            year: parsedYear,
+            quarter: parsedQuarter,
+            status: status || 'filed',
+            filedDate: filedDate ? new Date(filedDate) : new Date(),
+            confirmationNumber: confirmationNumber || null,
+            notes: notes || null,
+          },
+        });
 
     return NextResponse.json(filing);
   } catch (error) {

@@ -437,12 +437,40 @@ model PayrollRecord {
   paymentMethod   String?  // "direct_deposit" or "check"
   checkNumber     String?  // If paid by check
 
+  // Void/Correction tracking
+  status          String   @default("active") // "active", "voided", "corrected"
+  voidedAt        DateTime?
+  voidedBy        String?  // userId who voided this record
+  voidReason      String?
+  originalRecordId String? // If this is a correction, points to the voided record it replaces
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([companyId, employeeId, payPeriodStart])
   @@index([employeeId, payPeriodStart])
   @@index([payDate])
+  @@index([status])
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String
+  userId      String   // Who performed the action
+  action      String   // "employee.create", "employee.update", "payroll.process", "payroll.void", etc.
+  entityType  String   // "Employee", "PayrollRecord", "EmployeeDeduction", etc.
+  entityId    String   // ID of the affected record
+  changes     String?  // JSON: { field: { old: X, new: Y } } for updates
+  metadata    String?  // JSON: additional context (e.g., reason for void)
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@index([userId])
 }
 
 // ============================================

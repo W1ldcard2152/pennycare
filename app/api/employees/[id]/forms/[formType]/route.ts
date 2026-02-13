@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { decrypt } from '@/lib/encryption';
+import { requireCompanyAccess } from '@/lib/api-utils';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import fs from 'fs';
 import path from 'path';
@@ -101,7 +102,7 @@ function setMultiWidgetCheckbox(form: ReturnType<PDFDocument['getForm']>, fieldN
     const targetName = PDFName.of(widgetValue);
     for (const widget of widgets) {
       const onValue = widget.getOnValue();
-      if (onValue && onValue.encodedName === targetName.encodedName) {
+      if (onValue && onValue.toString() === targetName.toString()) {
         widget.dict.set(PDFName.of('AS'), targetName);
       } else {
         widget.dict.set(PDFName.of('AS'), PDFName.of('Off'));
@@ -349,6 +350,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string; formType: string }> }
 ) {
   try {
+    const { error, companyId } = await requireCompanyAccess('payroll');
+    if (error) return error;
+
     const { id, formType } = await params;
 
     const config = FORM_CONFIGS[formType.toLowerCase()];
@@ -359,9 +363,9 @@ export async function GET(
       );
     }
 
-    // Fetch employee with company
-    const employee = await prisma.employee.findUnique({
-      where: { id },
+    // Fetch employee with company — scoped to current company
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
       include: { company: true },
     });
 

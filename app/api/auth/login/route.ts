@@ -1,19 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyPassword, createToken, setSessionCookie } from '@/lib/auth';
+import { loginSchema, validateRequest } from '@/lib/validation';
+import { logSecurityEvent } from '@/lib/audit';
+import { loginLimiter, accountLockout, getClientIp } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    const ip = getClientIp(request);
 
-    if (!email || !password) {
+    // 1. IP rate limit
+    const ipCheck = loginLimiter.check(ip);
+    if (!ipCheck.allowed) {
+      const retryAfterSec = Math.ceil((ipCheck.retryAfterMs || 60000) / 1000);
       return NextResponse.json(
-        { error: 'Email and password are required' },
-        { status: 400 }
+        { error: 'Too many login attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
       );
     }
 
-    // Find user
+    // 2. Validate input
+    const body = await request.json();
+    const validation = validateRequest(loginSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validation.errors },
+        { status: 400 }
+      );
+    }
+    const { email, password } = validation.data;
+    const emailLower = email.toLowerCase();
+
+    // 3. Account lockout check (per email, before expensive bcrypt)
+    const lockCheck = accountLockout.isLocked(emailLower);
+    if (lockCheck.locked) {
+      await logSecurityEvent({
+        action: 'auth.account_locked',
+        metadata: { email: emailLower, ip },
+      });
+      const retryAfterSec = Math.ceil((lockCheck.retryAfterMs || 60000) / 1000);
+      return NextResponse.json(
+        { error: 'Account temporarily locked due to too many failed attempts. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+      );
+    }
+
+    // 4. Find user
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
@@ -26,26 +58,37 @@ export async function POST(request: NextRequest) {
     });
 
     if (!user || !user.isActive) {
+      accountLockout.recordFailure(emailLower);
+      await logSecurityEvent({
+        action: 'auth.login_failed',
+        metadata: { email, reason: 'user_not_found_or_inactive', ip },
+      });
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    // Verify password
+    // 5. Verify password
     const isValid = await verifyPassword(password, user.passwordHash);
 
     if (!isValid) {
+      accountLockout.recordFailure(emailLower);
+      await logSecurityEvent({
+        action: 'auth.login_failed',
+        metadata: { email, reason: 'invalid_password', ip, userId: user.id },
+      });
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    // Get the first company they have access to (or null if none)
+    // 6. Success — reset lockout, log, and issue token
+    accountLockout.reset(emailLower);
+
     const defaultCompany = user.companyAccess[0]?.company;
 
-    // Create session token
     const token = await createToken({
       userId: user.id,
       email: user.email,
@@ -55,6 +98,11 @@ export async function POST(request: NextRequest) {
     });
 
     await setSessionCookie(token);
+
+    await logSecurityEvent({
+      action: 'auth.login_success',
+      metadata: { email, ip, userId: user.id },
+    });
 
     return NextResponse.json({
       success: true,

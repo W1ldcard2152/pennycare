@@ -6,7 +6,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 // GET /api/payroll/preview - Generate payroll preview
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('payroll');
     if (error) return error;
 
     const { searchParams } = new URL(request.url);

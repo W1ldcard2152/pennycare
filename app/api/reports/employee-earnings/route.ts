@@ -5,7 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 // GET /api/reports/employee-earnings - Per-employee earnings for a date range
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;

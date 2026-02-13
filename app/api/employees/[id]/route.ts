@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { encrypt, decrypt } from '@/lib/encryption';
+import { requireCompanyAccess } from '@/lib/api-utils';
+import { updateEmployeeSchema, validateRequest } from '@/lib/validation';
+import { logAudit, computeChanges } from '@/lib/audit';
 
 // GET /api/employees/[id] - Get single employee
 export async function GET(
@@ -8,9 +11,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId } = await requireCompanyAccess('viewer');
+    if (error) return error;
+
     const { id } = await params;
-    const employee = await prisma.employee.findUnique({
-      where: { id },
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
       include: {
         paymentInfo: true,
         emergencyContact: true,
@@ -27,7 +33,7 @@ export async function GET(
       return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     }
 
-    // Decrypt sensitive data for editing (only if needed)
+    // Decrypt sensitive data for editing
     const decryptedEmployee = {
       ...employee,
       taxId: employee.taxIdEncrypted ? decrypt(employee.taxIdEncrypted) : null,
@@ -60,10 +66,26 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId, session } = await requireCompanyAccess('admin');
+    if (error) return error;
+
     const { id } = await params;
     const data = await request.json();
 
-    console.log('Received update data:', data);
+    // Validate core fields
+    const validation = validateRequest(updateEmployeeSchema, data);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validation.errors },
+        { status: 400 }
+      );
+    }
+
+    // Fetch existing employee for change tracking
+    const existing = await prisma.employee.findFirst({ where: { id, companyId: companyId! } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    }
 
     // Encrypt sensitive data
     const taxIdEncrypted = data.taxId ? encrypt(data.taxId) : null;
@@ -185,10 +207,30 @@ export async function PUT(
       });
     }
 
+    // Audit log with change tracking
+    const trackFields = [
+      'firstName', 'lastName', 'position', 'employmentType', 'payType',
+      'hourlyRate', 'annualSalary', 'w4FilingStatus', 'w4Allowances',
+      'federalTaxesWithheld', 'stateTaxesWithheld', 'isActive',
+    ];
+    const changes = computeChanges(
+      existing as unknown as Record<string, unknown>,
+      employee as unknown as Record<string, unknown>,
+      trackFields
+    );
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'employee.update',
+      entityType: 'Employee',
+      entityId: id,
+      changes: changes || undefined,
+      metadata: { employeeName: `${employee.firstName} ${employee.lastName}` },
+    });
+
     return NextResponse.json(employee);
   } catch (error) {
     console.error('Error updating employee:', error);
-    console.error('Error details:', error instanceof Error ? error.message : error);
     return NextResponse.json(
       { error: 'Failed to update employee', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -202,10 +244,32 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId, session } = await requireCompanyAccess('owner');
+    if (error) return error;
+
     const { id } = await params;
+
+    // Fetch employee name for audit log before deleting
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
+      select: { firstName: true, lastName: true, employeeNumber: true },
+    });
+
+    if (!employee) {
+      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    }
 
     await prisma.employee.delete({
       where: { id },
+    });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'employee.delete',
+      entityType: 'Employee',
+      entityId: id,
+      metadata: employee ? { employeeName: `${employee.firstName} ${employee.lastName}`, employeeNumber: employee.employeeNumber } : undefined,
     });
 
     return NextResponse.json({ success: true });

@@ -5,7 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 // GET /api/employees/next-number - Get the next employee number
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('admin');
     if (error) return error;
 
     const company = await prisma.company.findUnique({

@@ -6,7 +6,7 @@ import { getForm941DueDate, getNYS45DueDate, getNextDepositDate } from '@/lib/ta
 // GET /api/payroll/tax-liability - Get tax liability summary for a date range
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;

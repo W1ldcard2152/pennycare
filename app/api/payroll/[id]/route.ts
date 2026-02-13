@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const { id } = await params;
@@ -134,14 +134,25 @@ export async function GET(
       ssnLast4 = '****';
     }
 
+    // If this record was corrected, find the correction
+    let correctionRecordId = null;
+    if (payrollRecord.status === 'corrected') {
+      const correction = await prisma.payrollRecord.findFirst({
+        where: { originalRecordId: payrollRecord.id },
+        select: { id: true },
+      });
+      correctionRecordId = correction?.id || null;
+    }
+
     return NextResponse.json({
       ...payrollRecord,
       employee: {
         ...payrollRecord.employee,
         ssnLast4,
-        taxIdEncrypted: undefined, // Don't send encrypted data to client
+        taxIdEncrypted: undefined,
       },
       ytdTotals,
+      correctionRecordId,
     });
   } catch (error) {
     console.error('Error fetching payroll record:', error);

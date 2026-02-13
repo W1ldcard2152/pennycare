@@ -479,8 +479,9 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
- * Round to 2 decimal places
+ * Round to 2 decimal places using exponential notation to avoid IEEE 754 drift.
+ * Standard Math.round(1.005 * 100) / 100 = 1.00 (wrong), this returns 1.01 (correct).
  */
 export function roundCurrency(amount: number): number {
-  return Math.round(amount * 100) / 100;
+  return Number(Math.round(parseFloat(amount + 'e2')) + 'e-2');
 }

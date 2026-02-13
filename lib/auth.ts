@@ -3,9 +3,11 @@ import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-secret-key-change-this-in-production'
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is not set in environment variables');
+}
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
 export interface SessionUser {
   userId: string;
@@ -39,7 +41,7 @@ export async function createToken(user: SessionUser): Promise<string> {
 export async function verifyToken(token: string): Promise<SessionUser | null> {
   try {
     const verified = await jwtVerify(token, JWT_SECRET);
-    return verified.payload as SessionUser;
+    return verified.payload as unknown as SessionUser;
   } catch (err) {
     return null;
   }

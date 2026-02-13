@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { createEmployeeSchema, validateRequest } from '@/lib/validation';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/employees - List all employees
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const employees = await prisma.employee.findMany({
@@ -37,10 +39,19 @@ export async function GET() {
 // POST /api/employees - Create new employee
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId, session } = await requireCompanyAccess('admin');
     if (error) return error;
 
     const data = await request.json();
+
+    // Validate required fields
+    const validation = validateRequest(createEmployeeSchema, data);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validation.errors },
+        { status: 400 }
+      );
+    }
 
     // Encrypt sensitive data
     const taxIdEncrypted = data.taxId ? encrypt(data.taxId) : null;
@@ -124,16 +135,13 @@ export async function POST(request: NextRequest) {
     });
 
     // Increment the company's nextEmployeeNumber counter
-    // Parse the employee number to determine what the next number should be
     const employeeNum = parseInt(data.employeeNumber.replace(/\D/g, ''), 10);
     if (!isNaN(employeeNum)) {
-      // Get current counter value
       const company = await prisma.company.findUnique({
         where: { id: companyId! },
         select: { nextEmployeeNumber: true },
       });
 
-      // Only update if the used number is >= current counter (to handle manual overrides)
       if (company && employeeNum >= (company.nextEmployeeNumber || 1)) {
         await prisma.company.update({
           where: { id: companyId! },
@@ -141,6 +149,16 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+
+    // Audit log
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'employee.create',
+      entityType: 'Employee',
+      entityId: employee.id,
+      metadata: { employeeName: `${employee.firstName} ${employee.lastName}`, employeeNumber: employee.employeeNumber },
+    });
 
     return NextResponse.json(employee, { status: 201 });
   } catch (error) {

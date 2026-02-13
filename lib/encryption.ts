@@ -1,10 +1,10 @@
 import CryptoJS from 'crypto-js';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-
-if (!ENCRYPTION_KEY) {
+if (!process.env.ENCRYPTION_KEY) {
   throw new Error('ENCRYPTION_KEY is not set in environment variables');
 }
+
+const ENCRYPTION_KEY: string = process.env.ENCRYPTION_KEY;
 
 export function encrypt(text: string): string {
   if (!text) return '';

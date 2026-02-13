@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { saveEmployeeDocument, validateFile } from '@/lib/fileUpload';
+import { requireCompanyAccess } from '@/lib/api-utils';
 
 // POST /api/employees/[id]/documents - Upload document
 export async function POST(
@@ -8,13 +9,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId } = await requireCompanyAccess('admin');
+    if (error) return error;
+
     const { id } = await params;
 
-    // Check if employee exists
-    const employee = await prisma.employee.findUnique({
-      where: { id },
+    // Verify employee belongs to this company
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
+      select: { id: true, firstName: true, lastName: true },
     });
-
     if (!employee) {
       return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     }
@@ -82,7 +86,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId } = await requireCompanyAccess('viewer');
+    if (error) return error;
+
     const { id } = await params;
+
+    // Verify employee belongs to this company
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
+      select: { id: true },
+    });
+    if (!employee) {
+      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    }
 
     const documents = await prisma.employeeDocument.findMany({
       where: { employeeId: id },

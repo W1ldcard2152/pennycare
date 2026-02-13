@@ -33,7 +33,20 @@
       "WebFetch(domain:www.tax.ny.gov)",
       "WebFetch(domain:www.halfpricesoft.com)",
       "Bash(git log:*)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"Yes\" npx prisma migrate reset:*)",
+      "Bash(npm run seed:*)",
+      "Bash(npx vitest:*)",
+      "Bash(echo:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(DEBUG=vitest:*)",
+      "Bash(dir:*)",
+      "Bash(cmd /c:*)",
+      "WebFetch(domain:vitest.dev)",
+      "Bash(npx vite:*)",
+      "Bash(xargs:*)",
+      "Bash(wc:*)",
+      "Bash(test:*)"
     ]
   }
 }

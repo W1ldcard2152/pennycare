@@ -13,8 +13,13 @@ function encrypt(text: string): string {
 async function main() {
   console.log('Seeding test employee data for NY State payroll...\n');
 
-  // First, ensure we have a company
-  let company = await prisma.company.findFirst();
+  // Find company via UserCompanyAccess so the employee gets added to a company
+  // that your user account actually has access to
+  const access = await prisma.userCompanyAccess.findFirst({
+    orderBy: { createdAt: 'desc' },
+    include: { company: true },
+  });
+  let company = access?.company ?? await prisma.company.findFirst();
 
   if (!company) {
     console.log('Creating test company...');
@@ -64,6 +69,9 @@ async function main() {
     console.log('✓ Created company:', company.companyName);
   } else {
     console.log('✓ Using existing company:', company.companyName);
+    if (access) {
+      console.log('  (linked to user via UserCompanyAccess, role:', access.role + ')');
+    }
 
     // Update company with NY-specific fields if missing
     company = await prisma.company.update({

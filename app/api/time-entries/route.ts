@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { createTimeEntrySchema, validateRequest } from '@/lib/validation';
 
 // GET /api/time-entries - Get time entries for a date range
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('viewer');
     if (error) return error;
 
     const { searchParams } = new URL(request.url);
@@ -62,18 +63,20 @@ export async function GET(request: NextRequest) {
 // POST /api/time-entries - Create or update time entry
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('payroll');
     if (error) return error;
 
     const body = await request.json();
-    const { employeeId, date, hoursWorked, overtimeHours, notes } = body;
 
-    if (!employeeId || !date) {
+    const validation = validateRequest(createTimeEntrySchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'employeeId and date are required' },
+        { error: 'Validation failed', details: validation.errors },
         { status: 400 }
       );
     }
+
+    const { employeeId, date, hoursWorked, overtimeHours, notes } = body;
 
     // Check if entry already exists for this employee and date
     const existing = await prisma.timeEntry.findFirst({

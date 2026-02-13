@@ -1,25 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { hashPassword, createToken, setSessionCookie } from '@/lib/auth';
+import { registerSchema, validateRequest } from '@/lib/validation';
+import { logSecurityEvent } from '@/lib/audit';
+import { registerLimiter, getClientIp } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, firstName, lastName, companyName } = await request.json();
-
-    // Validation
-    if (!email || !password || !firstName || !lastName || !companyName) {
+    // Rate limit registrations
+    const ip = getClientIp(request);
+    const ipCheck = registerLimiter.check(ip);
+    if (!ipCheck.allowed) {
+      const retryAfterSec = Math.ceil((ipCheck.retryAfterMs || 60000) / 1000);
       return NextResponse.json(
-        { error: 'All fields are required' },
+        { error: 'Too many registration attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+      );
+    }
+
+    const body = await request.json();
+
+    const validation = validateRequest(registerSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validation.errors },
         { status: 400 }
       );
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: 'Password must be at least 8 characters' },
-        { status: 400 }
-      );
-    }
+    const { email, password, firstName, lastName, companyName } = validation.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -78,6 +87,11 @@ export async function POST(request: NextRequest) {
     });
 
     await setSessionCookie(token);
+
+    await logSecurityEvent({
+      action: 'auth.register',
+      metadata: { email: result.user.email, ip, userId: result.user.id },
+    });
 
     return NextResponse.json({
       success: true,

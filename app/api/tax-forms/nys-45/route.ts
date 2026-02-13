@@ -52,7 +52,7 @@ interface EmployeeWageDetail {
 // GET /api/tax-forms/nys-45 - Generate NYS-45 PDF
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId } = await requireCompanyAccess('payroll');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;

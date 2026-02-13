@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { requireCompanyAccess } from '@/lib/api-utils';
+import { createDeductionSchema, validateRequest } from '@/lib/validation';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/employees/[id]/deductions - Get all deductions for an employee
 export async function GET(
@@ -7,7 +10,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId } = await requireCompanyAccess('viewer');
+    if (error) return error;
+
     const { id } = await params;
+
+    // Verify employee belongs to this company
+    const employee = await prisma.employee.findFirst({
+      where: { id, companyId: companyId! },
+      select: { id: true },
+    });
+    if (!employee) {
+      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    }
 
     const deductions = await prisma.employeeDeduction.findMany({
       where: { employeeId: id },
@@ -30,13 +45,17 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error, companyId, session } = await requireCompanyAccess('admin');
+    if (error) return error;
+
     const { id } = await params;
     const data = await request.json();
 
-    // Validate required fields
-    if (!data.deductionType || !data.name || !data.amountType || data.amount === undefined) {
+    // Validate
+    const validation = validateRequest(createDeductionSchema, data);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'Missing required fields: deductionType, name, amountType, amount' },
+        { error: 'Validation failed', details: validation.errors },
         { status: 400 }
       );
     }
@@ -58,6 +77,15 @@ export async function POST(
         effectiveDate: data.effectiveDate ? new Date(data.effectiveDate) : new Date(),
         endDate: data.endDate ? new Date(data.endDate) : null,
       },
+    });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'deduction.create',
+      entityType: 'EmployeeDeduction',
+      entityId: deduction.id,
+      metadata: { employeeId: id, deductionType: deduction.deductionType, name: deduction.name, amount: deduction.amount },
     });
 
     return NextResponse.json(deduction, { status: 201 });

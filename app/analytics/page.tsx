@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => formatCurrencyFull(value)} />
+                  <Tooltip formatter={(value) => formatCurrencyFull(Number(value))} />
                   <Legend />
                   <Bar dataKey="grossPay" name="Gross Pay" fill={COLORS.blue} radius={[2, 2, 0, 0]} />
                   <Bar dataKey="netPay" name="Net Pay" fill={COLORS.green} radius={[2, 2, 0, 0]} />
@@ -173,12 +173,12 @@ export default function AnalyticsPage() {
               {taxPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
-                    <Pie data={taxPieData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    <Pie data={taxPieData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
                       {taxPieData.map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => formatCurrencyFull(value)} />
+                    <Tooltip formatter={(value) => formatCurrencyFull(Number(value))} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -192,12 +192,12 @@ export default function AnalyticsPage() {
               {compPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
-                    <Pie data={compPieData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    <Pie data={compPieData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
                       <Cell fill={COLORS.blue} />
                       <Cell fill={COLORS.orange} />
                       <Cell fill={COLORS.teal} />
                     </Pie>
-                    <Tooltip formatter={(value: number) => formatCurrencyFull(value)} />
+                    <Tooltip formatter={(value) => formatCurrencyFull(Number(value))} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
@@ -213,7 +213,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: number, name: string) => name === 'hours' ? `${value} hrs` : formatCurrencyFull(value)} />
+                  <Tooltip formatter={(value, name) => name === 'hours' ? `${value} hrs` : formatCurrencyFull(Number(value))} />
                   <Legend />
                   <Area type="monotone" dataKey="hours" name="OT Hours" stroke={COLORS.orange} fill={COLORS.orange} fillOpacity={0.2} />
                 </AreaChart>

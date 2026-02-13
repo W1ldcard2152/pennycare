@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requireCompanyAccess } from '@/lib/api-utils';
 
 // GET /api/company - Get company settings for current company
 export async function GET() {
   try {
-    const session = await getSession();
-
-    if (!session || !session.currentCompanyId) {
-      return NextResponse.json(
-        { error: 'No company selected' },
-        { status: 400 }
-      );
-    }
+    const { error, companyId } = await requireCompanyAccess('viewer');
+    if (error) return error;
 
     const company = await prisma.company.findUnique({
-      where: { id: session.currentCompanyId },
+      where: { id: companyId! },
     });
 
     if (!company) {
@@ -38,20 +32,13 @@ export async function GET() {
 // PUT /api/company - Update company settings for current company
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getSession();
-
-    if (!session || !session.currentCompanyId) {
-      return NextResponse.json(
-        { error: 'No company selected' },
-        { status: 400 }
-      );
-    }
+    const { error, companyId } = await requireCompanyAccess('owner');
+    if (error) return error;
 
     const data = await request.json();
 
-    // Update existing company
     const company = await prisma.company.update({
-      where: { id: session.currentCompanyId },
+      where: { id: companyId! },
       data,
     });
 

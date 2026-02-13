@@ -6,6 +6,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['__tests__/**/*.test.ts'],
+    pool: 'vmForks',
+    env: {
+      JWT_SECRET: 'test-jwt-secret-for-vitest',
+    },
   },
   resolve: {
     alias: {

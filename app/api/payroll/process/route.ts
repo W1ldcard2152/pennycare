@@ -2,19 +2,43 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/payrollCalculations';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { processPayrollSchema, validateRequest } from '@/lib/validation';
+import { logAudit } from '@/lib/audit';
 
 // POST /api/payroll/process - Process and save payroll
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess();
+    const { error, companyId, session } = await requireCompanyAccess('payroll');
     if (error) return error;
 
-    const { startDate, endDate, payDate } = await request.json();
+    const body = await request.json();
 
-    if (!startDate || !endDate || !payDate) {
+    // Validate input
+    const validation = validateRequest(processPayrollSchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'startDate, endDate, and payDate are required' },
+        { error: 'Validation failed', details: validation.errors },
         { status: 400 }
+      );
+    }
+
+    const { startDate, endDate, payDate } = validation.data;
+
+    // Check for existing active payroll records in this period to prevent duplicates
+    const existingRecords = await prisma.payrollRecord.findMany({
+      where: {
+        companyId: companyId!,
+        payPeriodStart: new Date(startDate),
+        payPeriodEnd: new Date(endDate),
+        status: 'active',
+      },
+      select: { id: true },
+    });
+
+    if (existingRecords.length > 0) {
+      return NextResponse.json(
+        { error: 'Payroll has already been processed for this period. Void the existing records first if you need to reprocess.' },
+        { status: 409 }
       );
     }
 
@@ -49,6 +73,7 @@ export async function POST(request: NextRequest) {
             payPeriodEnd: {
               lt: new Date(startDate),
             },
+            status: 'active',
           },
           orderBy: {
             payPeriodEnd: 'desc',
@@ -74,14 +99,11 @@ export async function POST(request: NextRequest) {
       let hourlyRate = employee.hourlyRate || 0;
 
       if (isSalaried) {
-        // Salaried employees: Calculate weekly pay as annualSalary / 52
-        // Use 40 hours as standard week, rate = weekly salary / 40
         const weeklyPay = (employee.annualSalary || 0) / 52;
-        regularHours = 40; // Standard work week
+        regularHours = 40;
         hourlyRate = weeklyPay / 40;
-        overtimeHours = 0; // Salaried employees typically don't get OT
+        overtimeHours = 0;
       } else {
-        // Hourly employees: Use time entries
         regularHours = employee.timeEntries.reduce(
           (sum, e) => sum + e.hoursWorked,
           0
@@ -91,7 +113,6 @@ export async function POST(request: NextRequest) {
           0
         );
 
-        // Skip hourly employees with no hours
         if (regularHours === 0 && overtimeHours === 0) {
           continue;
         }
@@ -255,8 +276,8 @@ export async function POST(request: NextRequest) {
           employerMedicare: result.medicareEmployer,
           employerSUI: result.suiEmployer,
           employerFUTA: result.futaEmployer,
-          employerWorkersComp: 0, // TODO: Calculate based on class code
-          employerHealthIns: 0, // TODO: Add employer portion
+          employerWorkersComp: 0,
+          employerHealthIns: 0,
           totalEmployerCost: result.totalEmployerCost,
 
           // YTD totals (including this payroll)
@@ -270,6 +291,7 @@ export async function POST(request: NextRequest) {
           // Payment info
           paymentMethod: employee.paymentInfo?.paymentMethod || 'check',
           isPaid: false,
+          status: 'active',
         },
       });
 
@@ -286,6 +308,22 @@ export async function POST(request: NextRequest) {
           });
         }
       }
+
+      // Audit log for each employee processed
+      await logAudit({
+        companyId: companyId!,
+        userId: session!.userId,
+        action: 'payroll.process',
+        entityType: 'PayrollRecord',
+        entityId: payrollRecord.id,
+        metadata: {
+          employeeId: employee.id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          payPeriod: `${startDate} to ${endDate}`,
+          grossPay: result.grossPay,
+          netPay: result.netPay,
+        },
+      });
 
       processedRecords.push({
         employeeId: employee.id,

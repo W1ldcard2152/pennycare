@@ -725,13 +725,12 @@ describe('formatCurrency', () => {
 });
 
 describe('roundCurrency', () => {
-  it('rounds to 2 decimal places', () => {
-    // Note: 1.005 * 100 = 100.4999... in IEEE 754, so Math.round gives 100 → 1.00
-    // This is a known JS floating-point behavior, not a bug
-    expect(roundCurrency(1.005)).toBe(1);
+  it('rounds to 2 decimal places with banker-safe precision', () => {
+    expect(roundCurrency(1.005)).toBe(1.01); // Previously returned 1.00 due to IEEE 754 drift
     expect(roundCurrency(1.006)).toBe(1.01);
     expect(roundCurrency(1.004)).toBe(1);
     expect(roundCurrency(99.999)).toBe(100);
+    expect(roundCurrency(2.675)).toBe(2.68);
   });
 
   it('handles whole numbers', () => {

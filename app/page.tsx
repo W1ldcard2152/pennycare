@@ -8,13 +8,67 @@ import {
   BanknotesIcon
 } from '@heroicons/react/24/outline';
 import UpcomingDeadlinesWidget from '@/components/UpcomingDeadlinesWidget';
+import { getSession } from '@/lib/auth';
+import { prisma } from '@/lib/db';
 
-export default function Dashboard() {
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+async function getDashboardStats(companyId: string) {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [employeeCount, monthHours, monthPayroll] = await Promise.all([
+    prisma.employee.count({
+      where: { companyId, isActive: true },
+    }),
+    prisma.timeEntry.aggregate({
+      where: { companyId, date: { gte: startOfMonth } },
+      _sum: { hoursWorked: true, overtimeHours: true },
+    }),
+    prisma.payrollRecord.aggregate({
+      where: {
+        companyId,
+        payDate: { gte: startOfMonth },
+        status: { not: 'voided' },
+      },
+      _sum: { grossPay: true },
+    }),
+  ]);
+
+  return {
+    employeeCount,
+    hoursThisMonth: (monthHours._sum.hoursWorked ?? 0) + (monthHours._sum.overtimeHours ?? 0),
+    grossThisMonth: monthPayroll._sum.grossPay ?? 0,
+  };
+}
+
+export default async function Dashboard() {
+  const session = await getSession();
+  const companyId = session?.currentCompanyId;
+
+  let employeeCount = 0;
+  let hoursThisMonth = 0;
+  let grossThisMonth = 0;
+
+  if (companyId) {
+    const data = await getDashboardStats(companyId);
+    employeeCount = data.employeeCount;
+    hoursThisMonth = data.hoursThisMonth;
+    grossThisMonth = data.grossThisMonth;
+  }
+
   const stats = [
-    { name: 'Total Employees', value: '1', icon: UsersIcon, color: 'bg-blue-500' },
-    { name: 'Active Payroll', value: '$0', icon: CurrencyDollarIcon, color: 'bg-green-500' },
-    { name: 'Pending Hours', value: '0', icon: ClockIcon, color: 'bg-yellow-500' },
-    { name: 'This Month', value: '$0', icon: BanknotesIcon, color: 'bg-purple-500' },
+    { name: 'Total Employees', value: String(employeeCount), icon: UsersIcon, color: 'bg-blue-500' },
+    { name: 'Active Payroll', value: formatCurrency(grossThisMonth), icon: CurrencyDollarIcon, color: 'bg-green-500' },
+    { name: 'Hours This Month', value: String(hoursThisMonth), icon: ClockIcon, color: 'bg-yellow-500' },
+    { name: 'This Month', value: formatCurrency(grossThisMonth), icon: BanknotesIcon, color: 'bg-purple-500' },
   ];
 
   const quickLinks = [
