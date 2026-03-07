@@ -1,0 +1,822 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id            String              @id @default(cuid())
+  email         String              @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  isActive      Boolean             @default(true)
+
+  // Relations
+  companyAccess UserCompanyAccess[]
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+model UserCompanyAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   // 'owner', 'admin', 'payroll', 'viewer'
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+}
+
+// ============================================
+// COMPANY SETTINGS
+// ============================================
+
+model Company {
+  id                String   @id @default(cuid())
+
+  // Company Information
+  companyName       String
+  legalBusinessName String?
+  fein              String?  // Federal Employer Identification Number
+
+  // Contact Information
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  phone             String?
+  email             String?
+  website           String?
+
+  // Business Details
+  industryType      String?
+  fiscalYearEnd     String?  // e.g., "12-31" for December 31
+
+  // Payroll Settings
+  defaultPayPeriod  String?  // "weekly", "biweekly", "semimonthly", "monthly"
+  overtimeEnabled   Boolean  @default(true)
+  overtimeMultiplier Float   @default(1.5)
+
+  // State Tax IDs (can be expanded for multi-state)
+  stateUIClientId   String?  // State Unemployment Insurance Client ID
+  stateTaxId        String?  // State Tax ID
+  localTaxId        String?  // Local Tax ID (if applicable)
+  suiRate           Float?   // NY State Unemployment Insurance rate (employer-specific, 2.1%-9.9%)
+  futaRate          Float?   @default(0.6) // Federal Unemployment Tax (0.6% after SUTA credit, on first $7,000)
+
+  // NYC Specific
+  nycEmployer       Boolean  @default(false) // Does company have NYC employees?
+
+  // Employee Numbering
+  nextEmployeeNumber Int     @default(1)
+  nextJournalEntryNumber Int @default(1) // Auto-incrementing counter for journal entry numbers
+
+  // Workers Comp
+  workersCompPolicy String?
+  workersCompCarrier String?
+
+  // Bank Account (for payroll ACH)
+  bankName          String?
+  bankRoutingNumberEncrypted String?
+  bankAccountNumberEncrypted String?
+
+  // Tax Deposit & Reminder Settings
+  federalDepositSchedule String  @default("monthly") // "monthly" or "semiweekly"
+  reminderLeadDays       Int     @default(7)          // Days before deadline to show warnings
+
+  // PTO/Leave Policies
+  defaultPTODays    Int?     @default(0)
+  defaultSickDays   Int?     @default(5) // NY requires minimum 40 hours (5 days) for 5-99 employees
+  ptoAccrualEnabled Boolean  @default(false)
+  ptoAccrualHoursEarned Float? @default(1) // Hours earned
+  ptoAccrualHoursWorked Float? @default(40) // Per hours worked (e.g., 1 hour per 40 hours = 1/40)
+
+  // Sick Leave Accrual (NY mandates 1 hour per 30 hours worked)
+  sickAccrualEnabled Boolean @default(true) // Mandatory in NY
+  sickAccrualHoursEarned Float? @default(1) // Hours earned
+  sickAccrualHoursWorked Float? @default(30) // Per hours worked (NY: 1 hour per 30 hours)
+  sickAnnualCapHours Float? @default(40) // Annual cap (NY: 40 hours for 5-99 employees)
+
+  // Relations
+  userAccess        UserCompanyAccess[]
+  employees         Employee[]
+  timeEntries       TimeEntry[]
+  payrollRecords    PayrollRecord[]
+  accounts          Account[]
+  transactions      Transaction[]
+  vendors           Vendor[]
+  expenses          Expense[]
+  documentTemplates DocumentTemplate[]
+  taxFilings        TaxFiling[]
+  journalEntries    JournalEntry[]
+  ebaySales         EbaySale[]
+  transactionRules  TransactionRule[]
+  statementImports  StatementImport[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// ============================================
+// EMPLOYEE & PAYROLL MODELS
+// ============================================
+
+model Employee {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  firstName         String
+  lastName          String
+  middleName        String?
+  dateOfBirth       DateTime?
+  email             String?
+  phone             String?
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+
+  // Employment details
+  employeeNumber    String
+  position          String
+  employmentType    String   // "full-time" or "part-time"
+  department        String?
+  hireDate          DateTime
+  terminationDate   DateTime?
+  isActive          Boolean  @default(true)
+
+  // Pay information
+  payType           String   // "hourly" or "salary"
+  hourlyRate        Float?
+  annualSalary      Float?
+
+  // Tax information (encrypted)
+  taxIdEncrypted    String?  // Encrypted SSN
+
+  // Federal Tax Settings
+  w4FormType        String?  // "2019_prior" or "2020_later"
+  w4FilingStatus    String?  // "single", "married", "head_of_household"
+  w4Allowances      Int?     // For 2019 & prior forms
+  additionalWithholding Float?
+  additionalWithholdingPercentage Float?
+  overrideAmount    Float?
+  overridePercentage Float?
+  federalTaxability String?  // "taxable" or "exempt"
+  federalTaxesWithheld Boolean @default(true)
+  federalResidency  String?  // "resident" or "nonresident"
+
+  // Social Security & Medicare
+  socialSecurityTaxability String? // "taxable" or "exempt"
+  medicareTaxability String?       // "taxable" or "exempt"
+
+  // State Tax Settings (NY specific, can be adapted for other states)
+  stateFilingStatus String?  // "single", "married", "head_of_household"
+  stateResidency    String?  // "resident" or "nonresident"
+  stateAllowances   Int?
+  stateTaxesWithheld Boolean @default(true)
+  stateTaxability   String?  // "taxable" or "exempt"
+
+  // State Unemployment
+  unemploymentTaxability String? // "taxable" or "exempt"
+  worksiteCode      String?
+  dependentHealthInsurance Boolean @default(false)
+
+  // State Disability
+  disabilityTaxability String? // "taxable" or "exempt"
+  disabilityTaxesWithheld Boolean @default(true)
+
+  // Paid Family Leave
+  paidFamilyLeaveTaxability String? // "taxable" or "exempt"
+  paidFamilyLeaveTaxesWithheld Boolean @default(true)
+
+  // NYC/Yonkers Local Tax (NY specific)
+  nycResident       Boolean  @default(false) // NYC resident withholding
+  yonkersResident   Boolean  @default(false) // Yonkers resident withholding
+  yonkersNonResident Boolean @default(false) // Yonkers non-resident earnings
+
+  // Workers Compensation
+  workersCompClassCode String? // e.g., "8810" for clerical, "5183" for plumbing
+
+  // Pay frequency override (if different from company default)
+  payFrequency      String?  // "weekly", "biweekly", "semimonthly", "monthly"
+
+  // Relations
+  timeEntries       TimeEntry[]
+  deductions        EmployeeDeduction[]
+  payrollRecords    PayrollRecord[]
+  paymentInfo       PaymentInfo?
+  emergencyContact  EmergencyContact?
+  documents         EmployeeDocument[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model PaymentInfo {
+  id                String   @id @default(cuid())
+  employeeId        String   @unique
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  paymentMethod     String   // "direct_deposit" or "check"
+
+  // Direct deposit info (encrypted)
+  routingNumberEncrypted  String?
+  accountNumberEncrypted  String?
+  accountType             String?  // "checking" or "savings"
+  bankName                String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model EmergencyContact {
+  id                String   @id @default(cuid())
+  employeeId        String   @unique
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  name              String
+  relationship      String
+  phone             String
+  alternatePhone    String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model EmployeeDocument {
+  id                String   @id @default(cuid())
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  documentType      String   // "w4", "i9", "license", "other"
+  fileName          String
+  filePath          String
+  fileSize          Int
+  mimeType          String?
+
+  description       String?
+  expirationDate    DateTime?
+  uploadedBy        String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([documentType])
+}
+
+model DocumentTemplate {
+  id                String   @id @default(cuid())
+  companyId         String?  // null = available to all companies (system templates)
+  company           Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  documentTypeId    String   // links to DOCUMENT_TYPES
+  name              String   // "Federal W-4 Form (2024)"
+  fileName          String   // "W-4.pdf"
+  filePath          String   // "document-templates/federal/W-4.pdf"
+  fileSize          Int
+  category          String   // "federal", "state", "company"
+
+  description       String?
+  isActive          Boolean  @default(true)
+  isSystemTemplate  Boolean  @default(false) // true = provided by system, false = uploaded by company
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([documentTypeId])
+  @@index([category])
+}
+
+// Employee Deductions (pre-tax and post-tax)
+model EmployeeDeduction {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  deductionType String   // "401k", "401k_roth", "health_insurance", "dental", "vision", "hsa", "fsa", "life_insurance", "garnishment", "child_support", "loan_repayment", "union_dues", "other"
+  name          String   // Display name, e.g., "401(k) Contribution", "Health Insurance Premium"
+
+  // Amount can be fixed or percentage
+  amountType    String   // "fixed" or "percentage"
+  amount        Float    // Dollar amount or percentage (e.g., 6 for 6%)
+
+  // Pre-tax vs post-tax
+  preTax        Boolean  @default(true) // true = pre-tax (reduces taxable income), false = post-tax
+
+  // Limits
+  annualLimit   Float?   // Annual max (e.g., $23,000 for 401k in 2026)
+  ytdAmount     Float    @default(0) // Year-to-date total deducted
+
+  // For garnishments
+  caseNumber    String?  // Court case number for garnishments
+  totalOwed     Float?   // Total amount owed (for garnishments/loans)
+  remainingBalance Float? // Remaining balance
+
+  isActive      Boolean  @default(true)
+  effectiveDate DateTime @default(now())
+  endDate       DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([deductionType])
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date        DateTime
+  hoursWorked Float
+  overtimeHours Float  @default(0)
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, employeeId, date])
+  @@index([employeeId, date])
+}
+
+model PayrollRecord {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  payPeriodStart  DateTime
+  payPeriodEnd    DateTime
+  payDate         DateTime
+
+  // Earnings
+  regularHours    Float
+  overtimeHours   Float    @default(0)
+  regularPay      Float
+  overtimePay     Float    @default(0)
+  otherEarnings   Float    @default(0) // Bonuses, commissions, etc.
+  grossPay        Float
+
+  // Pre-tax Deductions (reduce taxable income)
+  preTax401k      Float    @default(0)
+  preTaxHealthIns Float    @default(0)
+  preTaxDental    Float    @default(0)
+  preTaxVision    Float    @default(0)
+  preTaxHSA       Float    @default(0)
+  preTaxFSA       Float    @default(0)
+  preTaxOther     Float    @default(0)
+  totalPreTaxDeductions Float @default(0)
+
+  // Taxable wages (grossPay - totalPreTaxDeductions)
+  taxableWages    Float?
+
+  // Employee Tax Withholdings
+  federalTax      Float
+  stateTax        Float    // NY State income tax
+  localTax        Float    @default(0) // NYC or Yonkers
+  socialSecurity  Float
+  medicare        Float
+  additionalMedicare Float @default(0) // 0.9% on wages over $200k
+  nySDI           Float    @default(0) // NY State Disability Insurance
+  nyPFL           Float    @default(0) // NY Paid Family Leave
+  totalTaxWithholdings Float @default(0)
+
+  // Post-tax Deductions
+  postTaxRoth401k Float    @default(0)
+  garnishments    Float    @default(0)
+  childSupport    Float    @default(0)
+  loanRepayments  Float    @default(0)
+  postTaxOther    Float    @default(0)
+  totalPostTaxDeductions Float @default(0)
+
+  // Total deductions and net pay
+  totalDeductions Float
+  netPay          Float
+
+  // Employer Taxes & Contributions (for tax liability tracking)
+  employerSocialSecurity Float @default(0)
+  employerMedicare Float    @default(0)
+  employerSUI      Float    @default(0) // NY State Unemployment Insurance
+  employerFUTA     Float    @default(0) // Federal Unemployment Tax
+  employerWorkersComp Float @default(0)
+  employerHealthIns Float   @default(0) // Employer portion of health insurance
+  totalEmployerCost Float   @default(0)
+
+  // YTD totals (at time of this payroll)
+  ytdGrossPay     Float    @default(0)
+  ytdFederalTax   Float    @default(0)
+  ytdStateTax     Float    @default(0)
+  ytdSocialSecurity Float  @default(0)
+  ytdMedicare     Float    @default(0)
+  ytdNetPay       Float    @default(0)
+
+  notes           String?
+  isPaid          Boolean  @default(false)
+  paidDate        DateTime?
+  paymentMethod   String?  // "direct_deposit" or "check"
+  checkNumber     String?  // If paid by check
+
+  // Void/Correction tracking
+  status          String   @default("active") // "active", "voided", "corrected"
+  voidedAt        DateTime?
+  voidedBy        String?  // userId who voided this record
+  voidReason      String?
+  originalRecordId String? // If this is a correction, points to the voided record it replaces
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, employeeId, payPeriodStart])
+  @@index([employeeId, payPeriodStart])
+  @@index([payDate])
+  @@index([status])
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String
+  userId      String   // Who performed the action
+  action      String   // "employee.create", "employee.update", "payroll.process", "payroll.void", etc.
+  entityType  String   // "Employee", "PayrollRecord", "EmployeeDeduction", etc.
+  entityId    String   // ID of the affected record
+  changes     String?  // JSON: { field: { old: X, new: Y } } for updates
+  metadata    String?  // JSON: additional context (e.g., reason for void)
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
+// ============================================
+// BOOKKEEPING MODELS
+// ============================================
+
+model Account {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  type        String   // "asset", "liability", "equity", "revenue", "expense", "credit_card"
+  subtype     String?  // Detail type for reporting (e.g., "bank_checking", "accounts_payable")
+  description String?
+  taxLine     String?  // Tax form line mapping (e.g., "Schedule C: Line 9")
+
+  isActive    Boolean  @default(true)
+
+  // Relations
+  debitTransactions  Transaction[] @relation("DebitAccount")
+  creditTransactions Transaction[] @relation("CreditAccount")
+  journalEntryLines  JournalEntryLine[]
+
+  // Statement import relations
+  rulesAsTarget      TransactionRule[] @relation("RuleTargetAccount")
+  rulesAsSource      TransactionRule[] @relation("RuleSourceAccount")
+  statementsAsSource StatementImport[] @relation("StatementSourceAccount")
+  statementsAsTarget StatementImport[] @relation("StatementTargetAccount")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date          DateTime
+  description   String
+  referenceNumber String?
+
+  // Double-entry bookkeeping
+  debitAccountId  String
+  debitAccount    Account  @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccountId String
+  creditAccount   Account  @relation("CreditAccount", fields: [creditAccountId], references: [id])
+
+  amount        Float
+
+  // Optional categorization
+  category      String?
+  tags          String?  // JSON array of tags
+
+  // Reconciliation
+  isReconciled  Boolean  @default(false)
+  reconciledDate DateTime?
+
+  notes         String?
+  attachments   String?  // JSON array of file paths
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([date])
+  @@index([debitAccountId])
+  @@index([creditAccountId])
+}
+
+model Vendor {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+
+  taxId       String?
+
+  // Relations
+  expenses    Expense[]
+
+  isActive    Boolean  @default(true)
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date        DateTime
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+
+  description String
+  category    String   // "parts", "supplies", "utilities", "rent", etc.
+  amount      Float
+
+  paymentMethod String? // "cash", "check", "card", "transfer"
+  referenceNumber String?
+
+  isPaid      Boolean  @default(false)
+  paidDate    DateTime?
+
+  notes       String?
+  attachments String?  // JSON array of file paths
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([date])
+  @@index([category])
+  @@index([vendorId])
+}
+
+// ============================================
+// TAX FILING STATUS TRACKING
+// ============================================
+
+model TaxFiling {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  formType           String    // "941", "nys45", "940", "w2"
+  year               Int
+  quarter            Int?      // 1-4 for quarterly forms, null for annual
+
+  status             String    @default("pending") // "pending", "filed", "extended"
+  filedDate          DateTime?
+  confirmationNumber String?
+  notes              String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([companyId, formType, year, quarter])
+  @@index([companyId])
+}
+
+// ============================================
+// JOURNAL ENTRIES (Multi-line Double-Entry)
+// ============================================
+
+model JournalEntry {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  entryNumber   Int      // Auto-incrementing per company
+  date          DateTime
+  memo          String
+  referenceNumber String?
+
+  // Source tracking
+  source        String   @default("manual") // "manual", "payroll", "expense"
+  sourceId      String?  // ID of the source record
+
+  // Status
+  status        String   @default("posted") // "posted", "voided"
+  voidedAt      DateTime?
+  voidedBy      String?
+  voidReason    String?
+
+  // Lines (debits and credits)
+  lines            JournalEntryLine[]
+  ebaySales        EbaySale[]
+  statementImports StatementImport[]
+
+  isReconciled  Boolean  @default(false)
+  reconciledDate DateTime?
+  notes         String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([companyId, entryNumber])
+  @@index([date])
+  @@index([source, sourceId])
+}
+
+model JournalEntryLine {
+  id              String   @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id])
+
+  description     String?
+  debit           Float    @default(0)
+  credit          Float    @default(0)
+
+  createdAt       DateTime @default(now())
+
+  @@index([journalEntryId])
+  @@index([accountId])
+}
+
+// ============================================
+// EBAY SALES IMPORT
+// ============================================
+
+model EbaySale {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // eBay data (stored for reference)
+  orderDate       DateTime
+  orderNumber     String
+  itemId          String
+  itemTitle       String
+  buyerName       String?
+  shipToCity      String?
+  shipToState     String?
+  shipToZip       String?
+  shipToCountry   String?
+  quantity        Int      @default(1)
+
+  // Financial data
+  itemPrice       Float    // per-unit price
+  itemSubtotal    Float    // price × quantity
+  shippingAmount  Float    @default(0)
+  discountAmount  Float    @default(0)  // stored as positive number
+  grossAmount     Float    // what eBay reports as gross
+  feeFixed        Float    @default(0)  // Final Value Fee - fixed
+  feeVariable     Float    @default(0)  // Final Value Fee - variable
+  otherFees       Float    @default(0)  // sum of other fees (performance, international, regulatory, etc.)
+  shippingLabelFees Float  @default(0)  // shipping labels purchased through eBay + Expenses column
+  totalFees       Float    @default(0)  // feeFixed + feeVariable + otherFees + shippingLabelFees
+  netAmount       Float    // gross - totalFees = what actually gets paid out
+  refundAmount    Float    @default(0)  // refunds (stored separately, not in totalFees)
+
+  // Tax (stored for reference only, NOT booked)
+  ebayCollectedTax Float   @default(0)
+
+  // Import metadata
+  importBatch     String   // identifier grouping rows from same CSV upload (e.g., "ebay-2025-01")
+  importedAt      DateTime @default(now())
+
+  // Link to journal entry
+  journalEntryId  String?
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, orderNumber, itemId])  // prevent duplicate imports
+  @@index([companyId])
+  @@index([companyId, orderDate])
+  @@index([importBatch])
+}
+
+// ============================================
+// BANK/CC STATEMENT IMPORT
+// ============================================
+
+model TransactionRule {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Match criteria
+  matchType       String   // "starts_with", "contains", "ends_with"
+  matchText       String   // the text to match against the description
+
+  // What to do when matched
+  targetAccountId String   // the offsetting account (expense, liability, asset, etc.)
+  targetAccount   Account  @relation("RuleTargetAccount", fields: [targetAccountId], references: [id])
+  defaultMemo     String?  // optional memo override (e.g., "Payroll" instead of the raw bank description)
+
+  // Scope — optionally limit rule to a specific source account
+  sourceAccountId String?  // if set, rule only applies when importing this account's statement
+  sourceAccount   Account? @relation("RuleSourceAccount", fields: [sourceAccountId], references: [id])
+
+  isActive        Boolean  @default(true)
+  priority        Int      @default(0) // higher = checked first, for overlapping rules
+
+  // Relation to matched imports
+  statementImports StatementImport[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([companyId, isActive])
+}
+
+model StatementImport {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Source account (the bank or credit card being imported)
+  sourceAccountId String
+  sourceAccount   Account  @relation("StatementSourceAccount", fields: [sourceAccountId], references: [id])
+
+  // Raw transaction data
+  postDate        DateTime
+  description     String
+  checkNumber     String?
+  amount          Float    // always positive
+  isDebit         Boolean  // true = money out of account, false = money in
+  bankAccountNumber String? // the masked account number from CSV (e.g., "XXXXXX4717")
+
+  // Categorization
+  targetAccountId String?  // the offsetting account — null means uncategorized
+  targetAccount   Account? @relation("StatementTargetAccount", fields: [targetAccountId], references: [id])
+  matchedRuleId   String?  // which rule matched, if any
+  matchedRule     TransactionRule? @relation(fields: [matchedRuleId], references: [id])
+  memo            String?  // description or rule's defaultMemo
+
+  // Status
+  status          String   @default("pending") // "pending", "booked", "skipped"
+  importBatch     String   // groups rows from same upload (e.g., "bank-4717-2025-12")
+  importedAt      DateTime @default(now())
+
+  // Link to journal entry once booked
+  journalEntryId  String?
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, sourceAccountId, postDate, description, amount, isDebit]) // prevent duplicate imports
+  @@index([companyId, status])
+  @@index([importBatch])
+}

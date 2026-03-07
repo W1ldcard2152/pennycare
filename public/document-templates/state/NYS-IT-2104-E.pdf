@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width"> 
+		<link rel="apple-touch-icon-precomposed" href="/images/icons/icon-180x180.png">
+		<link rel="icon" href="/images/icons/icon-196x196.png">
+    		<link rel="stylesheet" href="/src/css/app.min.css?v=1.8.25">
+		<title>404 Page not found</title>	
+	</head>
+	<body>
+		<div id="agency-container">
+			<div id="tax-container">
+				<div role="navigation" aria-label="skip-navigation"><a href="#tax-content" class="skip-content focus-show">Skip to main content</a></div>
+	      		<div class="tax-wrap">
+	      			<div id="agency-header" class="gnav-wrap">
+		      			<header id="gnav">
+	            			<div id="tax-header"><a class="global-header-title" href="/">Department of Taxation and Finance</a></div>
+	        			</header>
+	        		</div>
+		      		<div class="tax-content-wrap">
+		      			<div id="agency-content" class="tax-main-content">          
+							<main id="tax-content">
+								<h1 class="tax-page-title">Sorry, we can't find the page you're looking for.</h1>
+<p>This may have occurred because the page was moved or deleted. Try one of these:</p>
+<ul>
+<li>Check for a typing error in the web address you entered.</li>
+<li>Visit our <a href="/">homepage</a>.</li>
+<li>Use our <a href="/search/">search</a>.</li>
+<li>Navigate using our <a href="/help/siteindex.htm">site map</a>.</li>
+</ul>
+							</main>
+						</div>
+	    			</div>
+	      			<div id="agency-footer" class="gfooter-wrap">
+		    			<footer id="tax-footer" class="gfooter" aria-label="Tax and Finance footer">
+		        			<ul>
+			                    <li><a href="/help/contact/">Contact us</a></li>
+			                    <li><a href="/about/feedback.htm">Feedback</a></li>
+			                    <li><a href="/help/subscribe.htm">Subscribe</a></li>
+			                    <li><a href="/help/tech/privacy-policy.htm">Privacy</a></li>
+			                    <li><a href="/help/siteindex.htm">Site map</a></li>
+		                	</ul>
+		      			</footer>
+		      		</div>
+	    		</div>
+	    	</div>
+	    	        
+			
+		</div>
+	</body>
+</html>
