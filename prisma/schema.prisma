@@ -645,7 +645,7 @@ model JournalEntry {
   referenceNumber String?
 
   // Source tracking
-  source        String   @default("manual") // "manual", "payroll", "expense"
+  source        String   @default("manual") // "manual", "payroll", "expense", "statement_import", "cc_import", "opening_balance", "ebay_import"
   sourceId      String?  // ID of the source record
 
   // Status

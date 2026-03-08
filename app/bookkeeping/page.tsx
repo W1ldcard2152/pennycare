@@ -14,6 +14,7 @@ import {
   ShoppingCartIcon,
   BanknotesIcon,
   AdjustmentsHorizontalIcon,
+  CreditCardIcon,
 } from '@heroicons/react/24/outline';
 
 const sections = [
@@ -51,6 +52,13 @@ const sections = [
     href: '/bookkeeping/statements',
     icon: BanknotesIcon,
     color: 'text-teal-600',
+  },
+  {
+    title: 'Credit Card Import',
+    description: 'Paste-based import for Capital One, Chase, and PayPal Credit statements',
+    href: '/bookkeeping/cc-import',
+    icon: CreditCardIcon,
+    color: 'text-rose-600',
   },
   {
     title: 'Transaction Rules',
@@ -107,7 +115,7 @@ export default function BookkeepingPage() {
     <div className="min-h-screen p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Bookkeeping</h1>
+          <h1 className="text-3xl font-bold mb-2 text-gray-900">Bookkeeping</h1>
           <p className="text-gray-600">
             Manage your books — chart of accounts, journal entries, expenses, and financial reports
           </p>

@@ -3,6 +3,145 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 
+// Searchable select component for category dropdown
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select...',
+  className = '',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; code: string; name: string }[];
+  placeholder?: string;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find(o => o.id === value);
+
+  const filteredOptions = search
+    ? options.filter(o =>
+        `${o.code} ${o.name}`.toLowerCase().includes(search.toLowerCase())
+      )
+    : options;
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        containerRef.current && !containerRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Focus input when opening and calculate position
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.left + window.scrollX,
+      });
+      // Focus after position is set
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange('');
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <div
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center justify-between border rounded px-2 py-1 text-xs cursor-pointer bg-white ${
+          !value ? 'border-amber-400' : 'border-gray-300'
+        }`}
+      >
+        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-400'}`}>
+          {selectedOption ? `${selectedOption.code} — ${selectedOption.name}` : placeholder}
+        </span>
+        <div className="flex items-center gap-1 ml-1">
+          {value && (
+            <button
+              onClick={handleClear}
+              className="text-gray-400 hover:text-gray-600 p-0.5"
+              title="Clear"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+          <svg className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className="fixed z-[100] w-64 bg-white border border-gray-200 rounded-lg shadow-lg"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+        >
+          <div className="p-2 border-b">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type to search..."
+              className="w-full border rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-gray-500">No matches found</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  onClick={() => handleSelect(option.id)}
+                  className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-blue-50 ${
+                    option.id === value ? 'bg-blue-100 text-blue-800' : 'text-gray-700'
+                  }`}
+                >
+                  <span className="font-medium">{option.code}</span> — {option.name}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Account {
   id: string;
   code: string;
@@ -67,6 +206,18 @@ export default function StatementsPage() {
   const [selectedBatch, setSelectedBatch] = useState('');
   const [bulkTargetAccountId, setBulkTargetAccountId] = useState('');
   const [isBooking, setIsBooking] = useState(false);
+
+  // Rule creation state
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [ruleImportId, setRuleImportId] = useState<string | null>(null);
+  const [ruleMatchText, setRuleMatchText] = useState('');
+  const [ruleMatchType, setRuleMatchType] = useState<'starts_with' | 'contains' | 'ends_with'>('starts_with');
+  const [ruleTargetAccountId, setRuleTargetAccountId] = useState('');
+  const [ruleApplyToAllAccounts, setRuleApplyToAllAccounts] = useState(false);
+  const [ruleCreating, setRuleCreating] = useState(false);
+  const [ruleSuccessMessage, setRuleSuccessMessage] = useState('');
+  const [isApplyingRules, setIsApplyingRules] = useState(false);
+  const [applyRulesMessage, setApplyRulesMessage] = useState('');
 
   useEffect(() => {
     fetchAccounts();
@@ -292,6 +443,146 @@ export default function StatementsPage() {
     }
   };
 
+  const openRuleModal = (imp: StatementImport) => {
+    if (!imp.targetAccount) return;
+
+    setRuleImportId(imp.id);
+    setRuleMatchText(imp.description);
+    setRuleMatchType('starts_with');
+    setRuleTargetAccountId(imp.targetAccount.id);
+    setRuleApplyToAllAccounts(false);
+    setRuleSuccessMessage('');
+    setRuleModalOpen(true);
+  };
+
+  const closeRuleModal = () => {
+    setRuleModalOpen(false);
+    setRuleImportId(null);
+    setRuleMatchText('');
+    setRuleTargetAccountId('');
+    setRuleCreating(false);
+    setRuleSuccessMessage('');
+  };
+
+  const handleCreateRule = async () => {
+    if (!ruleMatchText.trim() || !ruleTargetAccountId || !ruleImportId) {
+      return;
+    }
+
+    const imp = pendingImports.find(i => i.id === ruleImportId);
+    if (!imp) return;
+
+    setRuleCreating(true);
+    setRuleSuccessMessage('');
+
+    try {
+      // Create the rule
+      const ruleRes = await fetch('/api/bookkeeping/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${ruleMatchText.substring(0, 30)}${ruleMatchText.length > 30 ? '...' : ''}`,
+          matchType: ruleMatchType,
+          matchText: ruleMatchText,
+          targetAccountId: ruleTargetAccountId,
+          sourceAccountId: ruleApplyToAllAccounts ? null : imp.sourceAccount.id,
+          isActive: true,
+          priority: 100,
+        }),
+      });
+
+      if (!ruleRes.ok) {
+        const data = await ruleRes.json();
+        setError(data.error || 'Failed to create rule');
+        setRuleCreating(false);
+        return;
+      }
+
+      setRuleSuccessMessage('Rule created! Click "Apply Rules" to match transactions.');
+
+      // Close modal after a short delay to show success message
+      setTimeout(() => {
+        closeRuleModal();
+      }, 1500);
+
+    } catch {
+      setError('Network error creating rule');
+      setRuleCreating(false);
+    }
+  };
+
+  const applyRulesToUnmatched = async () => {
+    const unmatchedImports = pendingImports.filter(i => !i.targetAccount);
+    if (unmatchedImports.length === 0) {
+      setApplyRulesMessage('No unmatched transactions to process.');
+      setTimeout(() => setApplyRulesMessage(''), 3000);
+      return;
+    }
+
+    // Get unique source accounts from unmatched imports
+    const sourceAccountIds = [...new Set(unmatchedImports.map(i => i.sourceAccount.id))];
+
+    setIsApplyingRules(true);
+    setApplyRulesMessage('');
+    setError('');
+
+    try {
+      let totalMatched = 0;
+
+      // Process each source account separately (rules can be account-specific)
+      for (const sourceAcctId of sourceAccountIds) {
+        const importsForAccount = unmatchedImports.filter(i => i.sourceAccount.id === sourceAcctId);
+
+        const testRes = await fetch('/api/bookkeeping/rules/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            descriptions: importsForAccount.map(i => i.description),
+            sourceAccountId: sourceAcctId,
+          }),
+        });
+
+        if (testRes.ok) {
+          const matches = await testRes.json();
+
+          // Update matched imports in the database
+          const updatePromises: Promise<void>[] = [];
+          for (let i = 0; i < importsForAccount.length; i++) {
+            const match = matches[i];
+            if (match) {
+              totalMatched++;
+              const updatePromise = fetch(`/api/bookkeeping/statements/${importsForAccount[i].id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  targetAccountId: match.targetAccountId,
+                  matchedRuleId: match.ruleId,
+                }),
+              }).then(() => {});
+              updatePromises.push(updatePromise);
+            }
+          }
+
+          await Promise.all(updatePromises);
+        }
+      }
+
+      if (totalMatched > 0) {
+        setApplyRulesMessage(`${totalMatched} transaction${totalMatched > 1 ? 's' : ''} matched!`);
+        // Refresh the list
+        await fetchPendingImports(selectedBatch);
+      } else {
+        setApplyRulesMessage('No new matches found.');
+      }
+
+      setTimeout(() => setApplyRulesMessage(''), 3000);
+    } catch {
+      setError('Network error applying rules');
+    } finally {
+      setIsApplyingRules(false);
+    }
+  };
+
   const deleteBatch = async (batchToDelete: string) => {
     if (!confirm(`Delete batch "${batchToDelete}"? This will void any booked journal entries.`)) {
       return;
@@ -345,21 +636,36 @@ export default function StatementsPage() {
         </div>
         <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Statement Import</h1>
+            <h1 className="text-3xl font-bold mb-2 text-gray-900">Statement Import</h1>
             <p className="text-gray-600">
               Import bank or credit card statement CSVs and book transactions with auto-categorization
             </p>
           </div>
-          <Link
-            href="/bookkeeping/rules"
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
-          >
-            Manage Rules
-          </Link>
+          <div className="flex items-center gap-2">
+            {step === 'review' && unmatchedCount > 0 && (
+              <button
+                onClick={applyRulesToUnmatched}
+                disabled={isApplyingRules}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+              >
+                {isApplyingRules ? 'Applying...' : 'Apply Rules'}
+              </button>
+            )}
+            <Link
+              href="/bookkeeping/rules"
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            >
+              Manage Rules
+            </Link>
+          </div>
         </div>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>
+        )}
+
+        {applyRulesMessage && (
+          <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm font-medium">{applyRulesMessage}</div>
         )}
 
         {/* Step: Upload */}
@@ -369,7 +675,7 @@ export default function StatementsPage() {
             {batches.length > 0 && (
               <div className="bg-white border rounded-lg shadow-sm">
                 <div className="px-4 py-3 border-b">
-                  <h2 className="font-semibold">Pending Batches</h2>
+                  <h2 className="font-semibold text-gray-900">Pending Batches</h2>
                 </div>
                 <div className="divide-y">
                   {batches.map((batch) => (
@@ -406,7 +712,7 @@ export default function StatementsPage() {
 
             {/* Upload Form */}
             <div className="bg-white border rounded-lg p-6 shadow-sm">
-              <h2 className="text-lg font-semibold mb-4">Upload New Statement</h2>
+              <h2 className="text-lg font-semibold mb-4 text-gray-900">Upload New Statement</h2>
 
               <div className="space-y-4">
                 {/* Source Account */}
@@ -417,7 +723,7 @@ export default function StatementsPage() {
                   <select
                     value={sourceAccountId}
                     onChange={(e) => setSourceAccountId(e.target.value)}
-                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm"
+                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     <option value="">Select account...</option>
                     {bankAccounts.map((a) => (
@@ -438,7 +744,7 @@ export default function StatementsPage() {
                     value={batchName}
                     onChange={(e) => setBatchName(e.target.value)}
                     placeholder="e.g., Chase Checking Jan 2024"
-                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm"
+                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
                   />
                 </div>
 
@@ -538,7 +844,7 @@ export default function StatementsPage() {
                   <select
                     value={selectedBatch}
                     onChange={(e) => { setSelectedBatch(e.target.value); fetchPendingImports(e.target.value); }}
-                    className="border rounded px-3 py-1.5 text-sm"
+                    className="border rounded px-3 py-1.5 text-sm text-gray-900"
                   >
                     <option value="">All pending</option>
                     {batches.map((b) => (
@@ -579,7 +885,7 @@ export default function StatementsPage() {
                   <select
                     value={bulkTargetAccountId}
                     onChange={(e) => setBulkTargetAccountId(e.target.value)}
-                    className="border rounded px-2 py-1 text-xs"
+                    className="border rounded px-2 py-1 text-xs text-gray-900"
                   >
                     <option value="">Set category...</option>
                     {targetAccounts.map((a) => (
@@ -662,16 +968,24 @@ export default function StatementsPage() {
                         </span>
                       </td>
                       <td className="px-3 py-1">
-                        <select
-                          value={imp.targetAccount?.id || ''}
-                          onChange={(e) => updateImport(imp.id, { targetAccountId: e.target.value || null })}
-                          className={`w-full border rounded px-2 py-1 text-xs ${!imp.targetAccount ? 'border-amber-400' : ''}`}
-                        >
-                          <option value="">Select category...</option>
-                          {targetAccounts.map((a) => (
-                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <SearchableSelect
+                            value={imp.targetAccount?.id || ''}
+                            onChange={(value) => updateImport(imp.id, { targetAccountId: value || null })}
+                            options={targetAccounts}
+                            placeholder="Select category..."
+                            className="flex-1"
+                          />
+                          {imp.targetAccount && (
+                            <button
+                              onClick={() => openRuleModal(imp)}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
+                              title="Create a rule for this transaction"
+                            >
+                              + Rule
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -692,6 +1006,127 @@ export default function StatementsPage() {
                   {selectedBatch ? 'No pending transactions in this batch' : 'No pending transactions'}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Rule Creation Modal */}
+        {ruleModalOpen && ruleImportId && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-900">Create Transaction Rule</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  This rule will auto-categorize matching transactions in future imports.
+                </p>
+              </div>
+
+              <div className="px-6 py-4 space-y-4">
+                {/* Source Transaction Preview */}
+                <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                  <div className="text-xs text-gray-500 uppercase mb-1">Source Transaction</div>
+                  <div className="font-medium text-gray-900 truncate">
+                    {pendingImports.find(i => i.id === ruleImportId)?.description}
+                  </div>
+                </div>
+
+                {/* Match Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Match Type
+                  </label>
+                  <select
+                    value={ruleMatchType}
+                    onChange={(e) => setRuleMatchType(e.target.value as typeof ruleMatchType)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="starts_with">Starts with</option>
+                    <option value="contains">Contains</option>
+                    <option value="ends_with">Ends with</option>
+                  </select>
+                </div>
+
+                {/* Match Text */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Match Text
+                  </label>
+                  <input
+                    type="text"
+                    value={ruleMatchText}
+                    onChange={(e) => setRuleMatchText(e.target.value)}
+                    placeholder="Text to match..."
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Transactions where description {ruleMatchType.replace('_', ' ')} this text will match.
+                  </p>
+                </div>
+
+                {/* Target Account */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Target Category
+                  </label>
+                  <select
+                    value={ruleTargetAccountId}
+                    onChange={(e) => setRuleTargetAccountId(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="">Select category...</option>
+                    {targetAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Scope Toggle */}
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="ruleApplyAllAccounts"
+                    checked={ruleApplyToAllAccounts}
+                    onChange={(e) => setRuleApplyToAllAccounts(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <label htmlFor="ruleApplyAllAccounts" className="text-sm text-gray-700">
+                    Apply to all accounts
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 -mt-2 ml-6">
+                  {ruleApplyToAllAccounts
+                    ? 'Rule will match transactions from any account'
+                    : `Rule will only match transactions from ${pendingImports.find(i => i.id === ruleImportId)?.sourceAccount.name || 'this account'}`}
+                </p>
+
+                {/* Success Message */}
+                {ruleSuccessMessage && (
+                  <div className="bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm font-medium">
+                    {ruleSuccessMessage}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+                <button
+                  onClick={closeRuleModal}
+                  disabled={ruleCreating}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateRule}
+                  disabled={ruleCreating || !ruleMatchText.trim() || !ruleTargetAccountId}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    ruleCreating || !ruleMatchText.trim() || !ruleTargetAccountId
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                >
+                  {ruleCreating ? 'Creating...' : 'Create Rule'}
+                </button>
+              </div>
             </div>
           </div>
         )}

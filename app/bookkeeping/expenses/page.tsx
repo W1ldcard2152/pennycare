@@ -202,7 +202,7 @@ export default function ExpensesPage() {
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">Expenses</span>
             </div>
-            <h1 className="text-3xl font-bold">Expenses</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Expenses</h1>
             <p className="text-gray-600 mt-1">{total} expense{total !== 1 ? 's' : ''}</p>
           </div>
           <div className="flex gap-3">
@@ -222,18 +222,18 @@ export default function ExpensesPage() {
         {/* Create Form */}
         {showForm && (
           <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm">
-            <h2 className="text-lg font-semibold mb-4">New Expense</h2>
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">New Expense</h2>
             {formError && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
             <form onSubmit={createExpense} className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
                 <input type="date" required value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
                 <select value={formData.vendorId} onChange={(e) => setFormData({ ...formData, vendorId: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                   <option value="">No vendor</option>
                   {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
@@ -241,25 +241,25 @@ export default function ExpensesPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
                 <select required value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                   {CATEGORIES.map((c) => <option key={c} value={c}>{formatCategory(c)}</option>)}
                 </select>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
                 <input type="text" required value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
                 <input type="number" required step="0.01" min="0.01" value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="0.00" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
                 <select value={formData.paymentMethod} onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                   <option value="">Select...</option>
                   {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
                 </select>
@@ -267,7 +267,7 @@ export default function ExpensesPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reference #</label>
                 <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div className="flex items-center gap-4">
                 <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
@@ -278,7 +278,7 @@ export default function ExpensesPage() {
                 </label>
                 {formData.isPaid && (
                   <input type="date" value={formData.paidDate} onChange={(e) => setFormData({ ...formData, paidDate: e.target.value })}
-                    className="border rounded-lg px-3 py-2 text-sm" />
+                    className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
                 )}
               </div>
 
@@ -294,7 +294,7 @@ export default function ExpensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Debit Account (Expense)</label>
                     <select value={formData.debitAccountId} onChange={(e) => setFormData({ ...formData, debitAccountId: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm">
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                       <option value="">Select account...</option>
                       {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                     </select>
@@ -302,7 +302,7 @@ export default function ExpensesPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Credit Account (Cash/Bank)</label>
                     <select value={formData.creditAccountId} onChange={(e) => setFormData({ ...formData, creditAccountId: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm">
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                       <option value="">Select account...</option>
                       {cashAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                     </select>
@@ -316,7 +316,7 @@ export default function ExpensesPage() {
               <div className="md:col-span-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" rows={2} />
               </div>
               <div className="md:col-span-3">
                 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
@@ -332,7 +332,7 @@ export default function ExpensesPage() {
           <div>
             <label className="block text-xs text-gray-500 mb-1">Category</label>
             <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm">
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900">
               <option value="">All</option>
               {CATEGORIES.map((c) => <option key={c} value={c}>{formatCategory(c)}</option>)}
             </select>
@@ -340,7 +340,7 @@ export default function ExpensesPage() {
           <div>
             <label className="block text-xs text-gray-500 mb-1">Vendor</label>
             <select value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm">
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900">
               <option value="">All</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -348,12 +348,12 @@ export default function ExpensesPage() {
           <div>
             <label className="block text-xs text-gray-500 mb-1">Start Date</label>
             <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm" />
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">End Date</label>
             <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm" />
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900" />
           </div>
           <button onClick={applyFilters} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">
             Apply

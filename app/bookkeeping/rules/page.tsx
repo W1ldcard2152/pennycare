@@ -246,7 +246,7 @@ export default function RulesPage() {
         </div>
         <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Transaction Rules</h1>
+            <h1 className="text-3xl font-bold mb-2 text-gray-900">Transaction Rules</h1>
             <p className="text-gray-600">
               Create rules to auto-categorize imported transactions based on description patterns
             </p>
@@ -268,14 +268,14 @@ export default function RulesPage() {
           <div className="space-y-6">
             {/* Create/Edit Form */}
             <div className="bg-white border rounded-lg p-4 shadow-sm">
-              <h2 className="font-semibold mb-4">{editingRule ? 'Edit Rule' : 'Create Rule'}</h2>
+              <h2 className="font-semibold mb-4 text-gray-900">{editingRule ? 'Edit Rule' : 'Create Rule'}</h2>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Match Type</label>
                   <select
                     value={formData.matchType}
                     onChange={(e) => setFormData({ ...formData, matchType: e.target.value as 'starts_with' | 'contains' | 'ends_with' })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     <option value="contains">Contains</option>
                     <option value="starts_with">Starts with</option>
@@ -290,7 +290,7 @@ export default function RulesPage() {
                     value={formData.matchText}
                     onChange={(e) => setFormData({ ...formData, matchText: e.target.value })}
                     placeholder="e.g., AMAZON, SHELL, WALMART"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
                   />
                   <p className="text-xs text-gray-500 mt-1">Case-insensitive matching</p>
                 </div>
@@ -300,7 +300,7 @@ export default function RulesPage() {
                   <select
                     value={formData.targetAccountId}
                     onChange={(e) => setFormData({ ...formData, targetAccountId: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     <option value="">Select account...</option>
                     {targetAccounts.map((a) => (
@@ -316,7 +316,7 @@ export default function RulesPage() {
                   <select
                     value={formData.sourceAccountId}
                     onChange={(e) => setFormData({ ...formData, sourceAccountId: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     <option value="">All accounts (global rule)</option>
                     {bankAccounts.map((a) => (
@@ -335,7 +335,7 @@ export default function RulesPage() {
                     value={formData.defaultMemo}
                     onChange={(e) => setFormData({ ...formData, defaultMemo: e.target.value })}
                     placeholder="Optional memo for journal entry"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
                   />
                 </div>
 
@@ -346,7 +346,7 @@ export default function RulesPage() {
                     value={formData.priority}
                     onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })}
                     min="0"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   />
                   <p className="text-xs text-gray-500 mt-1">Higher priority rules match first</p>
                 </div>
@@ -373,7 +373,7 @@ export default function RulesPage() {
 
             {/* Test Rules */}
             <div className="bg-white border rounded-lg p-4 shadow-sm">
-              <h2 className="font-semibold mb-4">Test Rules</h2>
+              <h2 className="font-semibold mb-4 text-gray-900">Test Rules</h2>
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description to test</label>
@@ -382,7 +382,7 @@ export default function RulesPage() {
                     value={testDescription}
                     onChange={(e) => setTestDescription(e.target.value)}
                     placeholder="e.g., AMAZON.COM*123456"
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
                     onKeyDown={(e) => { if (e.key === 'Enter') testRules(); }}
                   />
                 </div>
@@ -393,7 +393,7 @@ export default function RulesPage() {
                   <select
                     value={testSourceAccountId}
                     onChange={(e) => setTestSourceAccountId(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     <option value="">Any</option>
                     {bankAccounts.map((a) => (
@@ -434,7 +434,7 @@ export default function RulesPage() {
           <div className="lg:col-span-2">
             <div className="bg-white border rounded-lg shadow-sm">
               <div className="px-4 py-3 border-b flex justify-between items-center">
-                <h2 className="font-semibold">Rules ({rules.length})</h2>
+                <h2 className="font-semibold text-gray-900">Rules ({rules.length})</h2>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"

@@ -299,6 +299,7 @@ export const updateTransactionRuleSchema = z.object({
 
 export const updateStatementImportSchema = z.object({
   targetAccountId: z.string().min(1).optional().nullable(),
+  matchedRuleId: z.string().min(1).optional().nullable(),
   memo: z.string().optional().nullable(),
   status: z.enum(['pending', 'booked', 'skipped']).optional(),
 });
@@ -319,6 +320,42 @@ export const ebaySalesQuerySchema = z.object({
   importBatch: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(50),
+});
+
+// ── Credit Card Statement Import ──────────────────────────────────
+
+export const ccParseSchema = z.object({
+  format: z.enum(['capital_one', 'chase', 'paypal_credit'], {
+    message: 'Format must be capital_one, chase, or paypal_credit',
+  }),
+  transactionsText: z.string().optional().default(''),
+  paymentsText: z.string().optional().default(''),
+  statementEndDate: z.string().min(1, 'Statement end date is required'),
+});
+
+const ccPaymentSchema = z.object({
+  date: z.string().min(1, 'Date is required'),
+  description: z.string().min(1, 'Description is required'),
+  amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+});
+
+const ccTransactionSchema = z.object({
+  date: z.string().min(1, 'Date is required'),
+  description: z.string().min(1, 'Description is required'),
+  amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+  isCredit: z.boolean(),
+  targetAccountId: z.string().optional().nullable(),
+});
+
+export const ccSubmitSchema = z.object({
+  sourceAccountId: z.string().min(1, 'Source account is required'),
+  format: z.string().min(1, 'Format is required'),
+  statementEndDate: z.string().min(1, 'Statement end date is required'),
+  batchName: z.string().min(1, 'Batch name is required'),
+  interestAmount: z.union([z.string(), z.number()]).transform((v) => Number(v) || 0),
+  interestAccountId: z.string().optional().nullable(),
+  payments: z.array(ccPaymentSchema).default([]),
+  transactions: z.array(ccTransactionSchema).default([]),
 });
 
 // ── Helper ────────────────────────────────────────────

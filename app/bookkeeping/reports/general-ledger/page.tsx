@@ -91,24 +91,24 @@ export default function GeneralLedgerPage() {
           <span className="text-gray-400">/</span>
           <span className="text-gray-600 text-sm">General Ledger</span>
         </div>
-        <h1 className="text-3xl font-bold mb-6">General Ledger</h1>
+        <h1 className="text-3xl font-bold mb-6 text-gray-900">General Ledger</h1>
 
         {/* Controls */}
         <div className="flex flex-wrap gap-4 items-end mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm" />
+              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm" />
+              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Account (optional)</label>
             <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm min-w-[200px]">
+              className="border rounded-lg px-3 py-2 text-sm min-w-[200px] text-gray-900">
               <option value="">All Accounts</option>
               {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
@@ -130,7 +130,7 @@ export default function GeneralLedgerPage() {
         {data && (
           <div className="print:text-xs">
             <div className="text-center mb-6 print:mb-4">
-              <h2 className="text-xl font-bold">General Ledger</h2>
+              <h2 className="text-xl font-bold text-gray-900">General Ledger</h2>
               <p className="text-sm text-gray-500">
                 {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
               </p>

@@ -160,7 +160,7 @@ export default function VendorsPage() {
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">Vendors</span>
             </div>
-            <h1 className="text-3xl font-bold">Vendors</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Vendors</h1>
             <p className="text-gray-600 mt-1">{vendors.length} vendor{vendors.length !== 1 ? 's' : ''}</p>
           </div>
           <button
@@ -174,55 +174,55 @@ export default function VendorsPage() {
         {/* Create Form */}
         {showForm && (
           <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm">
-            <h2 className="text-lg font-semibold mb-4">New Vendor</h2>
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">New Vendor</h2>
             {formError && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
             <form onSubmit={createVendor} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
                 <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Vendor name" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="Vendor name" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                 <input type="text" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tax ID</label>
                 <input type="text" value={formData.taxId} onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                 <input type="text" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                   <input type="text" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                   <input type="text" value={formData.state} onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" maxLength={2} />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" maxLength={2} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Zip</label>
                   <input type="text" value={formData.zipCode} onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" rows={2} />
               </div>
               <div className="md:col-span-2">
                 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
@@ -291,22 +291,22 @@ export default function VendorsPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                     <input type="text" required value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm" />
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                     <input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm" />
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                     <input type="text" value={editData.phone} onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm" />
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                     <textarea value={editData.notes} onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                      className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} />
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" rows={2} />
                   </div>
                   <div className="flex gap-2">
                     <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors">Save</button>

@@ -74,7 +74,6 @@ export async function DELETE(
 
     // Separate booked and pending imports
     const bookedImports = imports.filter((i) => i.status === 'booked');
-    const pendingImports = imports.filter((i) => i.status !== 'booked');
 
     let voidedCount = 0;
     let deletedCount = 0;
@@ -92,8 +91,34 @@ export async function DELETE(
               voidReason: `Batch import "${decodedBatchName}" was deleted`,
             },
           });
+          voidedCount++;
         }
-        voidedCount++;
+      }
+
+      // For CC imports: also void any journal entries linked by referenceNumber
+      // (interest and payment entries are booked immediately without StatementImport records)
+      if (decodedBatchName.startsWith('cc-')) {
+        const ccJournalEntries = await tx.journalEntry.findMany({
+          where: {
+            companyId: companyId!,
+            source: 'cc_import',
+            referenceNumber: decodedBatchName,
+            status: 'posted',
+          },
+        });
+
+        for (const entry of ccJournalEntries) {
+          await tx.journalEntry.update({
+            where: { id: entry.id },
+            data: {
+              status: 'voided',
+              voidedAt: new Date(),
+              voidedBy: session!.userId,
+              voidReason: `CC import batch "${decodedBatchName}" was deleted`,
+            },
+          });
+          voidedCount++;
+        }
       }
 
       // Delete all imports in the batch

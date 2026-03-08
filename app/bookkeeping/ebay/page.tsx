@@ -266,7 +266,7 @@ export default function EbaySalesPage() {
             <ArrowLeftIcon className="h-4 w-4 mr-1" />
             Back to Bookkeeping
           </Link>
-          <h1 className="text-3xl font-bold mb-2">eBay Sales</h1>
+          <h1 className="text-3xl font-bold mb-2 text-gray-900">eBay Sales</h1>
           <p className="text-gray-600">
             Import and manage eBay sales from CSV exports
           </p>
@@ -281,7 +281,7 @@ export default function EbaySalesPage() {
 
         {/* Import Section */}
         <div className="bg-white rounded-lg shadow mb-8 p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
+          <h2 className="text-lg font-semibold mb-4 flex items-center text-gray-900">
             <ArrowUpTrayIcon className="h-5 w-5 mr-2 text-blue-600" />
             Import CSV
           </h2>
@@ -437,7 +437,7 @@ export default function EbaySalesPage() {
         {!loading && sales.length > 0 && (
           <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold">Sales ({totals?.count || 0})</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Sales ({totals?.count || 0})</h2>
             </div>
 
             {/* Group by batch */}
@@ -602,7 +602,7 @@ export default function EbaySalesPage() {
         {Object.keys(monthlySummary).length > 0 && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold">Monthly Summary</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Monthly Summary</h2>
             </div>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">

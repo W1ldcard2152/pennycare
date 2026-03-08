@@ -92,10 +92,10 @@ export async function PATCH(
         status: validation.data.status !== undefined
           ? validation.data.status
           : undefined,
-        // Clear the matched rule if manually changing the target account
-        matchedRuleId: validation.data.targetAccountId !== undefined
-          ? null
-          : undefined,
+        // If matchedRuleId is explicitly provided, use it; otherwise clear it when changing target
+        matchedRuleId: validation.data.matchedRuleId !== undefined
+          ? validation.data.matchedRuleId
+          : (validation.data.targetAccountId !== undefined ? null : undefined),
       },
       include: {
         sourceAccount: {

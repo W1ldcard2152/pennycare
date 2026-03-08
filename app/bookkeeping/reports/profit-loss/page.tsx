@@ -56,19 +56,19 @@ export default function ProfitLossPage() {
           <span className="text-gray-400">/</span>
           <span className="text-gray-600 text-sm">Profit & Loss</span>
         </div>
-        <h1 className="text-3xl font-bold mb-6">Profit & Loss Statement</h1>
+        <h1 className="text-3xl font-bold mb-6 text-gray-900">Profit & Loss Statement</h1>
 
         {/* Date Range */}
         <div className="flex gap-4 items-end mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm" />
+              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm" />
+              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
           </div>
           <button onClick={fetchReport} disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
@@ -87,7 +87,7 @@ export default function ProfitLossPage() {
         {data && (
           <div className="bg-white border rounded-lg shadow-sm p-6 print:shadow-none print:border-none">
             <div className="text-center mb-6 print:mb-4">
-              <h2 className="text-xl font-bold">Profit & Loss</h2>
+              <h2 className="text-xl font-bold text-gray-900">Profit & Loss</h2>
               <p className="text-sm text-gray-500">
                 {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
               </p>

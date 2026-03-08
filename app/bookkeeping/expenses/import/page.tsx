@@ -337,7 +337,7 @@ export default function ImportStatementsPage() {
           <select
             value={sourceAccountId}
             onChange={(e) => setSourceAccountId(e.target.value)}
-            className="w-full max-w-md border rounded-lg px-3 py-2 text-sm"
+            className="w-full max-w-md border rounded-lg px-3 py-2 text-sm text-gray-900"
           >
             <option value="">Select source account...</option>
             {allAccountsSorted.map((a) => (
@@ -394,7 +394,7 @@ export default function ImportStatementsPage() {
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
               placeholder="Date,Description,Amount&#10;2024-01-15,Amazon - Office Supplies,45.67"
-              className="w-full border rounded-lg px-3 py-2 text-sm font-mono h-40 mb-4"
+              className="w-full border rounded-lg px-3 py-2 text-sm font-mono h-40 mb-4 text-gray-900 placeholder-gray-400"
             />
 
             <button
@@ -437,7 +437,7 @@ export default function ImportStatementsPage() {
                         value={newRulePattern}
                         onChange={(e) => setNewRulePattern(e.target.value)}
                         placeholder='e.g. "amazon", "advance auto"'
-                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
                         onKeyDown={(e) => { if (e.key === 'Enter') addRule(); }}
                       />
                     </div>
@@ -446,7 +446,7 @@ export default function ImportStatementsPage() {
                       <select
                         value={newRuleAccountId}
                         onChange={(e) => setNewRuleAccountId(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                       >
                         <option value="">Select account...</option>
                         {expenseAccounts.map((a) => (
@@ -519,7 +519,7 @@ export default function ImportStatementsPage() {
                 <select
                   value={bulkDebitAccountId}
                   onChange={(e) => setBulkDebitAccountId(e.target.value)}
-                  className="border rounded px-2 py-1 text-xs"
+                  className="border rounded px-2 py-1 text-xs text-gray-900"
                 >
                   <option value="">Choose...</option>
                   {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
@@ -579,7 +579,7 @@ export default function ImportStatementsPage() {
                           <select
                             value={row.debitAccountId}
                             onChange={(e) => updateRow(row.index, 'debitAccountId', e.target.value)}
-                            className={`w-full border rounded px-2 py-1 text-xs ${missingAccount ? 'border-amber-400 bg-amber-50' : ''}`}
+                            className={`w-full border rounded px-2 py-1 text-xs text-gray-900 ${missingAccount ? 'border-amber-400 bg-amber-50' : ''}`}
                           >
                             <option value="">Select account...</option>
                             {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}

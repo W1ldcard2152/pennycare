@@ -24,6 +24,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '1010', name: 'Savings Account', type: 'asset', subtype: 'bank_savings', description: 'Business savings account' },
   { code: '1020', name: 'Petty Cash', type: 'asset', subtype: 'other_current_asset', description: 'Cash on hand' },
   { code: '1050', name: 'eBay Pending Payouts', type: 'asset', subtype: 'other_current_asset', description: 'Funds held by eBay pending daily payout to bank' },
+  { code: '1060', name: 'CC Payments Pending', type: 'asset', subtype: 'other_current_asset', description: 'Credit card payments pending bank clearing' },
   { code: '1100', name: 'Accounts Receivable', type: 'asset', subtype: 'accounts_receivable', description: 'Money owed by customers' },
   { code: '1200', name: 'Parts Inventory', type: 'asset', subtype: 'other_current_asset', description: 'Salvaged and new parts inventory' },
   { code: '1500', name: 'Tools & Equipment', type: 'asset', subtype: 'fixed_asset', description: 'Shop tools and equipment' },
@@ -59,6 +60,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '4020', name: 'Repair Revenue', type: 'revenue', subtype: 'income', description: 'Revenue from repair services' },
   { code: '4030', name: 'Scrap/Core Revenue', type: 'revenue', subtype: 'income', description: 'Revenue from scrap metal and core returns' },
   { code: '4900', name: 'Other Income', type: 'revenue', subtype: 'other_income', description: 'Miscellaneous income' },
+  { code: '4910', name: 'Cash Back Rewards', type: 'revenue', subtype: 'other_income', description: 'Credit card cash back rewards' },
 
   // ── Expenses (5000-6999) ──
   { code: '5000', name: 'Cost of Goods Sold', type: 'expense', subtype: 'cost_of_goods_sold', description: 'Direct cost of parts and vehicles purchased for resale' },
@@ -81,6 +83,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '6210', name: 'Shipping & Postage', type: 'expense', subtype: 'expense', description: 'Shipping costs for parts sales' },
   { code: '6220', name: 'Licenses & Permits', type: 'expense', subtype: 'expense', description: 'Business licenses, DMV fees, permits' },
   { code: '6230', name: 'Depreciation Expense', type: 'expense', subtype: 'expense', description: 'Depreciation of fixed assets' },
+  { code: '6300', name: 'Credit Card Interest', type: 'expense', subtype: 'expense', description: 'Credit card interest expense' },
   { code: '6900', name: 'Miscellaneous Expense', type: 'expense', subtype: 'other_expense', description: 'Other business expenses' },
 ];
 

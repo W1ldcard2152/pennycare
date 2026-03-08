@@ -59,14 +59,14 @@ export default function BalanceSheetPage() {
           <span className="text-gray-400">/</span>
           <span className="text-gray-600 text-sm">Balance Sheet</span>
         </div>
-        <h1 className="text-3xl font-bold mb-6">Balance Sheet</h1>
+        <h1 className="text-3xl font-bold mb-6 text-gray-900">Balance Sheet</h1>
 
         {/* Date */}
         <div className="flex gap-4 items-end mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">As of Date</label>
             <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm" />
+              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
           </div>
           <button onClick={fetchReport} disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
@@ -85,7 +85,7 @@ export default function BalanceSheetPage() {
         {data && (
           <div className="bg-white border rounded-lg shadow-sm p-6 print:shadow-none print:border-none">
             <div className="text-center mb-6 print:mb-4">
-              <h2 className="text-xl font-bold">Balance Sheet</h2>
+              <h2 className="text-xl font-bold text-gray-900">Balance Sheet</h2>
               <p className="text-sm text-gray-500">As of {new Date(asOfDate).toLocaleDateString()}</p>
             </div>
 

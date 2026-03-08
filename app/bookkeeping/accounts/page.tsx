@@ -14,7 +14,47 @@ interface Account {
   balance: number;
 }
 
-const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'];
+const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense', 'credit_card'];
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  asset: 'Asset',
+  liability: 'Liability',
+  equity: 'Equity',
+  revenue: 'Revenue',
+  expense: 'Expense',
+  credit_card: 'Credit Card',
+};
+
+// Valid subtypes per account type (must match validation.ts)
+const VALID_SUBTYPES: Record<string, string[]> = {
+  asset: ['bank_checking', 'bank_savings', 'accounts_receivable', 'other_current_asset', 'fixed_asset', 'other_asset'],
+  liability: ['accounts_payable', 'other_current_liability', 'long_term_liability'],
+  equity: ['owners_equity', 'retained_earnings', 'opening_balance_equity'],
+  revenue: ['income', 'other_income'],
+  expense: ['expense', 'other_expense', 'cost_of_goods_sold'],
+  credit_card: ['credit_card'],
+};
+
+const SUBTYPE_LABELS: Record<string, string> = {
+  bank_checking: 'Bank Checking',
+  bank_savings: 'Bank Savings',
+  accounts_receivable: 'Accounts Receivable',
+  other_current_asset: 'Other Current Asset',
+  fixed_asset: 'Fixed Asset',
+  other_asset: 'Other Asset',
+  accounts_payable: 'Accounts Payable',
+  other_current_liability: 'Other Current Liability',
+  long_term_liability: 'Long Term Liability',
+  owners_equity: "Owner's Equity",
+  retained_earnings: 'Retained Earnings',
+  opening_balance_equity: 'Opening Balance Equity',
+  income: 'Income',
+  other_income: 'Other Income',
+  expense: 'Expense',
+  other_expense: 'Other Expense',
+  cost_of_goods_sold: 'Cost of Goods Sold',
+  credit_card: 'Credit Card',
+};
 
 type SortKey = 'code' | 'name' | 'description' | 'balance' | 'isActive';
 type SortDir = 'asc' | 'desc';
@@ -29,7 +69,8 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ code: '', name: '', type: 'expense', subtype: '', description: '' });
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [formData, setFormData] = useState({ code: '', name: '', type: 'expense', subtype: 'expense', description: '' });
   const [formError, setFormError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
 
@@ -76,9 +117,52 @@ export default function AccountsPage() {
         return;
       }
       setShowForm(false);
-      setFormData({ code: '', name: '', type: 'expense', subtype: '', description: '' });
+      setFormData({ code: '', name: '', type: 'expense', subtype: 'expense', description: '' });
       fetchAccounts();
     } catch { setFormError('Failed to create account'); }
+  };
+
+  const startEditAccount = (acct: Account) => {
+    setEditingAccount(acct);
+    setFormData({
+      code: acct.code,
+      name: acct.name,
+      type: acct.type,
+      subtype: acct.subtype || VALID_SUBTYPES[acct.type]?.[0] || '',
+      description: acct.description || '',
+    });
+    setFormError('');
+  };
+
+  const cancelEdit = () => {
+    setEditingAccount(null);
+    setFormData({ code: '', name: '', type: 'expense', subtype: 'expense', description: '' });
+    setFormError('');
+  };
+
+  const updateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount) return;
+    setFormError('');
+    try {
+      const res = await fetch(`/api/bookkeeping/accounts/${editingAccount.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          type: formData.type,
+          subtype: formData.subtype,
+          description: formData.description || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setFormError(err.error || 'Failed to update account');
+        return;
+      }
+      cancelEdit();
+      fetchAccounts();
+    } catch { setFormError('Failed to update account'); }
   };
 
   const deleteAccount = async (id: string, name: string) => {
@@ -179,6 +263,7 @@ export default function AccountsPage() {
     equity: 'bg-purple-50 text-purple-700',
     revenue: 'bg-green-50 text-green-700',
     expense: 'bg-orange-50 text-orange-700',
+    credit_card: 'bg-rose-50 text-rose-700',
   };
 
   const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:text-gray-700 transition-colors';
@@ -194,7 +279,7 @@ export default function AccountsPage() {
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">Chart of Accounts</span>
             </div>
-            <h1 className="text-3xl font-bold mb-2">Chart of Accounts</h1>
+            <h1 className="text-3xl font-bold mb-2 text-gray-900">Chart of Accounts</h1>
             <p className="text-gray-600">
               {accounts.length} account{accounts.length !== 1 ? 's' : ''} ({accounts.filter((a) => a.isActive).length} active)
             </p>
@@ -215,38 +300,46 @@ export default function AccountsPage() {
           <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg">{actionMessage}</div>
         )}
 
-        {/* Create Form */}
+        {/* Create Account Form */}
         {showForm && (
           <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm">
-            <h2 className="text-lg font-semibold mb-4">New Account</h2>
-            {formError && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">New Account</h2>
+            {formError && !editingAccount && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
             <form onSubmit={createAccount} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Account Code</label>
                 <input type="text" required value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., 6300" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="e.g., 6300" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
                 <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., Training Expense" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="e.g., Training Expense" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
-                  {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                <select value={formData.type} onChange={(e) => {
+                  const newType = e.target.value;
+                  const subtypes = VALID_SUBTYPES[newType] || [];
+                  setFormData({ ...formData, type: newType, subtype: subtypes[0] || '' });
+                }}
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
+                  {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{ACCOUNT_TYPE_LABELS[t]}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Subtype (optional)</label>
-                <input type="text" value={formData.subtype} onChange={(e) => setFormData({ ...formData, subtype: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., current_asset" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Subtype</label>
+                <select value={formData.subtype} onChange={(e) => setFormData({ ...formData, subtype: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
+                  {(VALID_SUBTYPES[formData.type] || []).map((st) => (
+                    <option key={st} value={st}>{SUBTYPE_LABELS[st] || st}</option>
+                  ))}
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
                 <input type="text" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div className="md:col-span-2">
                 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
@@ -254,6 +347,73 @@ export default function AccountsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Edit Account Modal */}
+        {editingAccount && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+              <div className="px-6 py-4 border-b flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Account: {editingAccount.code}</h3>
+                <button type="button" onClick={cancelEdit} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <form onSubmit={updateAccount} className="px-6 py-4 space-y-4">
+                {formError && <div className="p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Code</label>
+                  <input type="text" value={formData.code} disabled
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 bg-gray-100 cursor-not-allowed" />
+                  <p className="text-xs text-gray-500 mt-1">Account code cannot be changed</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
+                  <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                    <select value={formData.type} onChange={(e) => {
+                      const newType = e.target.value;
+                      const subtypes = VALID_SUBTYPES[newType] || [];
+                      setFormData({ ...formData, type: newType, subtype: subtypes[0] || '' });
+                    }}
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
+                      {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{ACCOUNT_TYPE_LABELS[t]}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Subtype</label>
+                    <select value={formData.subtype} onChange={(e) => setFormData({ ...formData, subtype: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
+                      {(VALID_SUBTYPES[formData.type] || []).map((st) => (
+                        <option key={st} value={st}>{SUBTYPE_LABELS[st] || st}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
+                  <input type="text" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                </div>
+              </form>
+              <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+                <button type="button" onClick={cancelEdit}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+                  Cancel
+                </button>
+                <button type="button" onClick={updateAccount}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors">
+                  Save Changes
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -282,7 +442,7 @@ export default function AccountsPage() {
           const accts = groupedByType[type];
           if (accts.length === 0) return null;
 
-          const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+          const typeLabel = ACCOUNT_TYPE_LABELS[type] || type;
 
           return (
             <div key={type} className="mb-6">
@@ -309,14 +469,22 @@ export default function AccountsPage() {
                       <th className={`${thClass} w-20`} onClick={() => handleSort('isActive')}>
                         Status{getSortIndicator('isActive')}
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-40">Actions</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-48">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {accts.map((acct) => (
                       <tr key={acct.id} className={acct.isActive ? '' : 'bg-gray-50 opacity-60'}>
-                        <td className="px-4 py-3 text-sm font-mono text-gray-900">{acct.code}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{acct.name}</td>
+                        <td className="px-4 py-3 text-sm font-mono">
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="text-blue-600 hover:text-blue-700 hover:underline">
+                            {acct.code}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium">
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="text-blue-600 hover:text-blue-700 hover:underline">
+                            {acct.name}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3 text-sm text-gray-500">{acct.description || '\u2014'}</td>
                         <td className={`px-4 py-3 text-sm text-right font-medium ${acct.balance < 0 ? 'text-red-600' : acct.balance > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
                           {acct.balance === 0 ? '\u2014' : formatCurrency(acct.balance)}
@@ -326,13 +494,26 @@ export default function AccountsPage() {
                             {acct.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-right">
-                          <button onClick={() => toggleActive(acct.id, acct.isActive)}
-                            className="text-gray-500 hover:text-gray-700 mr-3 text-xs">
+                        <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => startEditAccount(acct)}
+                            className="text-blue-500 hover:text-blue-700 mr-3 text-xs"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleActive(acct.id, acct.isActive)}
+                            className="text-gray-500 hover:text-gray-700 mr-3 text-xs"
+                          >
                             {acct.isActive ? 'Deactivate' : 'Activate'}
                           </button>
-                          <button onClick={() => deleteAccount(acct.id, acct.name)}
-                            className="text-red-500 hover:text-red-700 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => deleteAccount(acct.id, acct.name)}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
                             Delete
                           </button>
                         </td>

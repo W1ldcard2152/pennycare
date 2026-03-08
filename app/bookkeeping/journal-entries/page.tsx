@@ -196,7 +196,7 @@ export default function JournalEntriesPage() {
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">Journal Entries</span>
             </div>
-            <h1 className="text-3xl font-bold">Journal Entries</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Journal Entries</h1>
             <p className="text-gray-600 mt-1">{total} entr{total !== 1 ? 'ies' : 'y'}</p>
           </div>
           <button
@@ -210,24 +210,24 @@ export default function JournalEntriesPage() {
         {/* Create Form */}
         {showForm && (
           <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm">
-            <h2 className="text-lg font-semibold mb-4">New Journal Entry</h2>
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">New Journal Entry</h2>
             {formError && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
             <form onSubmit={createEntry}>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
                   <input type="date" required value={formDate} onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Memo *</label>
                   <input type="text" required value={formMemo} onChange={(e) => setFormMemo(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Description of this entry" />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="Description of this entry" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Reference #</label>
                   <input type="text" value={formRef} onChange={(e) => setFormRef(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
               </div>
 
@@ -248,22 +248,22 @@ export default function JournalEntriesPage() {
                       <tr key={idx} className="border-b border-gray-100">
                         <td className="py-1 px-2">
                           <select required value={line.accountId} onChange={(e) => updateLine(idx, 'accountId', e.target.value)}
-                            className="w-full border rounded px-2 py-1.5 text-sm">
+                            className="w-full border rounded px-2 py-1.5 text-sm text-gray-900">
                             <option value="">Select account...</option>
                             {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                           </select>
                         </td>
                         <td className="py-1 px-2">
                           <input type="text" value={line.description} onChange={(e) => updateLine(idx, 'description', e.target.value)}
-                            className="w-full border rounded px-2 py-1.5 text-sm" placeholder="Line description" />
+                            className="w-full border rounded px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400" placeholder="Line description" />
                         </td>
                         <td className="py-1 px-2">
                           <input type="number" step="0.01" min="0" value={line.debit} onChange={(e) => updateLine(idx, 'debit', e.target.value)}
-                            className="w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0.00" />
+                            className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
                         </td>
                         <td className="py-1 px-2">
                           <input type="number" step="0.01" min="0" value={line.credit} onChange={(e) => updateLine(idx, 'credit', e.target.value)}
-                            className="w-full border rounded px-2 py-1.5 text-sm text-right" placeholder="0.00" />
+                            className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
                         </td>
                         <td className="py-1 px-1">
                           {formLines.length > 2 && (
@@ -308,7 +308,7 @@ export default function JournalEntriesPage() {
           <div>
             <label className="block text-xs text-gray-500 mb-1">Source</label>
             <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm">
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900">
               <option value="">All Sources</option>
               <option value="manual">Manual</option>
               <option value="payroll">Payroll</option>

@@ -65,84 +65,89 @@ export async function POST(request: NextRequest) {
     }
 
     // Create journal entries for each transaction (one per transaction)
-    let journalEntriesCreated = 0;
-    const bookedIds: string[] = [];
+    // Note: createJournalEntry has its own internal transaction, so we create entries first,
+    // then update the statement imports in a separate batch operation
+    const bookedResults: { impId: string; entryId: string }[] = [];
 
-    await prisma.$transaction(async (tx) => {
-      for (const imp of imports) {
-        const sourceIsDebitNormal = isDebitNormal(imp.sourceAccount.type);
+    for (const imp of imports) {
+      const sourceIsDebitNormal = isDebitNormal(imp.sourceAccount.type);
 
-        // Determine debit/credit based on source account type and transaction direction
-        // For bank accounts (debit-normal assets):
-        //   - Bank debit (money OUT): DEBIT target, CREDIT source
-        //   - Bank credit (money IN): DEBIT source, CREDIT target
-        // For credit cards (credit-normal):
-        //   - CC charge (debit = money spent): DEBIT target (expense), CREDIT source
-        //   - CC payment (credit = payment): DEBIT source, CREDIT target
+      // Determine debit/credit based on source account type and transaction direction
+      // For bank accounts (debit-normal assets):
+      //   - Bank debit (money OUT): DEBIT target, CREDIT source
+      //   - Bank credit (money IN): DEBIT source, CREDIT target
+      // For credit cards (credit-normal):
+      //   - CC charge (debit = money spent): DEBIT target (expense), CREDIT source
+      //   - CC payment (credit = payment): DEBIT source, CREDIT target
 
-        let debitAccountId: string;
-        let creditAccountId: string;
+      let debitAccountId: string;
+      let creditAccountId: string;
 
-        if (sourceIsDebitNormal) {
-          // Bank account (asset)
-          if (imp.isDebit) {
-            // Money OUT of bank: debit target (expense), credit bank
-            debitAccountId = imp.targetAccountId!;
-            creditAccountId = imp.sourceAccountId;
-          } else {
-            // Money IN to bank: debit bank, credit target (income/etc)
-            debitAccountId = imp.sourceAccountId;
-            creditAccountId = imp.targetAccountId!;
-          }
+      if (sourceIsDebitNormal) {
+        // Bank account (asset)
+        if (imp.isDebit) {
+          // Money OUT of bank: debit target (expense), credit bank
+          debitAccountId = imp.targetAccountId!;
+          creditAccountId = imp.sourceAccountId;
         } else {
-          // Credit card (credit-normal)
-          if (imp.isDebit) {
-            // CC charge (expense): debit target (expense), credit CC
-            debitAccountId = imp.targetAccountId!;
-            creditAccountId = imp.sourceAccountId;
-          } else {
-            // CC payment/credit: debit CC, credit target
-            debitAccountId = imp.sourceAccountId;
-            creditAccountId = imp.targetAccountId!;
-          }
+          // Money IN to bank: debit bank, credit target (income/etc)
+          debitAccountId = imp.sourceAccountId;
+          creditAccountId = imp.targetAccountId!;
         }
+      } else {
+        // Credit card (credit-normal)
+        if (imp.isDebit) {
+          // CC charge (expense): debit target (expense), credit CC
+          debitAccountId = imp.targetAccountId!;
+          creditAccountId = imp.sourceAccountId;
+        } else {
+          // CC payment/credit: debit CC, credit target
+          debitAccountId = imp.sourceAccountId;
+          creditAccountId = imp.targetAccountId!;
+        }
+      }
 
-        const entry = await createJournalEntry({
-          companyId: companyId!,
-          date: imp.postDate,
-          memo: imp.memo || imp.description,
-          referenceNumber: imp.checkNumber || undefined,
-          source: 'statement_import',
-          sourceId: imp.id,
-          lines: [
-            {
-              accountId: debitAccountId,
-              description: imp.memo || imp.description,
-              debit: imp.amount,
-              credit: 0,
-            },
-            {
-              accountId: creditAccountId,
-              description: imp.memo || imp.description,
-              debit: 0,
-              credit: imp.amount,
-            },
-          ],
-        });
+      const entry = await createJournalEntry({
+        companyId: companyId!,
+        date: imp.postDate,
+        memo: imp.memo || imp.description,
+        referenceNumber: imp.checkNumber || undefined,
+        source: 'statement_import',
+        sourceId: imp.id,
+        lines: [
+          {
+            accountId: debitAccountId,
+            description: imp.memo || imp.description,
+            debit: imp.amount,
+            credit: 0,
+          },
+          {
+            accountId: creditAccountId,
+            description: imp.memo || imp.description,
+            debit: 0,
+            credit: imp.amount,
+          },
+        ],
+      });
 
-        // Update the statement import
-        await tx.statementImport.update({
-          where: { id: imp.id },
+      bookedResults.push({ impId: imp.id, entryId: entry.id });
+    }
+
+    // Now update all statement imports in a single batch transaction
+    await prisma.$transaction(
+      bookedResults.map((result) =>
+        prisma.statementImport.update({
+          where: { id: result.impId },
           data: {
             status: 'booked',
-            journalEntryId: entry.id,
+            journalEntryId: result.entryId,
           },
-        });
+        })
+      )
+    );
 
-        journalEntriesCreated++;
-        bookedIds.push(imp.id);
-      }
-    });
+    const journalEntriesCreated = bookedResults.length;
+    const bookedIds = bookedResults.map((r) => r.impId);
 
     // Log audit entry
     await prisma.auditLog.create({
