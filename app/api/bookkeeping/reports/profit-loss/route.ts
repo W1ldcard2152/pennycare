@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 });
     }
 
-    const report = await generateProfitAndLoss(companyId!, new Date(startDate), new Date(endDate));
+    // Pass date strings directly - generateProfitAndLoss handles timezone-safe conversion
+    const report = await generateProfitAndLoss(companyId!, startDate, endDate);
 
     return NextResponse.json(report);
   } catch (err) {

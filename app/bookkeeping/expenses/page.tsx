@@ -386,7 +386,7 @@ export default function ExpensesPage() {
               <tbody className="divide-y divide-gray-200">
                 {expenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-600">{new Date(exp.date).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{new Date(exp.date).toLocaleDateString('en-US', { timeZone: 'UTC' })}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{exp.vendor?.name || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-900">{exp.description}</td>
                     <td className="px-4 py-3 text-sm">

@@ -110,6 +110,7 @@ function formatDate(dateString: string) {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
@@ -216,8 +217,8 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
 
     try {
       const amount = parseFloat(obAmount);
-      if (isNaN(amount) || amount <= 0) {
-        setObError('Amount must be a positive number');
+      if (isNaN(amount) || amount === 0) {
+        setObError('Amount cannot be zero');
         setObSaving(false);
         return;
       }
@@ -481,7 +482,6 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                   <input
                     type="number"
                     step="0.01"
-                    min="0.01"
                     value={obAmount}
                     onChange={(e) => setObAmount(e.target.value)}
                     required
@@ -636,8 +636,8 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                     <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
                       {formatCurrency(totals.totalCredits)}
                     </td>
-                    <td className={`px-4 py-3 text-sm text-right font-semibold ${balance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {formatCurrency(balance)}
+                    <td className={`px-4 py-3 text-sm text-right font-semibold ${transactions[transactions.length - 1].runningBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                      {formatCurrency(transactions[transactions.length - 1].runningBalance)}
                     </td>
                   </tr>
                 </tfoot>

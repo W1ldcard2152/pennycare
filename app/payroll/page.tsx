@@ -499,5 +499,6 @@ function formatDateDisplay(date: Date): string {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }

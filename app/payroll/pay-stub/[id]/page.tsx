@@ -169,6 +169,7 @@ export default function PayStubPage({ params }: { params: Promise<{ id: string }
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'UTC',
     });
   };
 

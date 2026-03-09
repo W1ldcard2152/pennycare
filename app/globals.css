@@ -17,3 +17,335 @@ body {
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+
+/* Hide print header on screen */
+.print-header {
+  display: none;
+}
+
+/* Screen-only elements */
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  /* Page setup */
+  @page {
+    margin: 0.75in;
+    size: portrait;
+  }
+
+  /* Hide non-content elements */
+  nav,
+  aside,
+  header,
+  .sidebar,
+  .topbar,
+  .no-print,
+  button,
+  [role="navigation"],
+  [data-sidebar],
+  .print-hide {
+    display: none !important;
+  }
+
+  /* Ensure children of no-print are also hidden */
+  .no-print * {
+    display: none !important;
+  }
+
+  /* Reset layout */
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.4;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Remove any scroll containers */
+  .overflow-y-auto,
+  .overflow-hidden,
+  .overflow-auto {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Fix h-screen containers */
+  .h-screen {
+    height: auto !important;
+  }
+
+  /* Remove dark mode for print */
+  :root {
+    --background: #ffffff !important;
+    --foreground: #000000 !important;
+  }
+
+  /* Main content area - full width */
+  main,
+  .print-layout {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Fix flex container overflow issues */
+  .flex,
+  [class*="flex"] {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Remove min-h-screen which can cause overflow */
+  .min-h-screen {
+    min-height: auto !important;
+  }
+
+  /* Ensure proper page flow */
+  .print-layout,
+  .print-layout > *,
+  .print-content,
+  .print-content > * {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Clean visual reset */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Keep border-radius for visual hierarchy but remove shadows */
+  .print-layout * {
+    border-radius: 0 !important;
+  }
+
+  /* Print header - visible only when printing */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 10pt;
+    padding-bottom: 0;
+  }
+
+  .print-company-name {
+    font-size: 14pt;
+    font-weight: 600;
+    margin-bottom: 4pt;
+    letter-spacing: 0.02em;
+  }
+
+  .print-company-address {
+    font-size: 9pt;
+    color: #444;
+    margin-bottom: 8pt;
+  }
+
+  .print-title {
+    font-size: 13pt;
+    font-weight: 600;
+    margin-bottom: 2pt;
+    letter-spacing: 0.01em;
+  }
+
+  .print-subtitle {
+    font-size: 10pt;
+    color: #555;
+    margin-bottom: 8pt;
+    font-weight: 400;
+  }
+
+  /* Section headers (REVENUE, EXPENSES, etc.) */
+  .print-layout .section-header {
+    text-align: center !important;
+    font-weight: 600;
+    font-size: 11pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8pt 0 4pt 0;
+    margin-bottom: 4pt;
+    border-bottom: none;
+    position: relative;
+  }
+
+  .print-layout .section-header::after {
+    content: '';
+    display: block;
+    width: 200px;
+    height: 1.5pt;
+    background: #000;
+    margin: 4pt auto 0 auto;
+  }
+
+  .print-layout .section-header h3 {
+    margin: 0;
+    padding: 0;
+  }
+
+  .print-divider {
+    border: none;
+    border-top: 1px solid #000;
+    margin: 10pt 0;
+  }
+
+  /* Table styling for reports */
+  .print-layout table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .print-layout th,
+  .print-layout td {
+    padding: 3pt 6pt;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .print-layout th {
+    font-weight: bold;
+  }
+
+  .print-layout tfoot tr {
+    font-weight: bold;
+  }
+
+  /* Keep table header with first rows of body */
+  .print-layout thead {
+    display: table-header-group;
+  }
+
+  .print-layout thead tr {
+    page-break-after: avoid;
+  }
+
+  /* Report sections - keep header with content */
+  .print-layout .report-section {
+    margin-bottom: 16pt;
+    overflow: visible !important;
+    page-break-inside: avoid;
+  }
+
+  /* Section header should not be orphaned from its content */
+  .print-layout .section-header {
+    page-break-after: avoid;
+  }
+
+  /* Subgroups (COGS, Operating Expenses, etc.) - keep together on page */
+  .print-layout .expense-subgroup {
+    page-break-inside: avoid;
+    page-break-before: avoid;
+    margin-bottom: 8pt;
+  }
+
+  /* Subtotal rows */
+  .print-layout .subtotal-row {
+    border-top: 0.5pt solid #999;
+  }
+
+  /* Report container */
+  .print-layout .bg-white {
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+  }
+
+  /* Currency amounts - right aligned, tabular */
+  .print-layout td:last-child,
+  .print-layout th:last-child,
+  .print-layout .text-right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Page break utilities */
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  .page-break-after {
+    page-break-after: always;
+  }
+
+  .page-break-avoid {
+    page-break-inside: avoid;
+  }
+
+  /* Account sections in General Ledger */
+  .account-section {
+    page-break-inside: avoid;
+    margin-bottom: 16pt;
+  }
+
+  /* Section headers */
+  .print-layout h2,
+  .print-layout h3 {
+    font-size: 11pt;
+    font-weight: bold;
+    margin: 12pt 0 6pt 0;
+    page-break-after: avoid;
+  }
+
+  /* Summary/total rows */
+  .print-layout .summary-row,
+  .print-layout .total-row {
+    font-weight: bold;
+    background: none !important;
+  }
+
+  /* Net income highlight - keep background for emphasis */
+  .print-layout .net-income-positive {
+    background: #e8f5e9 !important;
+  }
+
+  .print-layout .net-income-negative {
+    background: #ffebee !important;
+  }
+
+  /* Balance indicator */
+  .print-layout .balance-indicator {
+    text-align: center;
+    font-weight: bold;
+    padding: 8pt;
+    margin-top: 8pt;
+    border: 1px solid #000;
+  }
+
+  /* Links - show as plain text */
+  a {
+    color: black !important;
+    text-decoration: none !important;
+  }
+
+  /* Remove background colors except where explicitly kept */
+  .bg-green-50,
+  .bg-blue-50,
+  .bg-red-50,
+  .bg-orange-50,
+  .bg-purple-50,
+  .bg-rose-50,
+  .bg-gray-50,
+  .bg-gray-100 {
+    background: transparent !important;
+  }
+}

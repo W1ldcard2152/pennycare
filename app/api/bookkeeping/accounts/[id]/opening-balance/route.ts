@@ -4,11 +4,12 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { validateRequest } from '@/lib/validation';
 import { createOpeningBalanceEntry } from '@/lib/bookkeeping';
+import { parseBusinessDate } from '@/lib/date-utils';
 
 const openingBalanceSchema = z.object({
   amount: z.union([z.string(), z.number()]).transform((v) => Number(v)).refine(
-    (val) => val > 0,
-    { message: 'Amount must be positive' }
+    (val) => val !== 0,
+    { message: 'Amount cannot be zero' }
   ),
   date: z.string().min(1, 'Date is required'),
 });
@@ -39,12 +40,12 @@ export async function POST(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // Create the opening balance journal entry
+    // Create the opening balance journal entry using timezone-safe date
     const entry = await createOpeningBalanceEntry(
       companyId!,
       id,
       amount,
-      new Date(date),
+      parseBusinessDate(date),
     );
 
     // Log audit entry

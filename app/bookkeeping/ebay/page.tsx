@@ -55,6 +55,7 @@ function formatDate(dateString: string): string {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
@@ -629,9 +630,10 @@ export default function EbaySalesPage() {
                   .sort((a, b) => b[0].localeCompare(a[0]))
                   .map(([month, data]) => {
                     const [year, monthNum] = month.split('-');
-                    const monthName = new Date(parseInt(year), parseInt(monthNum) - 1).toLocaleDateString('en-US', {
+                    const monthName = new Date(Date.UTC(parseInt(year), parseInt(monthNum) - 1, 15)).toLocaleDateString('en-US', {
                       month: 'long',
                       year: 'numeric',
+                      timeZone: 'UTC',
                     });
                     return (
                       <tr key={month} className="hover:bg-gray-50">

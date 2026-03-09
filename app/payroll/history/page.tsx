@@ -93,7 +93,7 @@ export default function PayrollHistoryPage() {
   const formatDateRange = (start: string, end: string) => {
     const startDate = new Date(start);
     const endDate = new Date(end);
-    return `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    return `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`;
   };
 
   // Get unique employees for filter
@@ -380,6 +380,7 @@ export default function PayrollHistoryPage() {
                             month: 'long',
                             day: 'numeric',
                             year: 'numeric',
+                            timeZone: 'UTC',
                           })}
                         </span>
                       </div>

@@ -17,10 +17,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'startDate and endDate are required' }, { status: 400 });
     }
 
+    // Pass date strings directly - generateGeneralLedger handles timezone-safe conversion
     const report = await generateGeneralLedger(
       companyId!,
-      new Date(startDate),
-      new Date(endDate),
+      startDate,
+      endDate,
       accountId || undefined,
     );
 

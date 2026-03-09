@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createJournalEntry } from '@/lib/bookkeeping';
 import { applyRules } from '@/lib/transaction-rules';
+import { parseBusinessDate, formatDate } from '@/lib/date-utils';
 
 interface SubmitPayment {
   date: string;
@@ -87,7 +88,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const endDate = new Date(statementEndDate);
+    // Use parseBusinessDate for timezone-safe date creation (noon UTC)
+    const endDate = parseBusinessDate(statementEndDate);
     let interestBooked = false;
     let paymentsBooked = 0;
     let transactionsMatched = 0;
@@ -139,7 +141,8 @@ export async function POST(request: NextRequest) {
     // Each payment: DEBIT credit card (reduces CC balance), CREDIT CC Payments Pending
     if (payments && payments.length > 0) {
       for (const payment of payments) {
-        const paymentDate = new Date(payment.date);
+        // Use parseBusinessDate for timezone-safe date creation (noon UTC)
+        const paymentDate = parseBusinessDate(payment.date);
         await createJournalEntry({
           companyId: companyId!,
           date: paymentDate,
@@ -186,18 +189,19 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Use formatDate for duplicate detection to compare calendar dates consistently
       const existingCreditSet = new Set(
         existingCredits.map((imp) =>
-          `${imp.postDate.toISOString()}|${imp.description}|${imp.amount}|${imp.isDebit}`
+          `${formatDate(imp.postDate)}|${imp.description}|${imp.amount}|${imp.isDebit}`
         )
       );
 
       // Filter out duplicates
       const newCredits: typeof credits = [];
       for (const credit of credits) {
-        const postDate = new Date(credit.date);
+        const postDate = parseBusinessDate(credit.date);
         const isDebit = false; // Credits are always isDebit=false
-        const key = `${postDate.toISOString()}|${credit.description}|${credit.amount}|${isDebit}`;
+        const key = `${formatDate(postDate)}|${credit.description}|${credit.amount}|${isDebit}`;
         if (existingCreditSet.has(key)) {
           creditsDuplicatesSkipped++;
         } else {
@@ -229,7 +233,7 @@ export async function POST(request: NextRequest) {
           return {
             companyId: companyId!,
             sourceAccountId,
-            postDate: new Date(credit.date),
+            postDate: parseBusinessDate(credit.date),  // Timezone-safe
             description: credit.description,
             amount: credit.amount,
             isDebit: false,  // Credits always reduce CC balance
@@ -265,18 +269,19 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Use formatDate for duplicate detection to compare calendar dates consistently
       const existingSet = new Set(
         existingImports.map((imp) =>
-          `${imp.postDate.toISOString()}|${imp.description}|${imp.amount}|${imp.isDebit}`
+          `${formatDate(imp.postDate)}|${imp.description}|${imp.amount}|${imp.isDebit}`
         )
       );
 
       // Filter out duplicates
       const newTransactions: typeof transactions = [];
       for (const txn of transactions) {
-        const postDate = new Date(txn.date);
+        const postDate = parseBusinessDate(txn.date);
         const isDebit = !txn.isCredit;
-        const key = `${postDate.toISOString()}|${txn.description}|${txn.amount}|${isDebit}`;
+        const key = `${formatDate(postDate)}|${txn.description}|${txn.amount}|${isDebit}`;
         if (existingSet.has(key)) {
           duplicatesSkipped++;
         } else {
@@ -321,7 +326,7 @@ export async function POST(request: NextRequest) {
         return {
           companyId: companyId!,
           sourceAccountId,
-          postDate: new Date(txn.date),
+          postDate: parseBusinessDate(txn.date),  // Timezone-safe
           description: txn.description,
           amount: txn.amount,
           isDebit: !txn.isCredit,  // CC charge = isDebit true, CC credit/return = isDebit false

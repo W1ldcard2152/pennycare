@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/ebay/sales - List imported eBay sales
 export async function GET(request: NextRequest) {
@@ -9,8 +10,8 @@ export async function GET(request: NextRequest) {
     if (error) return error;
 
     const { searchParams } = new URL(request.url);
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
     const importBatch = searchParams.get('importBatch');
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
@@ -19,16 +20,14 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: Record<string, unknown> = { companyId: companyId! };
 
-    if (startDate || endDate) {
+    // Use timezone-safe date handling
+    if (startDateStr || endDateStr) {
       where.orderDate = {};
-      if (startDate) {
-        (where.orderDate as Record<string, Date>).gte = new Date(startDate);
+      if (startDateStr) {
+        (where.orderDate as Record<string, Date>).gte = startOfDay(startDateStr);
       }
-      if (endDate) {
-        // Set to end of day
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        (where.orderDate as Record<string, Date>).lte = end;
+      if (endDateStr) {
+        (where.orderDate as Record<string, Date>).lte = endOfDay(endDateStr);
       }
     }
 

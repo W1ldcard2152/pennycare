@@ -3,7 +3,11 @@
  *
  * Parses pasted text blobs from credit card statements into structured transactions.
  * Each card company has a different format, so we have separate parsers.
+ *
+ * All dates are stored as "business dates" at noon UTC to prevent timezone shifting.
  */
+
+import { localToBusinessDate } from './date-utils';
 
 export interface ParsedCCTransaction {
   transDate: Date;
@@ -132,16 +136,24 @@ export function parseCapitalOne(text: string, year: number): ParseResult {
       continue;
     }
 
-    const transDate = new Date(year, transMonthNum, parseInt(transDay));
-    const postDate = new Date(year, postMonthNum, parseInt(postDay));
+    // Determine the correct year, handling year rollover
+    // (e.g., December transaction on a January statement)
+    let transYear = year;
+    let postYear = year;
 
-    // Handle year rollover (e.g., December transaction, January statement end)
-    if (transDate > new Date(year, 11, 31)) {
-      transDate.setFullYear(year - 1);
+    // If the month is in the future relative to the statement end month,
+    // it's likely from the previous year
+    const statementEndMonth = new Date(year, 0, 1).getMonth(); // Assume we might need to check
+    if (transMonthNum > 6 && transMonthNum >= statementEndMonth + 6) {
+      transYear = year - 1;
     }
-    if (postDate > new Date(year, 11, 31)) {
-      postDate.setFullYear(year - 1);
+    if (postMonthNum > 6 && postMonthNum >= statementEndMonth + 6) {
+      postYear = year - 1;
     }
+
+    // Use localToBusinessDate for timezone-safe date creation (noon UTC)
+    const transDate = localToBusinessDate(transMonthNum + 1, parseInt(transDay), transYear);
+    const postDate = localToBusinessDate(postMonthNum + 1, parseInt(postDay), postYear);
 
     const amount = parseFloat(amountStr.replace(/,/g, ''));
     const isCredit = !!creditIndicator;  // Has "- " prefix
@@ -218,7 +230,8 @@ export function parseChase(text: string, year: number): ParseResult {
       continue;
     }
 
-    const postDate = new Date(year, parseInt(month) - 1, parseInt(day));
+    // Use localToBusinessDate for timezone-safe date creation (noon UTC)
+    const postDate = localToBusinessDate(parseInt(month), parseInt(day), year);
     const amount = parseFloat(amountStr.replace(/,/g, ''));
     const isCredit = negSign === '-';
 
@@ -275,8 +288,9 @@ export function parsePayPalCredit(text: string): ParseResult {
     const transFullYear = 2000 + parseInt(transYear);
     const postFullYear = 2000 + parseInt(postYear);
 
-    const transDate = new Date(transFullYear, parseInt(transMonth) - 1, parseInt(transDay));
-    const postDate = new Date(postFullYear, parseInt(postMonth) - 1, parseInt(postDay));
+    // Use localToBusinessDate for timezone-safe date creation (noon UTC)
+    const transDate = localToBusinessDate(parseInt(transMonth), parseInt(transDay), transFullYear);
+    const postDate = localToBusinessDate(parseInt(postMonth), parseInt(postDay), postFullYear);
     const amount = parseFloat(amountStr.replace(/,/g, ''));
     const isCredit = negSign === '-';
 

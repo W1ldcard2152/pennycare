@@ -239,7 +239,7 @@ export default function EmployeeDetailPage() {
                   <p className="text-sm text-gray-600">Date of Birth</p>
                   <p className="font-medium">
                     {employee.dateOfBirth
-                      ? new Date(employee.dateOfBirth).toLocaleDateString()
+                      ? new Date(employee.dateOfBirth).toLocaleDateString('en-US', { timeZone: 'UTC' })
                       : '-'}
                   </p>
                 </div>
@@ -273,14 +273,14 @@ export default function EmployeeDetailPage() {
                 <div>
                   <p className="text-sm text-gray-600">Hire Date</p>
                   <p className="font-medium">
-                    {new Date(employee.hireDate).toLocaleDateString()}
+                    {new Date(employee.hireDate).toLocaleDateString('en-US', { timeZone: 'UTC' })}
                   </p>
                 </div>
                 {employee.terminationDate && (
                   <div className="col-span-2">
                     <p className="text-sm text-gray-600">Termination Date</p>
                     <p className="font-medium">
-                      {new Date(employee.terminationDate).toLocaleDateString()}
+                      {new Date(employee.terminationDate).toLocaleDateString('en-US', { timeZone: 'UTC' })}
                     </p>
                   </div>
                 )}

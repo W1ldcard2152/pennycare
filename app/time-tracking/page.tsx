@@ -475,9 +475,9 @@ function formatDate(date: Date): string {
 }
 
 function formatDayOfWeek(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'short' });
+  return date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
 }
 
 function formatDayMonth(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }

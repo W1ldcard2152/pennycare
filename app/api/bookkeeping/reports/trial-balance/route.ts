@@ -15,7 +15,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'asOfDate is required' }, { status: 400 });
     }
 
-    const report = await generateTrialBalance(companyId!, new Date(asOfDate));
+    // Pass date string directly - generateTrialBalance handles timezone-safe conversion
+    const report = await generateTrialBalance(companyId!, asOfDate);
 
     return NextResponse.json(report);
   } catch (err) {

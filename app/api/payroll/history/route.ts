@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/payroll/history - Get payroll history
 export async function GET(request: NextRequest) {
@@ -29,17 +30,18 @@ export async function GET(request: NextRequest) {
       where.employeeId = employeeId;
     }
 
+    // Use timezone-safe date handling
     if (startDate) {
       where.payDate = {
         ...(where.payDate as Record<string, unknown> || {}),
-        gte: new Date(startDate),
+        gte: startOfDay(startDate),
       };
     }
 
     if (endDate) {
       where.payDate = {
         ...(where.payDate as Record<string, unknown> || {}),
-        lte: new Date(endDate),
+        lte: endOfDay(endDate),
       };
     }
 

@@ -1,4 +1,5 @@
 import { prisma } from './db';
+import { startOfDay, endOfDay } from './date-utils';
 
 // ============================================
 // CHART OF ACCOUNTS DEFINITIONS
@@ -247,8 +248,8 @@ export async function createOpeningBalanceEntry(
   amount: number,
   asOfDate: Date,
 ) {
-  if (amount <= 0) {
-    throw new Error('Opening balance amount must be positive');
+  if (amount === 0) {
+    throw new Error('Opening balance amount cannot be zero');
   }
 
   // Look up the target account
@@ -273,36 +274,43 @@ export async function createOpeningBalanceEntry(
     throw new Error('Opening Balance Equity account (3900) not found. Please seed the chart of accounts first.');
   }
 
-  // Determine debit/credit based on account type
+  // Determine debit/credit based on account type and sign of amount
+  // Negative amount flips the normal debit/credit sides
   const targetIsDebitNormal = isDebitNormal(targetAccount.type);
+  const isNegative = amount < 0;
+  const absAmount = Math.abs(amount);
   const lines: JournalEntryLineInput[] = [];
 
-  if (targetIsDebitNormal) {
-    // Asset or expense: debit target, credit Opening Balance Equity
+  // For positive amounts: debit-normal accounts get debited, credit-normal get credited
+  // For negative amounts: flip the sides (debit-normal accounts get credited, etc.)
+  const debitTarget = targetIsDebitNormal !== isNegative;
+
+  if (debitTarget) {
+    // Debit target, credit Opening Balance Equity
     lines.push({
       accountId: targetAccount.id,
       description: 'Opening balance',
-      debit: amount,
+      debit: absAmount,
       credit: 0,
     });
     lines.push({
       accountId: openingBalanceEquity.id,
       description: 'Opening balance offset',
       debit: 0,
-      credit: amount,
+      credit: absAmount,
     });
   } else {
-    // Liability, equity, revenue, or credit_card: credit target, debit Opening Balance Equity
+    // Credit target, debit Opening Balance Equity
     lines.push({
       accountId: targetAccount.id,
       description: 'Opening balance',
       debit: 0,
-      credit: amount,
+      credit: absAmount,
     });
     lines.push({
       accountId: openingBalanceEquity.id,
       description: 'Opening balance offset',
-      debit: amount,
+      debit: absAmount,
       credit: 0,
     });
   }
@@ -504,11 +512,15 @@ export interface AccountBalance {
 /**
  * Calculate account balances for a date range.
  * For cash basis, we simply sum all posted journal entry lines.
+ *
+ * @param companyId - The company ID
+ * @param startDateStr - Optional start date string (YYYY-MM-DD format)
+ * @param endDateStr - Optional end date string (YYYY-MM-DD format)
  */
 export async function getAccountBalances(
   companyId: string,
-  startDate?: Date,
-  endDate?: Date,
+  startDateStr?: string,
+  endDateStr?: string,
 ): Promise<AccountBalance[]> {
   // Get all active accounts
   const accounts = await prisma.account.findMany({
@@ -516,10 +528,10 @@ export async function getAccountBalances(
     orderBy: { code: 'asc' },
   });
 
-  // Build date filter for journal entries
+  // Build date filter for journal entries using timezone-safe date handling
   const dateFilter: Record<string, unknown> = {};
-  if (startDate) dateFilter.gte = startDate;
-  if (endDate) dateFilter.lte = endDate;
+  if (startDateStr) dateFilter.gte = startOfDay(startDateStr);
+  if (endDateStr) dateFilter.lte = endOfDay(endDateStr);
 
   // Get all posted journal entry lines within the date range
   const lines = await prisma.journalEntryLine.findMany({
@@ -579,24 +591,30 @@ export function isDebitNormal(type: AccountType | string): boolean {
 
 /**
  * Generate a Profit & Loss (Income Statement) report.
+ *
+ * @param companyId - The company ID
+ * @param startDateStr - Start date string (YYYY-MM-DD format)
+ * @param endDateStr - End date string (YYYY-MM-DD format)
  */
 export async function generateProfitAndLoss(
   companyId: string,
-  startDate: Date,
-  endDate: Date,
+  startDateStr: string,
+  endDateStr: string,
 ) {
-  const balances = await getAccountBalances(companyId, startDate, endDate);
+  const balances = await getAccountBalances(companyId, startDateStr, endDateStr);
 
-  const revenue = balances.filter((b) => b.type === 'revenue' && b.balance !== 0);
-  const expenses = balances.filter((b) => b.type === 'expense' && b.balance !== 0);
+  // Include all revenue/expense accounts - let frontend handle zero-balance filtering
+  const revenue = balances.filter((b) => b.type === 'revenue');
+  const expenses = balances.filter((b) => b.type === 'expense');
 
+  // Totals only count non-zero balances
   const totalRevenue = revenue.reduce((sum, b) => sum + b.balance, 0);
   const totalExpenses = expenses.reduce((sum, b) => sum + b.balance, 0);
   const netIncome = round2(totalRevenue - totalExpenses);
 
   return {
-    startDate,
-    endDate,
+    startDate: startDateStr,
+    endDate: endDateStr,
     revenue,
     totalRevenue: round2(totalRevenue),
     expenses,
@@ -609,9 +627,12 @@ export async function generateProfitAndLoss(
  * Generate a Balance Sheet report.
  * For the specified date, includes all transactions up to that date.
  * Credit card accounts appear in their own section after current liabilities.
+ *
+ * @param companyId - The company ID
+ * @param asOfDateStr - As-of date string (YYYY-MM-DD format)
  */
-export async function generateBalanceSheet(companyId: string, asOfDate: Date) {
-  const balances = await getAccountBalances(companyId, undefined, asOfDate);
+export async function generateBalanceSheet(companyId: string, asOfDateStr: string) {
+  const balances = await getAccountBalances(companyId, undefined, asOfDateStr);
 
   const assets = balances.filter((b) => b.type === 'asset' && b.balance !== 0);
   const liabilities = balances.filter((b) => b.type === 'liability' && b.balance !== 0);
@@ -632,7 +653,7 @@ export async function generateBalanceSheet(companyId: string, asOfDate: Date) {
   );
 
   return {
-    asOfDate,
+    asOfDate: asOfDateStr,
     assets,
     totalAssets,
     liabilities,
@@ -648,9 +669,12 @@ export async function generateBalanceSheet(companyId: string, asOfDate: Date) {
 
 /**
  * Generate a Trial Balance report.
+ *
+ * @param companyId - The company ID
+ * @param asOfDateStr - As-of date string (YYYY-MM-DD format)
  */
-export async function generateTrialBalance(companyId: string, asOfDate: Date) {
-  const balances = await getAccountBalances(companyId, undefined, asOfDate);
+export async function generateTrialBalance(companyId: string, asOfDateStr: string) {
+  const balances = await getAccountBalances(companyId, undefined, asOfDateStr);
 
   // Only include accounts with activity
   const activeBalances = balances.filter((b) => b.debitTotal !== 0 || b.creditTotal !== 0);
@@ -664,7 +688,7 @@ export async function generateTrialBalance(companyId: string, asOfDate: Date) {
   }, 0));
 
   return {
-    asOfDate,
+    asOfDate: asOfDateStr,
     accounts: activeBalances,
     totalDebits,
     totalCredits,
@@ -674,11 +698,16 @@ export async function generateTrialBalance(companyId: string, asOfDate: Date) {
 
 /**
  * Generate a General Ledger report for a specific account or all accounts.
+ *
+ * @param companyId - The company ID
+ * @param startDateStr - Start date string (YYYY-MM-DD format)
+ * @param endDateStr - End date string (YYYY-MM-DD format)
+ * @param accountId - Optional account ID to filter by
  */
 export async function generateGeneralLedger(
   companyId: string,
-  startDate: Date,
-  endDate: Date,
+  startDateStr: string,
+  endDateStr: string,
   accountId?: string,
 ) {
   const whereClause: Record<string, unknown> = {
@@ -686,8 +715,8 @@ export async function generateGeneralLedger(
       companyId,
       status: 'posted',
       date: {
-        gte: startDate,
-        lte: endDate,
+        gte: startOfDay(startDateStr),
+        lte: endOfDay(endDateStr),
       },
     },
   };
@@ -778,8 +807,8 @@ export async function generateGeneralLedger(
   );
 
   return {
-    startDate,
-    endDate,
+    startDate: startDateStr,
+    endDate: endDateStr,
     accounts: result,
   };
 }

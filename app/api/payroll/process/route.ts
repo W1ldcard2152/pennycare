@@ -5,6 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 import { processPayrollSchema, validateRequest } from '@/lib/validation';
 import { logAudit } from '@/lib/audit';
 import { createPayrollJournalEntries } from '@/lib/bookkeeping';
+import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
 // POST /api/payroll/process - Process and save payroll
 export async function POST(request: NextRequest) {
@@ -25,12 +26,17 @@ export async function POST(request: NextRequest) {
 
     const { startDate, endDate, payDate } = validation.data;
 
+    // Use timezone-safe date handling
+    const periodStart = parseBusinessDate(startDate);
+    const periodEnd = parseBusinessDate(endDate);
+    const payDateParsed = parseBusinessDate(payDate);
+
     // Check for existing active payroll records in this period to prevent duplicates
     const existingRecords = await prisma.payrollRecord.findMany({
       where: {
         companyId: companyId!,
-        payPeriodStart: new Date(startDate),
-        payPeriodEnd: new Date(endDate),
+        payPeriodStart: periodStart,
+        payPeriodEnd: periodEnd,
         status: 'active',
       },
       select: { id: true },
@@ -64,15 +70,15 @@ export async function POST(request: NextRequest) {
         timeEntries: {
           where: {
             date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
+              gte: startOfDay(startDate),
+              lte: endOfDay(endDate),
             },
           },
         },
         payrollRecords: {
           where: {
             payPeriodEnd: {
-              lt: new Date(startDate),
+              lt: periodStart,
             },
             status: 'active',
           },
@@ -224,9 +230,9 @@ export async function POST(request: NextRequest) {
         data: {
           companyId: companyId!,
           employeeId: employee.id,
-          payPeriodStart: new Date(startDate),
-          payPeriodEnd: new Date(endDate),
-          payDate: new Date(payDate),
+          payPeriodStart: periodStart,
+          payPeriodEnd: periodEnd,
+          payDate: payDateParsed,
 
           // Earnings
           regularHours,
@@ -343,7 +349,7 @@ export async function POST(request: NextRequest) {
       const journalResult = await createPayrollJournalEntries(
         companyId!,
         payrollRecordIds,
-        new Date(payDate),
+        payDateParsed,
         periodLabel,
       );
       // journalResult may be null if accounts aren't seeded yet — that's OK

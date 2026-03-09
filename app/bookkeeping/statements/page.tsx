@@ -276,7 +276,7 @@ export default function StatementsPage() {
       setCsvFile(file);
       // Auto-generate batch name from filename
       const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
-      setBatchName(nameWithoutExt + ' - ' + new Date().toLocaleDateString());
+      setBatchName(nameWithoutExt + ' - ' + new Date().toLocaleDateString('en-US', { timeZone: 'UTC' }));
     }
   };
 
@@ -610,7 +610,7 @@ export default function StatementsPage() {
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleDateString();
+    return d.toLocaleDateString('en-US', { timeZone: 'UTC' });
   };
 
   // Filter accounts by type

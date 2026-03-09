@@ -65,8 +65,8 @@ const urgencyConfig = {
 };
 
 function formatDeadlineDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00');
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const date = new Date(dateStr + 'T12:00:00Z');
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
 function daysLabel(daysUntil: number): string {

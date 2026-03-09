@@ -272,7 +272,7 @@ export default function EmployeeDocuments({
                                     {doc.fileName}
                                   </p>
                                   <p className="text-xs text-gray-500">
-                                    {doc.description || new Date(doc.createdAt).toLocaleDateString()}
+                                    {doc.description || new Date(doc.createdAt).toLocaleDateString('en-US', { timeZone: 'UTC' })}
                                   </p>
                                 </div>
                                 <a

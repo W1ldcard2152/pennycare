@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import { PrinterIcon } from '@heroicons/react/24/outline';
+import { PrintLayout } from '@/components/PrintLayout';
 
 interface Account {
   id: string;
@@ -211,7 +213,7 @@ export default function AccountsPage() {
     const arrow = sortStack[idx].dir === 'asc' ? '\u25B2' : '\u25BC';
     const priority = idx === 0 ? '' : ` ${idx + 1}`;
     return (
-      <span className={`ml-1 ${idx === 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+      <span className={`ml-1 no-print ${idx === 0 ? 'text-blue-600' : 'text-gray-400'}`}>
         {arrow}<sup className="text-[9px]">{priority}</sup>
       </span>
     );
@@ -255,6 +257,8 @@ export default function AccountsPage() {
     }, {} as Record<string, number>);
   }, [groupedByType]);
 
+  const asOfDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
   if (loading) return <div className="p-8"><p className="text-gray-600">Loading accounts...</p></div>;
 
   const typeColors: Record<string, string> = {
@@ -269,10 +273,14 @@ export default function AccountsPage() {
   const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:text-gray-700 transition-colors';
 
   return (
+    <PrintLayout
+      title="Chart of Accounts"
+      subtitle={`As of ${asOfDate}`}
+    >
     <div className="min-h-screen p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 no-print">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">Bookkeeping</Link>
@@ -290,6 +298,13 @@ export default function AccountsPage() {
                 Load Default Accounts
               </button>
             )}
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <PrinterIcon className="h-5 w-5 mr-2" />
+              Print
+            </button>
             <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
               {showForm ? 'Cancel' : 'Add Account'}
             </button>
@@ -297,12 +312,12 @@ export default function AccountsPage() {
         </div>
 
         {actionMessage && (
-          <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg">{actionMessage}</div>
+          <div className="mb-4 p-3 bg-blue-50 text-blue-700 rounded-lg no-print">{actionMessage}</div>
         )}
 
         {/* Create Account Form */}
         {showForm && (
-          <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm">
+          <div className="mb-6 bg-white border rounded-lg p-6 shadow-sm no-print">
             <h2 className="text-lg font-semibold mb-4 text-gray-900">New Account</h2>
             {formError && !editingAccount && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded text-sm">{formError}</div>}
             <form onSubmit={createAccount} className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -352,7 +367,7 @@ export default function AccountsPage() {
 
         {/* Edit Account Modal */}
         {editingAccount && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print">
             <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
               <div className="px-6 py-4 border-b flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-900">Edit Account: {editingAccount.code}</h3>
@@ -418,7 +433,7 @@ export default function AccountsPage() {
         )}
 
         {/* Show Inactive Toggle + Sort hint */}
-        <div className="mb-4 flex justify-between items-center">
+        <div className="mb-4 flex justify-between items-center no-print">
           <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input type="checkbox" checked={showInactive} onChange={() => setShowInactive(!showInactive)} className="rounded" />
             Show inactive accounts ({accounts.filter((a) => !a.isActive).length})
@@ -428,7 +443,7 @@ export default function AccountsPage() {
 
         {/* Seed button if no accounts */}
         {accounts.length === 0 && (
-          <div className="text-center py-16 bg-gray-50 rounded-lg">
+          <div className="text-center py-16 bg-gray-50 rounded-lg no-print">
             <p className="text-gray-600 mb-4 text-lg">No accounts yet</p>
             <p className="text-gray-500 mb-6">Load the default chart of accounts to get started, or create accounts manually.</p>
             <button onClick={seedAccounts} className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors text-lg">
@@ -445,12 +460,11 @@ export default function AccountsPage() {
           const typeLabel = ACCOUNT_TYPE_LABELS[type] || type;
 
           return (
-            <div key={type} className="mb-6">
-              <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${typeColors[type]}`}>{typeLabel}</span>
-                <span className="text-gray-400 text-sm font-normal">({accts.length})</span>
-              </h2>
-              <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div key={type} className="mb-6 report-section">
+              <div className={`px-4 py-3 ${typeColors[type]} section-header rounded-t-lg`}>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-center">{typeLabel}</h2>
+              </div>
+              <div className="bg-white rounded-b-lg shadow overflow-hidden expense-subgroup">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
@@ -466,53 +480,57 @@ export default function AccountsPage() {
                       <th className={`${thClass} text-right w-32`} onClick={() => handleSort('balance')}>
                         Balance{getSortIndicator('balance')}
                       </th>
-                      <th className={`${thClass} w-20`} onClick={() => handleSort('isActive')}>
+                      <th className={`${thClass} w-20 no-print`} onClick={() => handleSort('isActive')}>
                         Status{getSortIndicator('isActive')}
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-48">Actions</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-48 no-print">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {accts.map((acct) => (
-                      <tr key={acct.id} className={acct.isActive ? '' : 'bg-gray-50 opacity-60'}>
-                        <td className="px-4 py-3 text-sm font-mono">
-                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="text-blue-600 hover:text-blue-700 hover:underline">
+                      <tr key={acct.id} className={`hover:bg-blue-50 ${acct.isActive ? '' : 'bg-gray-50 opacity-60'}`}>
+                        <td className="px-4 py-3 text-sm font-mono text-gray-900 cursor-pointer">
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="block">
                             {acct.code}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium">
-                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="text-blue-600 hover:text-blue-700 hover:underline">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 cursor-pointer">
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="block">
                             {acct.name}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{acct.description || '\u2014'}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-medium ${acct.balance < 0 ? 'text-red-600' : acct.balance > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {acct.balance === 0 ? '\u2014' : formatCurrency(acct.balance)}
+                        <td className="px-4 py-3 text-sm text-gray-500 cursor-pointer">
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="block">
+                            {acct.description || '\u2014'}
+                          </Link>
                         </td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${acct.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                            {acct.isActive ? 'Active' : 'Inactive'}
-                          </span>
+                        <td className={`px-4 py-3 text-sm text-right font-medium cursor-pointer ${acct.balance < 0 ? 'text-red-600' : acct.balance > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                          <Link href={`/bookkeeping/accounts/${acct.id}`} className="block">
+                            {acct.balance === 0 ? '\u2014' : formatCurrency(acct.balance)}
+                          </Link>
                         </td>
-                        <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm no-print">
+                          <select
+                            value={acct.isActive ? 'active' : 'inactive'}
+                            onChange={(e) => toggleActive(acct.id, e.target.value !== 'active')}
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer border-0 ${acct.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right whitespace-nowrap no-print">
                           <button
                             type="button"
                             onClick={() => startEditAccount(acct)}
-                            className="text-blue-500 hover:text-blue-700 mr-3 text-xs"
+                            className="text-blue-500 hover:text-blue-700 hover:underline mr-3 text-xs cursor-pointer"
                           >
                             Edit
                           </button>
                           <button
                             type="button"
-                            onClick={() => toggleActive(acct.id, acct.isActive)}
-                            className="text-gray-500 hover:text-gray-700 mr-3 text-xs"
-                          >
-                            {acct.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => deleteAccount(acct.id, acct.name)}
-                            className="text-red-500 hover:text-red-700 text-xs"
+                            className="text-red-500 hover:text-red-700 hover:underline text-xs cursor-pointer"
                           >
                             Delete
                           </button>
@@ -522,14 +540,14 @@ export default function AccountsPage() {
                   </tbody>
                   {/* Group subtotal */}
                   <tfoot>
-                    <tr className="bg-gray-50 border-t">
+                    <tr className="bg-gray-50 border-t subtotal-row">
                       <td className="px-4 py-2 text-xs font-semibold text-gray-500" colSpan={3}>
                         Total {typeLabel}
                       </td>
                       <td className={`px-4 py-2 text-sm text-right font-semibold ${groupTotals[type] < 0 ? 'text-red-600' : 'text-gray-900'}`}>
                         {formatCurrency(groupTotals[type])}
                       </td>
-                      <td colSpan={2}></td>
+                      <td colSpan={2} className="no-print"></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -539,5 +557,6 @@ export default function AccountsPage() {
         })}
       </div>
     </div>
+    </PrintLayout>
   );
 }

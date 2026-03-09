@@ -3,6 +3,7 @@ import Papa from 'papaparse';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { applyRules } from '@/lib/transaction-rules';
+import { localToBusinessDate, formatDate } from '@/lib/date-utils';
 
 interface BankCSVRow {
   'Account Number': string;
@@ -85,14 +86,15 @@ export async function POST(request: NextRequest) {
       const row = parseResult.data[i];
       const rowNum = i + 2; // CSV row number (1-indexed, plus header)
 
-      // Parse date (MM/DD/YYYY format)
+      // Parse date (MM/DD/YYYY format) using timezone-safe business date
       const dateMatch = row['Post Date']?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (!dateMatch) {
         parseErrors.push(`Row ${rowNum}: Invalid date format "${row['Post Date']}"`);
         continue;
       }
       const [, month, day, year] = dateMatch;
-      const postDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      // Use localToBusinessDate to create noon UTC date (timezone-safe)
+      const postDate = localToBusinessDate(parseInt(month), parseInt(day), parseInt(year));
       if (isNaN(postDate.getTime())) {
         parseErrors.push(`Row ${rowNum}: Invalid date "${row['Post Date']}"`);
         continue;
@@ -154,9 +156,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Use formatDate for duplicate detection to compare calendar dates consistently
+    // This ensures dates stored at different times (midnight vs noon UTC) are treated as the same day
     const existingSet = new Set(
       existingImports.map((imp) =>
-        `${imp.postDate.toISOString()}|${imp.description}|${imp.amount}|${imp.isDebit}`
+        `${formatDate(imp.postDate)}|${imp.description}|${imp.amount}|${imp.isDebit}`
       )
     );
 
@@ -164,7 +168,7 @@ export async function POST(request: NextRequest) {
     let duplicateCount = 0;
 
     for (const txn of transactions) {
-      const key = `${txn.postDate.toISOString()}|${txn.description}|${txn.amount}|${txn.isDebit}`;
+      const key = `${formatDate(txn.postDate)}|${txn.description}|${txn.amount}|${txn.isDebit}`;
       if (existingSet.has(key)) {
         duplicateCount++;
       } else {

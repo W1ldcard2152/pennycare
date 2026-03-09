@@ -4,6 +4,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 import { createJournalEntrySchema, validateRequest } from '@/lib/validation';
 import { createJournalEntry } from '@/lib/bookkeeping';
 import { logAudit } from '@/lib/audit';
+import { startOfDay, endOfDay, parseBusinessDate } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/journal-entries - List journal entries
 export async function GET(request: NextRequest) {
@@ -15,16 +16,24 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const source = searchParams.get('source');
+    const status = searchParams.get('status');
+    const accountId = searchParams.get('accountId');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
 
     const where: Record<string, unknown> = { companyId: companyId! };
+    // Use timezone-safe date handling
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate);
-      if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate);
+      if (startDate) (where.date as Record<string, unknown>).gte = startOfDay(startDate);
+      if (endDate) (where.date as Record<string, unknown>).lte = endOfDay(endDate);
     }
     if (source) where.source = source;
+    if (status) where.status = status;
+    // Filter by account: entry must have at least one line with this account
+    if (accountId) {
+      where.lines = { some: { accountId } };
+    }
 
     const [entries, total] = await Promise.all([
       prisma.journalEntry.findMany({
@@ -64,9 +73,10 @@ export async function POST(request: NextRequest) {
 
     const { date, memo, referenceNumber, notes, lines } = validation.data;
 
+    // Use parseBusinessDate for timezone-safe date storage (noon UTC)
     const entry = await createJournalEntry({
       companyId: companyId!,
-      date: new Date(date),
+      date: parseBusinessDate(date),
       memo,
       referenceNumber: referenceNumber || undefined,
       source: 'manual',

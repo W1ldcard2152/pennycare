@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { getForm941DueDate, getNYS45DueDate, getNextDepositDate } from '@/lib/taxDeadlines';
+import { startOfDay, endOfDay, formatDate } from '@/lib/date-utils';
 
 // GET /api/payroll/tax-liability - Get tax liability summary for a date range
 export async function GET(request: NextRequest) {
@@ -15,31 +16,40 @@ export async function GET(request: NextRequest) {
     const period = searchParams.get('period'); // 'quarter', 'month', 'year', 'custom'
 
     // Calculate date range based on period if not explicitly provided
+    // Use timezone-safe date handling
     let dateStart: Date;
     let dateEnd: Date;
     const now = new Date();
 
     if (startDate && endDate) {
-      dateStart = new Date(startDate);
-      dateEnd = new Date(endDate);
+      dateStart = startOfDay(startDate);
+      dateEnd = endOfDay(endDate);
     } else if (period === 'quarter') {
       // Current quarter
       const quarter = Math.floor(now.getMonth() / 3);
-      dateStart = new Date(now.getFullYear(), quarter * 3, 1);
-      dateEnd = new Date(now.getFullYear(), quarter * 3 + 3, 0);
+      const startMonth = String(quarter * 3 + 1).padStart(2, '0');
+      const endMonth = String(quarter * 3 + 3).padStart(2, '0');
+      const lastDay = new Date(now.getFullYear(), quarter * 3 + 3, 0).getDate();
+      dateStart = startOfDay(`${now.getFullYear()}-${startMonth}-01`);
+      dateEnd = endOfDay(`${now.getFullYear()}-${endMonth}-${lastDay}`);
     } else if (period === 'month') {
       // Current month
-      dateStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      dateEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      dateStart = startOfDay(`${now.getFullYear()}-${month}-01`);
+      dateEnd = endOfDay(`${now.getFullYear()}-${month}-${lastDay}`);
     } else if (period === 'year') {
       // Current year
-      dateStart = new Date(now.getFullYear(), 0, 1);
-      dateEnd = new Date(now.getFullYear(), 11, 31);
+      dateStart = startOfDay(`${now.getFullYear()}-01-01`);
+      dateEnd = endOfDay(`${now.getFullYear()}-12-31`);
     } else {
       // Default to current quarter
       const quarter = Math.floor(now.getMonth() / 3);
-      dateStart = new Date(now.getFullYear(), quarter * 3, 1);
-      dateEnd = new Date(now.getFullYear(), quarter * 3 + 3, 0);
+      const startMonth = String(quarter * 3 + 1).padStart(2, '0');
+      const endMonth = String(quarter * 3 + 3).padStart(2, '0');
+      const lastDay = new Date(now.getFullYear(), quarter * 3 + 3, 0).getDate();
+      dateStart = startOfDay(`${now.getFullYear()}-${startMonth}-01`);
+      dateEnd = endOfDay(`${now.getFullYear()}-${endMonth}-${lastDay}`);
     }
 
     // Get company info
@@ -133,13 +143,14 @@ export async function GET(request: NextRequest) {
     }> = {};
 
     for (const record of records) {
-      const payDateKey = record.payDate.toISOString().split('T')[0];
+      // Use formatDate for consistent date string extraction
+      const payDateKey = formatDate(record.payDate);
 
       if (!byPayDate[payDateKey]) {
         byPayDate[payDateKey] = {
           payDate: payDateKey,
-          payPeriodStart: record.payPeriodStart.toISOString().split('T')[0],
-          payPeriodEnd: record.payPeriodEnd.toISOString().split('T')[0],
+          payPeriodStart: formatDate(record.payPeriodStart),
+          payPeriodEnd: formatDate(record.payPeriodEnd),
           grossWages: 0,
           federalTax: 0,
           stateTax: 0,
@@ -241,8 +252,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       company,
       dateRange: {
-        start: dateStart.toISOString().split('T')[0],
-        end: dateEnd.toISOString().split('T')[0],
+        start: formatDate(dateStart),
+        end: formatDate(dateEnd),
         period: period || 'quarter',
       },
       totals,

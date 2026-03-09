@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createJournalEntry } from '@/lib/bookkeeping';
 import { logAudit } from '@/lib/audit';
+import { localToBusinessDate, parseBusinessDate, formatDate } from '@/lib/date-utils';
 import Papa from 'papaparse';
 
 // Column name variations we might encounter in eBay CSVs
@@ -53,6 +54,10 @@ function findColumn(row: Record<string, string>, fieldName: string): string | un
   return undefined;
 }
 
+/**
+ * Parse eBay date formats into a timezone-safe business date (noon UTC).
+ * This prevents timezone shifting when storing dates.
+ */
 function parseDate(dateStr: string): Date | null {
   if (!dateStr || dateStr === '--') return null;
 
@@ -68,14 +73,20 @@ function parseDate(dateStr: string): Date | null {
       year += 2000; // Assume 20xx for two-digit years
     }
     if (monthIdx !== -1) {
-      return new Date(year, monthIdx, day);
+      // Use localToBusinessDate to create noon UTC date (timezone-safe)
+      return localToBusinessDate(monthIdx + 1, day, year);
     }
   }
 
-  // Try standard date parsing
+  // Try standard date parsing, but convert to business date
   const parsed = new Date(dateStr);
   if (!isNaN(parsed.getTime())) {
-    return parsed;
+    // Extract the local date components and create a business date
+    return localToBusinessDate(
+      parsed.getMonth() + 1,
+      parsed.getDate(),
+      parsed.getFullYear()
+    );
   }
 
   return null;
@@ -338,9 +349,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Group sales by date for journal entries
+    // Use formatDate() to get the UTC date string consistently
     const salesByDate = new Map<string, ParsedEbaySale[]>();
     for (const sale of newSales) {
-      const dateKey = sale.orderDate.toISOString().split('T')[0];
+      const dateKey = formatDate(sale.orderDate);
       if (!salesByDate.has(dateKey)) {
         salesByDate.set(dateKey, []);
       }
@@ -366,9 +378,10 @@ export async function POST(request: NextRequest) {
         const totalGross = daySales.reduce((sum, s) => sum + s.grossAmount, 0);
 
         // Step 1: Create journal entry (uses its own transaction internally)
+        // Use parseBusinessDate to create noon UTC date (timezone-safe)
         const entry = await createJournalEntry({
           companyId: companyId!,
-          date: new Date(dateKey),
+          date: parseBusinessDate(dateKey),
           memo: `eBay sales for ${dateKey}`,
           source: 'ebay_import',
           sourceId: trimmedBatchName,
@@ -462,7 +475,7 @@ export async function POST(request: NextRequest) {
     // We need to filter newSales to only those that were successfully imported
     const successfulDates = new Set(sortedDates.filter((d) => !failedDays.some((f) => f.dateKey === d)));
     const importedSales = newSales.filter((s) => {
-      const dateKey = s.orderDate.toISOString().split('T')[0];
+      const dateKey = formatDate(s.orderDate);
       return successfulDates.has(dateKey);
     });
 

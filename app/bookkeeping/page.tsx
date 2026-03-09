@@ -89,24 +89,28 @@ const reports = [
     description: 'Income statement showing revenue, expenses, and net income',
     href: '/bookkeeping/reports/profit-loss',
     icon: ChartBarIcon,
+    color: 'text-green-600',
   },
   {
     title: 'Balance Sheet',
     description: 'Assets, liabilities, and equity as of a specific date',
     href: '/bookkeeping/reports/balance-sheet',
     icon: ScaleIcon,
+    color: 'text-blue-600',
   },
   {
     title: 'Trial Balance',
     description: 'Verify debits equal credits across all accounts',
     href: '/bookkeeping/reports/trial-balance',
     icon: TableCellsIcon,
+    color: 'text-purple-600',
   },
   {
     title: 'General Ledger',
     description: 'Detailed transaction history by account',
     href: '/bookkeeping/reports/general-ledger',
     icon: DocumentTextIcon,
+    color: 'text-amber-600',
   },
 ];
 
@@ -147,9 +151,9 @@ export default function BookkeepingPage() {
           </div>
         </div>
 
-        {/* Reports */}
+        {/* Financial Reports */}
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Reports</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Reports</h2>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             {reports.map((item) => (
               <Link
@@ -159,7 +163,7 @@ export default function BookkeepingPage() {
               >
                 <div className="flex items-start">
                   <div className="flex-shrink-0">
-                    <item.icon className="h-8 w-8 text-gray-500" />
+                    <item.icon className={`h-8 w-8 ${item.color}`} />
                   </div>
                   <div className="ml-4">
                     <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600">

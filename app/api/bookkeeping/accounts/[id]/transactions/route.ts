@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { isDebitNormal } from '@/lib/bookkeeping';
+import { startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/accounts/[id]/transactions
 export async function GET(
@@ -29,10 +30,10 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // Build date filter
+    // Build date filter using timezone-safe date handling
     const dateFilter: Record<string, unknown> = {};
-    if (startDate) dateFilter.gte = new Date(startDate);
-    if (endDate) dateFilter.lte = new Date(endDate);
+    if (startDate) dateFilter.gte = startOfDay(startDate);
+    if (endDate) dateFilter.lte = endOfDay(endDate);
 
     // Get journal entry lines for this account with posted entries only
     const whereClause = {

@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { ArrowLeftIcon, PrinterIcon } from '@heroicons/react/24/outline';
+import { PrintLayout } from '@/components/PrintLayout';
 
 interface AccountBalance {
   accountId: string;
@@ -20,13 +22,25 @@ interface TrialBalanceData {
 
 const DEBIT_NORMAL_TYPES = ['asset', 'expense'];
 
+function formatCurrency(amount: number): string {
+  return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+function isDebitNormal(type: string): boolean {
+  return DEBIT_NORMAL_TYPES.includes(type);
+}
+
+function formatAsOfDate(date: string): string {
+  return `As of ${new Date(date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`;
+}
+
 export default function TrialBalancePage() {
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [data, setData] = useState<TrialBalanceData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -42,14 +56,15 @@ export default function TrialBalancePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [asOfDate]);
 
-  const formatCurrency = (amount: number) =>
-    amount === 0 ? '' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
 
   const getDebitCredit = (acct: AccountBalance) => {
-    const isDebitNormal = DEBIT_NORMAL_TYPES.includes(acct.type);
-    if (isDebitNormal) {
+    const debitNormal = isDebitNormal(acct.type);
+    if (debitNormal) {
       return acct.balance >= 0
         ? { debit: acct.balance, credit: 0 }
         : { debit: 0, credit: Math.abs(acct.balance) };
@@ -60,92 +75,130 @@ export default function TrialBalancePage() {
     }
   };
 
-  return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-2 mb-2">
-          <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">Bookkeeping</Link>
-          <span className="text-gray-400">/</span>
-          <span className="text-gray-600 text-sm">Trial Balance</span>
-        </div>
-        <h1 className="text-3xl font-bold mb-6 text-gray-900">Trial Balance</h1>
+  const difference = data ? Math.abs(data.totalDebits - data.totalCredits) : 0;
 
-        {/* Date */}
-        <div className="flex gap-4 items-end mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">As of Date</label>
-            <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm text-gray-900" />
+  return (
+    <PrintLayout
+      title="Trial Balance"
+      subtitle={formatAsOfDate(asOfDate)}
+    >
+      <div className="min-h-screen p-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="mb-6 no-print">
+            <div className="flex items-center gap-2 mb-2">
+              <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">
+                <ArrowLeftIcon className="h-4 w-4 inline mr-1" />
+                Bookkeeping
+              </Link>
+              <span className="text-gray-400">/</span>
+              <span className="text-gray-600 text-sm">Trial Balance</span>
+            </div>
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-3xl font-bold mb-2 text-gray-900">Trial Balance</h1>
+                <p className="text-gray-600">Verify debits equal credits across all accounts</p>
+              </div>
+              {data && (
+                <button
+                  onClick={() => window.print()}
+                  className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  <PrinterIcon className="h-5 w-5 mr-2" />
+                  Print
+                </button>
+              )}
+            </div>
           </div>
-          <button onClick={fetchReport} disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
-            {loading ? 'Loading...' : 'Generate'}
-          </button>
-          {data && (
-            <button onClick={() => window.print()}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition-colors">
-              Print
-            </button>
+
+          {/* Filters */}
+          <div className="bg-white rounded-lg shadow mb-6 p-4 no-print">
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">As of Date</label>
+                <input
+                  type="date"
+                  value={asOfDate}
+                  onChange={(e) => setAsOfDate(e.target.value)}
+                  className="border rounded-lg px-3 py-2 text-sm text-gray-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm no-print">{error}</div>}
+          {loading && <div className="text-center py-12 text-gray-500 no-print">Loading...</div>}
+
+          {data && !loading && (
+            <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+              {/* Screen-only header */}
+              <div className="text-center py-4 border-b no-print">
+                <h2 className="text-xl font-bold text-gray-900">Trial Balance</h2>
+                <p className="text-sm text-gray-500">{formatAsOfDate(asOfDate)}</p>
+              </div>
+
+              {data.accounts.length === 0 ? (
+                <div className="px-6 py-12 text-center text-gray-400">
+                  No accounts with activity
+                </div>
+              ) : (
+                <div className="report-section">
+                  <div className="px-6 py-3 bg-gray-50 section-header">
+                    <h3 className="text-sm font-semibold text-gray-800 uppercase tracking-wide text-center">Account Balances</h3>
+                  </div>
+                  <div className="expense-subgroup">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr className="border-b">
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">Code</th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Account Name</th>
+                          <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-32">Debit</th>
+                          <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-32">Credit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.accounts.map((acct) => {
+                          const { debit, credit } = getDebitCredit(acct);
+                          return (
+                            <tr key={acct.accountId} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="px-6 py-2 font-mono text-xs text-gray-500">{acct.code}</td>
+                              <td className="px-6 py-2 text-gray-900">{acct.name}</td>
+                              <td className="px-6 py-2 text-right font-medium text-gray-900">
+                                {debit > 0 ? formatCurrency(debit) : ''}
+                              </td>
+                              <td className="px-6 py-2 text-right font-medium text-gray-900">
+                                {credit > 0 ? formatCurrency(credit) : ''}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
+                          <td colSpan={2} className="px-6 py-3 text-gray-900">Totals</td>
+                          <td className="px-6 py-3 text-right text-gray-900">{formatCurrency(data.totalDebits)}</td>
+                          <td className="px-6 py-3 text-right text-gray-900">{formatCurrency(data.totalCredits)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Balance Check */}
+              {data.accounts.length > 0 && (
+                <div className={`px-6 py-4 text-center font-semibold balance-indicator no-print ${data.isBalanced ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  {data.isBalanced ? (
+                    <span>BALANCED — Total Debits equal Total Credits</span>
+                  ) : (
+                    <span>OUT OF BALANCE by {formatCurrency(difference)}</span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
-
-        {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
-
-        {data && (
-          <div className="bg-white border rounded-lg shadow-sm p-6 print:shadow-none print:border-none">
-            <div className="text-center mb-6 print:mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Trial Balance</h2>
-              <p className="text-sm text-gray-500">As of {new Date(asOfDate).toLocaleDateString()}</p>
-            </div>
-
-            {data.accounts.length === 0 ? (
-              <p className="text-center text-gray-400 py-8">No accounts with activity</p>
-            ) : (
-              <>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-gray-500 uppercase">
-                      <th className="text-left py-2 w-20">Code</th>
-                      <th className="text-left py-2">Account Name</th>
-                      <th className="text-right py-2 w-32">Debit</th>
-                      <th className="text-right py-2 w-32">Credit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.accounts.map((acct) => {
-                      const { debit, credit } = getDebitCredit(acct);
-                      return (
-                        <tr key={acct.accountId} className="border-b border-gray-100">
-                          <td className="py-2 font-mono text-xs text-gray-500">{acct.code}</td>
-                          <td className="py-2 text-gray-700">{acct.name}</td>
-                          <td className="py-2 text-right font-medium">{formatCurrency(debit)}</td>
-                          <td className="py-2 text-right font-medium">{formatCurrency(credit)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-gray-900 font-bold">
-                      <td className="py-3" colSpan={2}>Totals</td>
-                      <td className="py-3 text-right">
-                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.totalDebits)}
-                      </td>
-                      <td className="py-3 text-right">
-                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.totalCredits)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-
-                {/* Balance Indicator */}
-                <div className={`mt-4 text-center text-sm font-semibold py-2 rounded ${data.isBalanced ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                  {data.isBalanced ? 'BALANCED' : 'OUT OF BALANCE'}
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </div>
-    </div>
+    </PrintLayout>
   );
 }

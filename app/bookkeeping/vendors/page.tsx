@@ -334,7 +334,7 @@ export default function VendorsPage() {
                     {vendorExpenses.slice(0, 10).map((exp) => (
                       <div key={exp.id} className="flex justify-between items-center text-sm">
                         <div>
-                          <span className="text-gray-500">{new Date(exp.date).toLocaleDateString()}</span>
+                          <span className="text-gray-500">{new Date(exp.date).toLocaleDateString('en-US', { timeZone: 'UTC' })}</span>
                           <span className="ml-2 text-gray-700">{exp.description}</span>
                         </div>
                         <span className="font-medium">{formatCurrency(exp.amount)}</span>
