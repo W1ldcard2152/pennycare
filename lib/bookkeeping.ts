@@ -85,6 +85,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '6220', name: 'Licenses & Permits', type: 'expense', subtype: 'expense', description: 'Business licenses, DMV fees, permits' },
   { code: '6230', name: 'Depreciation Expense', type: 'expense', subtype: 'expense', description: 'Depreciation of fixed assets' },
   { code: '6300', name: 'Credit Card Interest', type: 'expense', subtype: 'expense', description: 'Credit card interest expense' },
+  { code: '6800', name: 'Reconciliation Discrepancies', type: 'expense', subtype: 'expense', description: 'Adjustments for reconciliation differences' },
   { code: '6900', name: 'Miscellaneous Expense', type: 'expense', subtype: 'other_expense', description: 'Other business expenses' },
 ];
 

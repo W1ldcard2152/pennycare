@@ -322,6 +322,29 @@ export const ebaySalesQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
 });
 
+// ── Reconciliation ──────────────────────────────────
+
+export const startReconciliationSchema = z.object({
+  accountId: z.string().min(1, 'Account is required'),
+  statementStartDate: z.string().min(1, 'Statement start date is required'),
+  statementEndDate: z.string().min(1, 'Statement end date is required'),
+  statementBalance: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+});
+
+export const toggleClearedSchema = z.object({
+  journalEntryLineId: z.string().min(1, 'Journal entry line ID is required'),
+  cleared: z.boolean(),
+});
+
+export const completeReconciliationSchema = z.object({
+  createAdjustment: z.boolean().optional().default(false),
+  adjustmentAccountId: z.string().optional().nullable(),
+});
+
+export const reopenReconciliationSchema = z.object({
+  reason: z.string().min(1, 'A reason is required to reopen a reconciliation'),
+});
+
 // ── Credit Card Statement Import ──────────────────────────────────
 
 export const ccParseSchema = z.object({

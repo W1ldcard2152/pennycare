@@ -15,6 +15,7 @@ import {
   BanknotesIcon,
   AdjustmentsHorizontalIcon,
   CreditCardIcon,
+  CheckBadgeIcon,
 } from '@heroicons/react/24/outline';
 
 const sections = [
@@ -66,6 +67,13 @@ const sections = [
     href: '/bookkeeping/rules',
     icon: AdjustmentsHorizontalIcon,
     color: 'text-indigo-600',
+  },
+  {
+    title: 'Reconciliation',
+    description: 'Reconcile bank and credit card accounts against statement balances',
+    href: '/bookkeeping/reconciliation',
+    icon: CheckBadgeIcon,
+    color: 'text-emerald-600',
   },
   {
     title: 'Legacy Upload',

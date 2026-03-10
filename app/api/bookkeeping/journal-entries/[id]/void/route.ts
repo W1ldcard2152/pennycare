@@ -31,6 +31,30 @@ export async function POST(
       return NextResponse.json({ error: 'This journal entry is already voided' }, { status: 409 });
     }
 
+    // Check if any lines are reconciled
+    const reconciledLines = await prisma.journalEntryLine.findMany({
+      where: {
+        journalEntryId: id,
+        isReconciled: true,
+      },
+      select: {
+        id: true,
+        account: { select: { name: true } },
+      },
+    });
+
+    if (reconciledLines.length > 0) {
+      const accountNames = [...new Set(reconciledLines.map(l => l.account.name))].join(', ');
+      return NextResponse.json(
+        {
+          error: 'Cannot void: this entry contains reconciled transactions. Un-reconcile first.',
+          accounts: accountNames,
+          reconciledLineCount: reconciledLines.length,
+        },
+        { status: 409 }
+      );
+    }
+
     const updated = await prisma.journalEntry.update({
       where: { id },
       data: {

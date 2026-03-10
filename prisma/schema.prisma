@@ -131,6 +131,7 @@ model Company {
   ebaySales         EbaySale[]
   transactionRules  TransactionRule[]
   statementImports  StatementImport[]
+  reconciliations   Reconciliation[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -506,6 +507,9 @@ model Account {
   statementsAsSource StatementImport[] @relation("StatementSourceAccount")
   statementsAsTarget StatementImport[] @relation("StatementTargetAccount")
 
+  // Reconciliation relations
+  reconciliations    Reconciliation[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -645,7 +649,7 @@ model JournalEntry {
   referenceNumber String?
 
   // Source tracking
-  source        String   @default("manual") // "manual", "payroll", "expense", "statement_import", "cc_import", "opening_balance", "ebay_import"
+  source        String   @default("manual") // "manual", "payroll", "expense", "statement_import", "cc_import", "opening_balance", "ebay_import", "reconciliation"
   sourceId      String?  // ID of the source record
 
   // Status
@@ -658,6 +662,9 @@ model JournalEntry {
   lines            JournalEntryLine[]
   ebaySales        EbaySale[]
   statementImports StatementImport[]
+
+  // Reconciliation relation (for adjusting entries)
+  reconciliationAdjustments Reconciliation[]
 
   isReconciled  Boolean  @default(false)
   reconciledDate DateTime?
@@ -683,6 +690,12 @@ model JournalEntryLine {
   description     String?
   debit           Float    @default(0)
   credit          Float    @default(0)
+
+  // Reconciliation flag - prevents editing/voiding reconciled transactions
+  isReconciled    Boolean  @default(false)
+
+  // Relations
+  reconciledItems ReconciledItem[]
 
   createdAt       DateTime @default(now())
 
@@ -819,4 +832,63 @@ model StatementImport {
   @@unique([companyId, sourceAccountId, postDate, description, amount, isDebit]) // prevent duplicate imports
   @@index([companyId, status])
   @@index([importBatch])
+}
+
+// ============================================
+// RECONCILIATION
+// ============================================
+
+model Reconciliation {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id])
+
+  // Statement period
+  statementStartDate  DateTime
+  statementEndDate    DateTime
+  statementBalance    Float    // ending balance per the bank/CC statement
+
+  // Reconciliation result
+  reconciledBalance   Float?   // book balance of cleared items
+  difference          Float?   // statementBalance - reconciledBalance (should be 0)
+  adjustingEntryId    String?  // if an adjusting entry was created to force balance
+  adjustingEntry      JournalEntry? @relation(fields: [adjustingEntryId], references: [id])
+
+  // Status
+  status          String   @default("in_progress") // "in_progress", "completed", "reopened"
+  completedAt     DateTime?
+  completedBy     String?
+  reopenedAt      DateTime?
+  reopenedBy      String?
+  reopenReason    String?
+
+  // Relations
+  clearedItems    ReconciledItem[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId, accountId])
+  @@index([companyId, status])
+}
+
+model ReconciledItem {
+  id                String   @id @default(cuid())
+  reconciliationId  String
+  reconciliation    Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  journalEntryLineId  String
+  journalEntryLine    JournalEntryLine @relation(fields: [journalEntryLineId], references: [id])
+
+  // Snapshot of the transaction at reconciliation time
+  amount          Float
+  isDebit         Boolean
+
+  clearedAt       DateTime @default(now())
+
+  @@unique([reconciliationId, journalEntryLineId])
+  @@index([journalEntryLineId])
 }

@@ -31,6 +31,13 @@ interface BatchSummary {
   totalCount: number;
   pendingCount: number;
   bookedCount: number;
+  skippedCount?: number;
+  matchedCount?: number;
+  unmatchedCount?: number;
+  importedAt?: string;
+  earliestDate?: string | null;
+  latestDate?: string | null;
+  totalAmount?: number;
 }
 
 type Step = 'input' | 'parsing' | 'review' | 'submitting' | 'results';
@@ -69,6 +76,12 @@ export default function CCImportPage() {
 
   // Import history
   const [batches, setBatches] = useState<BatchSummary[]>([]);
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [allBatches, setAllBatches] = useState<BatchSummary[]>([]);
+  const [historyFilterAccountId, setHistoryFilterAccountId] = useState('');
+  const [historyFilterStartDate, setHistoryFilterStartDate] = useState('');
+  const [historyFilterEndDate, setHistoryFilterEndDate] = useState('');
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Rule creation state
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -142,6 +155,33 @@ export default function CCImportPage() {
       // handled by empty state
     }
   }, []);
+
+  const fetchFullHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const params = new URLSearchParams();
+      if (historyFilterAccountId) params.append('sourceAccountId', historyFilterAccountId);
+      if (historyFilterStartDate) params.append('startDate', historyFilterStartDate);
+      if (historyFilterEndDate) params.append('endDate', historyFilterEndDate);
+
+      const res = await fetch(`/api/bookkeeping/cc-import/history?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllBatches(data);
+      }
+    } catch {
+      // handled by empty state
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [historyFilterAccountId, historyFilterStartDate, historyFilterEndDate]);
+
+  // Fetch full history when toggle is enabled or filters change
+  useEffect(() => {
+    if (showFullHistory) {
+      fetchFullHistory();
+    }
+  }, [showFullHistory, fetchFullHistory]);
 
   const handleParse = async () => {
     if (!sourceAccountId) {
@@ -654,28 +694,139 @@ export default function CCImportPage() {
         {step === 'input' && (
           <div className="space-y-6">
             {/* Import History */}
-            {batches.length > 0 && (
+            {(batches.length > 0 || showFullHistory || creditCardAccounts.length > 0) && (
               <div className="bg-white border rounded-lg shadow-sm">
-                <div className="px-4 py-3 border-b">
-                  <h2 className="font-semibold text-gray-900">Recent CC Import Batches</h2>
+                <div className="px-4 py-3 border-b flex items-center justify-between">
+                  <h2 className="font-semibold text-gray-900">
+                    {showFullHistory ? 'CC Import History' : 'Recent CC Import Batches'}
+                  </h2>
+                  <button
+                    onClick={() => setShowFullHistory(!showFullHistory)}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                  >
+                    {showFullHistory ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                        Show Recent Only
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        Show All History
+                      </>
+                    )}
+                  </button>
                 </div>
+
+                {/* Filters (only shown when full history is enabled) */}
+                {showFullHistory && (
+                  <div className="px-4 py-3 border-b bg-gray-50">
+                    <div className="flex flex-wrap gap-4 items-end">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Card Account
+                        </label>
+                        <select
+                          value={historyFilterAccountId}
+                          onChange={(e) => setHistoryFilterAccountId(e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
+                        >
+                          <option value="">All Cards</option>
+                          {creditCardAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.code} — {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="min-w-[140px]">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          From Date
+                        </label>
+                        <input
+                          type="date"
+                          value={historyFilterStartDate}
+                          onChange={(e) => setHistoryFilterStartDate(e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
+                        />
+                      </div>
+                      <div className="min-w-[140px]">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          To Date
+                        </label>
+                        <input
+                          type="date"
+                          value={historyFilterEndDate}
+                          onChange={(e) => setHistoryFilterEndDate(e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
+                        />
+                      </div>
+                      {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && (
+                        <button
+                          onClick={() => {
+                            setHistoryFilterAccountId('');
+                            setHistoryFilterStartDate('');
+                            setHistoryFilterEndDate('');
+                          }}
+                          className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5"
+                        >
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading state */}
+                {showFullHistory && loadingHistory && (
+                  <div className="px-4 py-8 text-center text-gray-500">
+                    Loading history...
+                  </div>
+                )}
+
+                {/* Batch list */}
                 <div className="divide-y">
-                  {batches.slice(0, 5).map((batch) => (
+                  {(showFullHistory ? allBatches : batches.slice(0, 5)).map((batch) => (
                     <div key={batch.batchName} className="px-4 py-3 flex items-center justify-between">
-                      <div>
+                      <div className="flex-1">
                         <div className="font-medium text-gray-900">{batch.batchName}</div>
                         <div className="text-sm text-gray-500">
-                          {batch.sourceAccount.code} — {batch.sourceAccount.name} •
-                          {' '}{batch.pendingCount} pending, {batch.bookedCount} booked
+                          {batch.sourceAccount.code} — {batch.sourceAccount.name}
+                          {showFullHistory && batch.earliestDate && batch.latestDate && (
+                            <>
+                              {' '}• {formatDate(batch.earliestDate)}
+                              {batch.earliestDate !== batch.latestDate && ` to ${formatDate(batch.latestDate)}`}
+                            </>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {batch.pendingCount > 0 && (
+                            <span className="text-amber-600">{batch.pendingCount} pending</span>
+                          )}
+                          {batch.pendingCount > 0 && batch.bookedCount > 0 && ', '}
+                          {batch.bookedCount > 0 && (
+                            <span className="text-green-600">{batch.bookedCount} booked</span>
+                          )}
+                          {showFullHistory && batch.totalAmount !== undefined && batch.totalAmount > 0 && (
+                            <span className="ml-2 text-gray-500">
+                              • Total: {formatCurrency(batch.totalAmount)}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Link
-                          href={`/bookkeeping/statements?batch=${encodeURIComponent(batch.batchName)}`}
-                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium"
-                        >
-                          Review
-                        </Link>
+                        {(batch.pendingCount > 0 || batch.bookedCount > 0) && (
+                          <Link
+                            href={`/bookkeeping/statements?batch=${encodeURIComponent(batch.batchName)}`}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium"
+                          >
+                            Review
+                          </Link>
+                        )}
                         <button
                           onClick={() => deleteBatch(batch.batchName)}
                           className="text-red-600 hover:text-red-700 px-2 py-1.5 text-sm font-medium"
@@ -685,7 +836,27 @@ export default function CCImportPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Empty state */}
+                  {showFullHistory && !loadingHistory && allBatches.length === 0 && (
+                    <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                      No import history found
+                      {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && ' matching filters'}
+                    </div>
+                  )}
+                  {!showFullHistory && batches.length === 0 && (
+                    <div className="px-4 py-4 text-center text-gray-500 text-sm">
+                      No recent imports
+                    </div>
+                  )}
                 </div>
+
+                {/* Footer with count */}
+                {showFullHistory && allBatches.length > 0 && (
+                  <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-500">
+                    Showing {allBatches.length} batch{allBatches.length !== 1 ? 'es' : ''}
+                  </div>
+                )}
               </div>
             )}
 
