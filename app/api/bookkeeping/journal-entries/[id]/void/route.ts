@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
+import { checkClosedPeriod } from '@/lib/bookkeeping';
 
 // POST /api/bookkeeping/journal-entries/[id]/void
 export async function POST(
@@ -29,6 +30,15 @@ export async function POST(
 
     if (entry.status === 'voided') {
       return NextResponse.json({ error: 'This journal entry is already voided' }, { status: 409 });
+    }
+
+    // Check if the entry is in a closed period
+    const { isClosed, closedPeriod } = await checkClosedPeriod(companyId!, entry.date);
+    if (isClosed) {
+      return NextResponse.json({
+        error: `Cannot void: Fiscal year ${closedPeriod!.fiscalYear} is closed. Reopen the period to make changes.`,
+        closedPeriod: closedPeriod,
+      }, { status: 409 });
     }
 
     // Check if any lines are reconciled

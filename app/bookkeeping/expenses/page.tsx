@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -48,7 +48,7 @@ function formatCategory(cat: string) {
   return cat.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-export default function ExpensesPage() {
+function ExpensesPageContent() {
   const searchParams = useSearchParams();
   const initialVendorId = searchParams.get('vendorId') || '';
 
@@ -504,5 +504,13 @@ export default function ExpensesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ExpensesPage() {
+  return (
+    <Suspense fallback={<div className="p-8"><p className="text-gray-600">Loading expenses...</p></div>}>
+      <ExpensesPageContent />
+    </Suspense>
   );
 }

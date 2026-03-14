@@ -137,6 +137,7 @@ export interface CreateJournalEntryInput {
   sourceId?: string;
   lines: JournalEntryLineInput[];
   notes?: string;
+  skipClosedPeriodCheck?: boolean; // For internal operations like year-end closing
 }
 
 /**
@@ -186,6 +187,14 @@ export async function createJournalEntry(input: CreateJournalEntryInput) {
   const validation = validateJournalEntry(input.lines);
   if (!validation.valid) {
     throw new Error(validation.error);
+  }
+
+  // Check for closed period unless explicitly skipped
+  if (!input.skipClosedPeriodCheck) {
+    const { isClosed, closedPeriod } = await checkClosedPeriod(input.companyId, input.date);
+    if (isClosed) {
+      throw new Error(`Cannot create journal entry: Fiscal year ${closedPeriod!.fiscalYear} is closed. Reopen the period to make changes.`);
+    }
   }
 
   return prisma.$transaction(async (tx) => {
@@ -818,9 +827,180 @@ export async function generateGeneralLedger(
 }
 
 // ============================================
+// YEAR-END CLOSING HELPERS
+// ============================================
+
+/**
+ * Check if a date falls within a closed fiscal period.
+ * Returns the closed period if found, null otherwise.
+ *
+ * @param companyId - The company ID
+ * @param date - The date to check
+ * @returns The closed period if the date is in a closed period, null otherwise
+ */
+export async function checkClosedPeriod(companyId: string, date: Date): Promise<{
+  isClosed: boolean;
+  closedPeriod?: {
+    id: string;
+    fiscalYear: number;
+    periodEnd: Date;
+    closedAt: Date;
+    isOpen: boolean;
+  };
+}> {
+  // Get the fiscal year for the date
+  const year = date.getUTCFullYear();
+
+  const closedPeriod = await prisma.closedPeriod.findUnique({
+    where: { companyId_fiscalYear: { companyId, fiscalYear: year } },
+    select: {
+      id: true,
+      fiscalYear: true,
+      periodEnd: true,
+      closedAt: true,
+      isOpen: true,
+    },
+  });
+
+  if (!closedPeriod) {
+    return { isClosed: false };
+  }
+
+  // If the period has been reopened, it's not closed
+  if (closedPeriod.isOpen) {
+    return { isClosed: false };
+  }
+
+  // Check if the date is within the closed period
+  if (date <= closedPeriod.periodEnd) {
+    return { isClosed: true, closedPeriod };
+  }
+
+  return { isClosed: false };
+}
+
+/**
+ * Create a year-end closing entry that zeros out all revenue and expense accounts
+ * and moves the net income to Retained Earnings.
+ *
+ * The closing entry:
+ * - DEBITS all revenue accounts (to zero them out)
+ * - CREDITS all expense accounts (to zero them out)
+ * - DEBITS or CREDITS Retained Earnings for the net income/loss
+ *
+ * @param companyId - The company ID
+ * @param fiscalYear - The fiscal year being closed
+ * @param periodEnd - The last day of the fiscal year
+ * @returns The closing journal entry
+ */
+export async function createYearEndClosingEntry(
+  companyId: string,
+  fiscalYear: number,
+  periodEnd: Date,
+) {
+  // Get the start of the fiscal year (assume calendar year)
+  const fiscalYearStart = `${fiscalYear}-01-01`;
+  const fiscalYearEnd = `${fiscalYear}-12-31`;
+
+  // Get all account balances for the fiscal year
+  const balances = await getAccountBalances(companyId, fiscalYearStart, fiscalYearEnd);
+
+  // Filter to revenue and expense accounts with non-zero balances
+  const revenueAccounts = balances.filter((b) => b.type === 'revenue' && b.balance !== 0);
+  const expenseAccounts = balances.filter((b) => b.type === 'expense' && b.balance !== 0);
+
+  // Calculate net income (revenue - expenses)
+  const totalRevenue = revenueAccounts.reduce((sum, b) => sum + b.balance, 0);
+  const totalExpenses = expenseAccounts.reduce((sum, b) => sum + b.balance, 0);
+  const netIncome = round2(totalRevenue - totalExpenses);
+
+  // Find Retained Earnings account (code 3200)
+  const retainedEarnings = await prisma.account.findUnique({
+    where: { companyId_code: { companyId, code: '3200' } },
+  });
+
+  if (!retainedEarnings) {
+    throw new Error('Retained Earnings account (3200) not found. Please seed the chart of accounts first.');
+  }
+
+  // Build journal entry lines
+  const lines: JournalEntryLineInput[] = [];
+
+  // DEBIT all revenue accounts (revenue has credit-normal balance, so we debit to zero)
+  for (const rev of revenueAccounts) {
+    lines.push({
+      accountId: rev.accountId,
+      description: `Close ${rev.name} to Retained Earnings`,
+      debit: round2(rev.balance),
+      credit: 0,
+    });
+  }
+
+  // CREDIT all expense accounts (expense has debit-normal balance, so we credit to zero)
+  for (const exp of expenseAccounts) {
+    lines.push({
+      accountId: exp.accountId,
+      description: `Close ${exp.name} to Retained Earnings`,
+      debit: 0,
+      credit: round2(exp.balance),
+    });
+  }
+
+  // Net income entry to Retained Earnings
+  // If net income is positive (profit), credit Retained Earnings
+  // If net income is negative (loss), debit Retained Earnings
+  if (netIncome !== 0) {
+    if (netIncome > 0) {
+      lines.push({
+        accountId: retainedEarnings.id,
+        description: `Net income for fiscal year ${fiscalYear}`,
+        debit: 0,
+        credit: round2(netIncome),
+      });
+    } else {
+      lines.push({
+        accountId: retainedEarnings.id,
+        description: `Net loss for fiscal year ${fiscalYear}`,
+        debit: round2(Math.abs(netIncome)),
+        credit: 0,
+      });
+    }
+  }
+
+  // If no revenue/expense activity, no closing entry needed
+  if (lines.length === 0) {
+    throw new Error(`No revenue or expense activity found for fiscal year ${fiscalYear}. Nothing to close.`);
+  }
+
+  // Create the closing journal entry (skip closed period check since we're creating this entry)
+  const entry = await createJournalEntry({
+    companyId,
+    date: periodEnd,
+    memo: `Year-end closing entry for fiscal year ${fiscalYear}`,
+    referenceNumber: `YEC-${fiscalYear}`,
+    source: 'year_end_closing',
+    sourceId: fiscalYear.toString(),
+    lines,
+    skipClosedPeriodCheck: true,
+  });
+
+  return {
+    entry,
+    summary: {
+      fiscalYear,
+      totalRevenue: round2(totalRevenue),
+      totalExpenses: round2(totalExpenses),
+      netIncome,
+      revenueAccountsClosed: revenueAccounts.length,
+      expenseAccountsClosed: expenseAccounts.length,
+    },
+  };
+}
+
+// ============================================
 // UTILITY
 // ============================================
 
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

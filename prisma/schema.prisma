@@ -132,6 +132,7 @@ model Company {
   transactionRules  TransactionRule[]
   statementImports  StatementImport[]
   reconciliations   Reconciliation[]
+  closedPeriods     ClosedPeriod[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -666,6 +667,9 @@ model JournalEntry {
   // Reconciliation relation (for adjusting entries)
   reconciliationAdjustments Reconciliation[]
 
+  // Year-end closing relation
+  closedPeriods ClosedPeriod[] @relation("ClosingEntry")
+
   isReconciled  Boolean  @default(false)
   reconciledDate DateTime?
   notes         String?
@@ -832,6 +836,40 @@ model StatementImport {
   @@unique([companyId, sourceAccountId, postDate, description, amount, isDebit]) // prevent duplicate imports
   @@index([companyId, status])
   @@index([importBatch])
+}
+
+// ============================================
+// YEAR-END CLOSING
+// ============================================
+
+model ClosedPeriod {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Period being closed
+  fiscalYear      Int
+  periodEnd       DateTime  // Last day of the fiscal year (e.g., 2024-12-31)
+
+  // Closing info
+  closedAt        DateTime
+  closedBy        String    // userId who closed the period
+  closingEntryId  String?   // Journal entry that zeros out revenue/expense to Retained Earnings
+  closingEntry    JournalEntry? @relation("ClosingEntry", fields: [closingEntryId], references: [id])
+
+  // Reopen/reclose tracking
+  isOpen          Boolean   @default(false)  // true = period has been reopened for editing
+  reopenedAt      DateTime?
+  reopenedBy      String?
+  reopenReason    String?
+  reclosedAt      DateTime?
+  reclosedBy      String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, fiscalYear])
+  @@index([companyId])
 }
 
 // ============================================

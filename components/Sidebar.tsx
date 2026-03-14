@@ -32,6 +32,7 @@ import {
   Cog6ToothIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  LockClosedIcon,
 } from '@heroicons/react/24/outline';
 
 interface NavItem {
@@ -95,6 +96,7 @@ const sections: NavSection[] = [
     icon: WrenchScrewdriverIcon,
     items: [
       { name: 'Company Settings', href: '/settings', icon: Cog6ToothIcon },
+      { name: 'Year-End Closing', href: '/admin/year-end', icon: LockClosedIcon },
       { name: 'Audit Trail', href: '/admin/audit', icon: MagnifyingGlassIcon },
       { name: 'Backup / Restore', href: '/admin/backup', icon: CircleStackIcon },
     ],
