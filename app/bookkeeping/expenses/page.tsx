@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import {
+  PlusIcon,
+  TrashIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+} from '@heroicons/react/24/outline';
 
 interface Vendor {
   id: string;
@@ -42,6 +49,9 @@ function formatCategory(cat: string) {
 }
 
 export default function ExpensesPage() {
+  const searchParams = useSearchParams();
+  const initialVendorId = searchParams.get('vendorId') || '';
+
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -50,10 +60,11 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState('');
   const [showAccounting, setShowAccounting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Filters
   const [filterCategory, setFilterCategory] = useState('');
-  const [filterVendor, setFilterVendor] = useState('');
+  const [filterVendor, setFilterVendor] = useState(initialVendorId);
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
 
@@ -73,12 +84,16 @@ export default function ExpensesPage() {
   });
 
   useEffect(() => {
-    fetchExpenses();
     fetchVendors();
     fetchAccounts();
   }, []);
 
+  useEffect(() => {
+    fetchExpenses();
+  }, [filterCategory, filterVendor, filterStartDate, filterEndDate]);
+
   const fetchExpenses = async () => {
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filterCategory) params.set('category', filterCategory);
@@ -118,23 +133,17 @@ export default function ExpensesPage() {
     }
   };
 
-  const applyFilters = () => {
-    setLoading(true);
-    fetchExpenses();
-  };
-
   const clearFilters = () => {
     setFilterCategory('');
     setFilterVendor('');
     setFilterStartDate('');
     setFilterEndDate('');
-    setLoading(true);
-    setTimeout(() => fetchExpenses(), 0);
   };
 
   const createExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    setSubmitting(true);
     try {
       const res = await fetch('/api/bookkeeping/expenses', {
         method: 'POST',
@@ -165,11 +174,13 @@ export default function ExpensesPage() {
       fetchExpenses();
     } catch {
       setFormError('Failed to create expense');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const deleteExpense = async (id: string, desc: string) => {
-    if (!confirm(`Delete expense "${desc}"?`)) return;
+    if (!confirm(`Delete expense "${desc}"? Any associated journal entry will be voided.`)) return;
     try {
       const res = await fetch(`/api/bookkeeping/expenses/${id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -186,10 +197,19 @@ export default function ExpensesPage() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
-  const expenseAccounts = accounts.filter((a) => a.type === 'expense');
-  const cashAccounts = accounts.filter((a) => a.type === 'asset');
+  // Account groups for dropdowns
+  const expenseAccounts = accounts.filter((a) => a.type === 'expense').sort((a, b) => a.code.localeCompare(b.code));
+  const paymentAccounts = accounts.filter((a) => ['asset', 'liability', 'credit_card'].includes(a.type)).sort((a, b) => a.code.localeCompare(b.code));
 
-  if (loading) return <div className="p-8"><p className="text-gray-600">Loading expenses...</p></div>;
+  // Get selected account names for preview
+  const selectedDebitAccount = accounts.find((a) => a.id === formData.debitAccountId);
+  const selectedCreditAccount = accounts.find((a) => a.id === formData.creditAccountId);
+  const showJournalPreview = formData.debitAccountId && formData.creditAccountId && formData.amount;
+
+  // Calculate totals
+  const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
+
+  if (loading && expenses.length === 0) return <div className="p-8"><p className="text-gray-600">Loading expenses...</p></div>;
 
   return (
     <div className="min-h-screen p-8">
@@ -203,17 +223,21 @@ export default function ExpensesPage() {
               <span className="text-gray-600 text-sm">Expenses</span>
             </div>
             <h1 className="text-3xl font-bold text-gray-900">Expenses</h1>
-            <p className="text-gray-600 mt-1">{total} expense{total !== 1 ? 's' : ''}</p>
+            <p className="text-gray-600 mt-1">
+              {total} expense{total !== 1 ? 's' : ''}
+              {expenses.length > 0 && ` totaling ${formatCurrency(totalAmount)}`}
+            </p>
           </div>
           <div className="flex gap-3">
-            <Link href="/bookkeeping/expenses/import"
+            <Link href="/bookkeeping/statements"
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
-              Upload Statements
+              Import Statements
             </Link>
             <button
               onClick={() => setShowForm(!showForm)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
+              <PlusIcon className="w-5 h-5" />
               {showForm ? 'Cancel' : 'Add Expense'}
             </button>
           </div>
@@ -248,7 +272,7 @@ export default function ExpensesPage() {
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
                 <input type="text" required value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="What was this expense for?" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
@@ -267,7 +291,7 @@ export default function ExpensesPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reference #</label>
                 <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="Check #, invoice #, etc." />
               </div>
               <div className="flex items-center gap-4">
                 <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
@@ -283,11 +307,15 @@ export default function ExpensesPage() {
               </div>
 
               {/* Accounting Section */}
-              <div className="md:col-span-3">
+              <div className="md:col-span-3 border-t pt-4 mt-2">
                 <button type="button" onClick={() => setShowAccounting(!showAccounting)}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                  {showAccounting ? 'Hide' : 'Show'} Accounting (Journal Entry)
+                  className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium">
+                  {showAccounting ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
+                  Create Journal Entry (Optional)
                 </button>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select accounts to automatically create a journal entry for this expense.
+                </p>
               </div>
               {showAccounting && (
                 <>
@@ -295,20 +323,50 @@ export default function ExpensesPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Debit Account (Expense)</label>
                     <select value={formData.debitAccountId} onChange={(e) => setFormData({ ...formData, debitAccountId: e.target.value })}
                       className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
-                      <option value="">Select account...</option>
+                      <option value="">Select expense account...</option>
                       {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Credit Account (Cash/Bank)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Credit Account (Payment Source)</label>
                     <select value={formData.creditAccountId} onChange={(e) => setFormData({ ...formData, creditAccountId: e.target.value })}
                       className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
-                      <option value="">Select account...</option>
-                      {cashAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      <option value="">Select payment account...</option>
+                      <optgroup label="Bank Accounts">
+                        {paymentAccounts.filter(a => a.type === 'asset').map((a) => (
+                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Credit Cards">
+                        {paymentAccounts.filter(a => a.type === 'credit_card').map((a) => (
+                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Other Liabilities">
+                        {paymentAccounts.filter(a => a.type === 'liability').map((a) => (
+                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                        ))}
+                      </optgroup>
                     </select>
                   </div>
-                  <div className="flex items-end text-xs text-gray-500">
-                    If both accounts are selected, a journal entry will be automatically created.
+                  <div className="flex items-center">
+                    {showJournalPreview ? (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm w-full">
+                        <div className="font-medium text-blue-800 mb-1">Journal Entry Preview</div>
+                        <div className="text-blue-700">
+                          <span className="font-mono">DR</span> {selectedDebitAccount?.code} {selectedDebitAccount?.name}
+                          <span className="float-right">{formatCurrency(Number(formData.amount))}</span>
+                        </div>
+                        <div className="text-blue-700">
+                          <span className="font-mono">CR</span> {selectedCreditAccount?.code} {selectedCreditAccount?.name}
+                          <span className="float-right">{formatCurrency(Number(formData.amount))}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">
+                        Select both accounts and enter an amount to preview the journal entry.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -316,11 +374,16 @@ export default function ExpensesPage() {
               <div className="md:col-span-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" rows={2} />
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" rows={2} placeholder="Additional notes..." />
               </div>
-              <div className="md:col-span-3">
-                <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
-                  Create Expense
+              <div className="md:col-span-3 flex gap-3">
+                <button type="submit" disabled={submitting}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                  {submitting ? 'Creating...' : 'Create Expense'}
+                </button>
+                <button type="button" onClick={() => setShowForm(false)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-medium transition-colors">
+                  Cancel
                 </button>
               </div>
             </form>
@@ -328,20 +391,20 @@ export default function ExpensesPage() {
         )}
 
         {/* Filters */}
-        <div className="mb-4 flex flex-wrap gap-3 items-end">
+        <div className="mb-4 flex flex-wrap gap-3 items-end bg-white border rounded-lg p-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Category</label>
             <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900">
-              <option value="">All</option>
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900 min-w-[140px]">
+              <option value="">All Categories</option>
               {CATEGORIES.map((c) => <option key={c} value={c}>{formatCategory(c)}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Vendor</label>
             <select value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)}
-              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900">
-              <option value="">All</option>
+              className="border rounded-lg px-3 py-1.5 text-sm text-gray-900 min-w-[160px]">
+              <option value="">All Vendors</option>
               {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </div>
@@ -355,19 +418,26 @@ export default function ExpensesPage() {
             <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm text-gray-900" />
           </div>
-          <button onClick={applyFilters} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">
-            Apply
-          </button>
-          <button onClick={clearFilters} className="text-gray-500 hover:text-gray-700 px-2 py-1.5 text-sm transition-colors">
-            Clear
-          </button>
+          {(filterCategory || filterVendor || filterStartDate || filterEndDate) && (
+            <button onClick={clearFilters} className="text-gray-500 hover:text-gray-700 px-3 py-1.5 text-sm transition-colors underline">
+              Clear filters
+            </button>
+          )}
         </div>
 
         {/* Expense Table */}
         {expenses.length === 0 ? (
           <div className="text-center py-16 bg-gray-50 rounded-lg">
-            <p className="text-gray-600 text-lg">No expenses found</p>
-            <p className="text-gray-500 mt-2">Add an expense to start tracking your business spending.</p>
+            <p className="text-gray-600 text-lg">
+              {filterCategory || filterVendor || filterStartDate || filterEndDate
+                ? 'No expenses match your filters'
+                : 'No expenses found'}
+            </p>
+            <p className="text-gray-500 mt-2">
+              {filterCategory || filterVendor || filterStartDate || filterEndDate
+                ? 'Try adjusting your filters or add a new expense.'
+                : 'Add an expense to start tracking your business spending.'}
+            </p>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -378,36 +448,57 @@ export default function ExpensesPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Paid</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-20">Actions</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase w-16"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {expenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-600">{new Date(exp.date).toLocaleDateString('en-US', { timeZone: 'UTC' })}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{exp.vendor?.name || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {new Date(exp.date).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      {exp.vendor ? (
+                        <Link href={`/bookkeeping/vendors?id=${exp.vendor.id}`} className="hover:text-blue-600">
+                          {exp.vendor.name}
+                        </Link>
+                      ) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-900">{exp.description}</td>
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
                         {formatCategory(exp.category)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(exp.amount)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {exp.paymentMethod ? exp.paymentMethod.charAt(0).toUpperCase() + exp.paymentMethod.slice(1) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">{formatCurrency(exp.amount)}</td>
                     <td className="px-4 py-3 text-sm text-center">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${exp.isPaid ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                         {exp.isPaid ? 'Paid' : 'Unpaid'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
-                      <button onClick={() => deleteExpense(exp.id, exp.description)} className="text-red-500 hover:text-red-700 text-xs">
-                        Delete
+                      <button onClick={() => deleteExpense(exp.id, exp.description)} className="text-red-500 hover:text-red-700 p-1" title="Delete">
+                        <TrashIcon className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td colSpan={5} className="px-4 py-3 text-sm font-medium text-gray-700 text-right">
+                    Total ({expenses.length} expense{expenses.length !== 1 ? 's' : ''})
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">{formatCurrency(totalAmount)}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

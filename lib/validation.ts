@@ -222,6 +222,7 @@ export const updateVendorSchema = z.object({
   zipCode: z.string().optional().nullable(),
   taxId: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
 });
 
 export const createExpenseSchema = z.object({

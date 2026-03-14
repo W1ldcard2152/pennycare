@@ -4,6 +4,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 import { createExpenseSchema, validateRequest } from '@/lib/validation';
 import { createJournalEntry } from '@/lib/bookkeeping';
 import { logAudit } from '@/lib/audit';
+import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/expenses
 export async function GET(request: NextRequest) {
@@ -12,18 +13,18 @@ export async function GET(request: NextRequest) {
     if (error) return error;
 
     const { searchParams } = new URL(request.url);
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const startDateStr = searchParams.get('startDate');
+    const endDateStr = searchParams.get('endDate');
     const category = searchParams.get('category');
     const vendorId = searchParams.get('vendorId');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
 
     const where: Record<string, unknown> = { companyId: companyId! };
-    if (startDate || endDate) {
+    if (startDateStr || endDateStr) {
       where.date = {};
-      if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate);
-      if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate);
+      if (startDateStr) (where.date as Record<string, unknown>).gte = startOfDay(startDateStr);
+      if (endDateStr) (where.date as Record<string, unknown>).lte = endOfDay(endDateStr);
     }
     if (category) where.category = category;
     if (vendorId) where.vendorId = vendorId;
@@ -62,11 +63,13 @@ export async function POST(request: NextRequest) {
 
     const data = validation.data;
     const amount = Number(data.amount);
+    const expenseDate = parseBusinessDate(data.date);
+    const paidDate = data.paidDate ? parseBusinessDate(data.paidDate) : null;
 
     const expense = await prisma.expense.create({
       data: {
         companyId: companyId!,
-        date: new Date(data.date),
+        date: expenseDate,
         vendorId: data.vendorId || null,
         description: data.description,
         category: data.category,
@@ -74,7 +77,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: data.paymentMethod || null,
         referenceNumber: data.referenceNumber || null,
         isPaid: data.isPaid || false,
-        paidDate: data.paidDate ? new Date(data.paidDate) : null,
+        paidDate,
         notes: data.notes || null,
       },
       include: {
@@ -89,7 +92,7 @@ export async function POST(request: NextRequest) {
         const vendorName = expense.vendor?.name || 'Unknown';
         const entry = await createJournalEntry({
           companyId: companyId!,
-          date: new Date(data.date),
+          date: expenseDate,
           memo: `Expense: ${data.description}${expense.vendor ? ` (${vendorName})` : ''}`,
           referenceNumber: data.referenceNumber || undefined,
           source: 'expense',

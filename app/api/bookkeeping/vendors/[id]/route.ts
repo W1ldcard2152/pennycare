@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
-import { createVendorSchema, updateVendorSchema, validateRequest } from '@/lib/validation';
+import { updateVendorSchema, validateRequest } from '@/lib/validation';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/bookkeeping/vendors/[id]
 export async function GET(
@@ -38,7 +39,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('admin');
     if (error) return error;
     const { id } = await params;
 
@@ -58,6 +59,15 @@ export async function PATCH(
       data: validation.data,
     });
 
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'vendor.update',
+      entityType: 'Vendor',
+      entityId: vendor.id,
+      metadata: { name: vendor.name, changes: Object.keys(validation.data) },
+    });
+
     return NextResponse.json(vendor);
   } catch (err) {
     console.error('Error updating vendor:', err);
@@ -71,7 +81,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('admin');
     if (error) return error;
     const { id } = await params;
 
@@ -89,10 +99,30 @@ export async function DELETE(
         where: { id },
         data: { isActive: false },
       });
+
+      await logAudit({
+        companyId: companyId!,
+        userId: session!.userId,
+        action: 'vendor.deactivate',
+        entityType: 'Vendor',
+        entityId: id,
+        metadata: { name: existing.name, expenseCount: existing._count.expenses },
+      });
+
       return NextResponse.json({ success: true, deactivated: true, message: 'Vendor has expenses and was deactivated instead of deleted' });
     }
 
     await prisma.vendor.delete({ where: { id } });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'vendor.delete',
+      entityType: 'Vendor',
+      entityId: id,
+      metadata: { name: existing.name },
+    });
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Error deleting vendor:', err);

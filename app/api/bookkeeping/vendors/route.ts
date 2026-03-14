@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createVendorSchema, validateRequest } from '@/lib/validation';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/bookkeeping/vendors
 export async function GET() {
@@ -27,7 +28,7 @@ export async function GET() {
 // POST /api/bookkeeping/vendors
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('admin');
     if (error) return error;
 
     const body = await request.json();
@@ -50,6 +51,15 @@ export async function POST(request: NextRequest) {
         taxId: data.taxId || null,
         notes: data.notes || null,
       },
+    });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'vendor.create',
+      entityType: 'Vendor',
+      entityId: vendor.id,
+      metadata: { name: vendor.name },
     });
 
     return NextResponse.json(vendor, { status: 201 });

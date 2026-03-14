@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/bookkeeping/expenses/[id]
 export async function GET(
@@ -33,7 +34,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('admin');
     if (error) return error;
     const { id } = await params;
 
@@ -63,6 +64,20 @@ export async function DELETE(
     }
 
     await prisma.expense.delete({ where: { id } });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'expense.delete',
+      entityType: 'Expense',
+      entityId: id,
+      metadata: {
+        description: existing.description,
+        amount: existing.amount,
+        voidedJournalEntries: relatedEntries.length,
+      },
+    });
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Error deleting expense:', err);
