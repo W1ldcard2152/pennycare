@@ -111,9 +111,9 @@ export default function GeneralLedgerPage() {
           {/* Header */}
           <div className="mb-6 no-print">
             <div className="flex items-center gap-2 mb-2">
-              <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">
+              <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">
                 <ArrowLeftIcon className="h-4 w-4 inline mr-1" />
-                Bookkeeping
+                Dashboard
               </Link>
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">General Ledger</span>

@@ -156,7 +156,7 @@ export default function VendorsPage() {
         <div className="flex justify-between items-center mb-6">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">Bookkeeping</Link>
+              <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">Dashboard</Link>
               <span className="text-gray-400">/</span>
               <span className="text-gray-600 text-sm">Vendors</span>
             </div>

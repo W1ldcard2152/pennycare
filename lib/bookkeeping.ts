@@ -427,8 +427,12 @@ export async function createPayrollJournalEntries(
   }
 
   // CREDITS
-  if (totals.netPay > 0) {
-    lines.push({ accountId: acctMap.get('2100')!, description: 'Net pay payable', debit: 0, credit: round2(totals.netPay) });
+  // Net pay + pre-tax deductions go to Payroll Liabilities
+  // Pre-tax deductions (401k, health insurance, etc.) are withheld from employee pay
+  // and owed to third parties (retirement plan, insurance company)
+  const payrollLiabilitiesTotal = totals.netPay + totals.totalPreTaxDeductions;
+  if (payrollLiabilitiesTotal > 0) {
+    lines.push({ accountId: acctMap.get('2100')!, description: 'Net pay + benefit withholdings payable', debit: 0, credit: round2(payrollLiabilitiesTotal) });
   }
   if (totals.federalTax > 0) {
     lines.push({ accountId: acctMap.get('2110')!, description: 'Federal withholding', debit: 0, credit: round2(totals.federalTax) });
@@ -455,10 +459,9 @@ export async function createPayrollJournalEntries(
     lines.push({ accountId: acctMap.get('2180')!, description: 'NY PFL', debit: 0, credit: round2(totals.nyPFL) });
   }
 
-  // Handle pre-tax deductions that reduce net pay but aren't tax withholdings
-  // These are already reflected in the difference between gross and net, but 
-  // for now they're lumped into Payroll Liabilities (net pay line)
+  // Note: Pre-tax deductions are included in the Payroll Liabilities line above.
   // A future enhancement could break these out into separate liability accounts
+  // (e.g., 401k Payable, Health Insurance Payable) for better tracking.
 
   // Validate the entry balances
   const validation = validateJournalEntry(lines);

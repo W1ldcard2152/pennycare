@@ -180,8 +180,8 @@ export default function ReconciliationPage() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-2 mb-2">
-          <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">
-            Bookkeeping
+          <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">
+            Dashboard
           </Link>
           <span className="text-gray-400">/</span>
           <span className="text-gray-600 text-sm">Reconciliation</span>

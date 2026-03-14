@@ -218,8 +218,8 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       <div className="max-w-5xl mx-auto">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 mb-4">
-          <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">
-            Bookkeeping
+          <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">
+            Dashboard
           </Link>
           <span className="text-gray-400">/</span>
           <Link href="/bookkeeping/journal-entries" className="text-blue-600 hover:text-blue-700 text-sm">
@@ -395,8 +395,8 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
           <Link href="/bookkeeping/journal-entries" className="text-blue-600 hover:text-blue-700 text-sm">
             &larr; Back to Journal Entries
           </Link>
-          <Link href="/bookkeeping" className="text-gray-500 hover:text-gray-700 text-sm">
-            Bookkeeping Hub
+          <Link href="/" className="text-gray-500 hover:text-gray-700 text-sm">
+            Dashboard
           </Link>
         </div>
       </div>

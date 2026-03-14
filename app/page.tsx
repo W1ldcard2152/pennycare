@@ -6,7 +6,6 @@ import {
   DocumentTextIcon,
   ChartBarIcon,
   BanknotesIcon,
-  BookOpenIcon,
 } from '@heroicons/react/24/outline';
 import UpcomingDeadlinesWidget from '@/components/UpcomingDeadlinesWidget';
 import { getSession } from '@/lib/auth';
@@ -96,16 +95,9 @@ export default async function Dashboard() {
     },
     {
       title: 'Reports',
-      description: 'Generate financial reports and analytics',
+      description: 'Generate payroll reports and analytics',
       href: '/reports',
       icon: DocumentTextIcon,
-      available: true,
-    },
-    {
-      title: 'Bookkeeping',
-      description: 'Manage accounts, record transactions, and generate financial reports',
-      href: '/bookkeeping',
-      icon: BookOpenIcon,
       available: true,
     },
     {
@@ -123,7 +115,7 @@ export default async function Dashboard() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
         <p className="mt-2 text-gray-600">
-          Welcome to PennyCare - Payroll Management System
+          Welcome to PennyCare - Payroll & Bookkeeping
         </p>
       </div>
 

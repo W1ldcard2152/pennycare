@@ -261,11 +261,11 @@ export default function EbaySalesPage() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            href="/bookkeeping"
+            href="/"
             className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4"
           >
             <ArrowLeftIcon className="h-4 w-4 mr-1" />
-            Back to Bookkeeping
+            Back to Dashboard
           </Link>
           <h1 className="text-3xl font-bold mb-2 text-gray-900">eBay Sales</h1>
           <p className="text-gray-600">

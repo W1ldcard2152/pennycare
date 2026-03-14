@@ -87,9 +87,9 @@ export async function POST(
       }));
 
     if (newItems.length > 0) {
+      // Note: duplicates already filtered out above via alreadyClearedIds
       await prisma.reconciledItem.createMany({
         data: newItems,
-        skipDuplicates: true,
       });
     }
 

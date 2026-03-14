@@ -386,8 +386,8 @@ export default function ReconciliationDetailPage({
       <div className="bg-white border-b px-8 py-4">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-2 mb-2">
-            <Link href="/bookkeeping" className="text-blue-600 hover:text-blue-700 text-sm">
-              Bookkeeping
+            <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">
+              Dashboard
             </Link>
             <span className="text-gray-400">/</span>
             <Link
