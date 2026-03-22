@@ -16,6 +16,7 @@ import {
   CurrencyDollarIcon,
   ArrowPathIcon,
   ChartBarIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline';
 
 interface AccountBalance {
@@ -369,7 +370,7 @@ export default function Dashboard() {
               {/* Unbooked Transactions */}
               {data.pendingItems.unbookedTransactions > 0 && (
                 <Link
-                  href="/bookkeeping/statements"
+                  href="/bookkeeping/transaction-review"
                   className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
                 >
                   <div className="flex items-center">
@@ -499,7 +500,7 @@ export default function Dashboard() {
           </Link>
 
           <Link
-            href="/bookkeeping/statements"
+            href="/bookkeeping/statement-import"
             className="flex flex-col items-center justify-center bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md hover:border-blue-300 transition-all"
           >
             <DocumentTextIcon className="h-8 w-8 text-blue-500 mb-2" />
@@ -507,11 +508,11 @@ export default function Dashboard() {
           </Link>
 
           <Link
-            href="/bookkeeping/cc-import"
-            className="flex flex-col items-center justify-center bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md hover:border-red-300 transition-all"
+            href="/bookkeeping/transaction-review"
+            className="flex flex-col items-center justify-center bg-white rounded-lg shadow border border-gray-200 p-4 hover:shadow-md hover:border-purple-300 transition-all"
           >
-            <CreditCardIcon className="h-8 w-8 text-red-500 mb-2" />
-            <span className="text-sm font-medium text-gray-700 text-center">Import CC</span>
+            <ClipboardDocumentListIcon className="h-8 w-8 text-purple-500 mb-2" />
+            <span className="text-sm font-medium text-gray-700 text-center">Review Transactions</span>
           </Link>
 
           <Link

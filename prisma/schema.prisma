@@ -133,6 +133,7 @@ model Company {
   statementImports  StatementImport[]
   reconciliations   Reconciliation[]
   closedPeriods     ClosedPeriod[]
+  backups           Backup[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -929,4 +930,42 @@ model ReconciledItem {
 
   @@unique([reconciliationId, journalEntryLineId])
   @@index([journalEntryLineId])
+}
+
+// ============================================
+// BACKUP MANAGEMENT
+// ============================================
+
+model Backup {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  filename    String   // e.g., "pennycare-backup-2025-01-15-143022.db"
+  fileSize    Int      // bytes
+  description String?  // optional user note (e.g., "Before year-end closing")
+  createdBy   String   // userId
+
+  createdAt   DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// ============================================
+// FEEDBACK
+// ============================================
+
+model Feedback {
+  id           String    @id @default(cuid())
+  userId       String
+  feedbackText String
+  page         String?   // the page URL where feedback was submitted
+  archived     Boolean   @default(false)
+  archivedAt   DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([archived])
 }

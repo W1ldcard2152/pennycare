@@ -54,16 +54,14 @@ function SearchableSelect({
   useEffect(() => {
     if (isOpen && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const dropdownHeight = 220; // Approximate height: search box + max-h-48 (192px) + padding
+      const dropdownHeight = 220;
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
 
-      // Open upward if not enough space below and more space above
       const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
       setOpenUpward(shouldOpenUpward);
 
       if (shouldOpenUpward) {
-        // Use bottom positioning so dropdown stays anchored when content shrinks
         setDropdownPos({
           bottom: window.innerHeight - rect.top + 4,
           left: rect.left + window.scrollX,
@@ -74,7 +72,6 @@ function SearchableSelect({
           left: rect.left + window.scrollX,
         });
       }
-      // Focus after position is set
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [isOpen]);
@@ -196,7 +193,7 @@ interface StatementImport {
   status: 'pending' | 'booked' | 'skipped';
   memo: string | null;
   importBatch: string;
-  sourceAccount: { id: string; code: string; name: string };
+  sourceAccount: { id: string; code: string; name: string; type: string };
   targetAccount: { id: string; code: string; name: string } | null;
   matchedRule: { id: string; matchText: string; matchType: string } | null;
   journalEntry: { id: string; entryNumber: string } | null;
@@ -217,35 +214,19 @@ interface BatchSummary {
   totalAmount?: number;
 }
 
-type Step = 'upload' | 'preview' | 'review' | 'importing' | 'results';
-
-export default function StatementsPage() {
+export default function TransactionReviewPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [step, setStep] = useState<Step>('upload');
   const [error, setError] = useState('');
-
-  // Upload state
-  const [sourceAccountId, setSourceAccountId] = useState('');
-  const [batchName, setBatchName] = useState('');
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Preview/results state
-  const [uploadResult, setUploadResult] = useState<{
-    imported: number;
-    duplicates: number;
-    matched: number;
-    unmatched: number;
-    batchName: string;
-  } | null>(null);
 
   // Review state
   const [pendingImports, setPendingImports] = useState<StatementImport[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batches, setBatches] = useState<BatchSummary[]>([]);
   const [selectedBatch, setSelectedBatch] = useState('');
+  const [selectedSourceAccountId, setSelectedSourceAccountId] = useState('');
   const [bulkTargetAccountId, setBulkTargetAccountId] = useState('');
   const [isBooking, setIsBooking] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Full history state
   const [showFullHistory, setShowFullHistory] = useState(false);
@@ -283,31 +264,33 @@ export default function StatementsPage() {
     fetchBatches();
   }, []);
 
+  // Load pending imports on mount and when filters change
+  useEffect(() => {
+    fetchPendingImports(selectedBatch, selectedSourceAccountId);
+  }, [selectedBatch, selectedSourceAccountId]);
+
   // Compute next available code for each account type based on existing codes
   const computeSuggestedCodes = (accountList: Account[]) => {
-    // Code ranges by type (and subtype for some)
     const CODE_RANGES: Record<string, { start: number; increment: number }> = {
-      asset: { start: 1500, increment: 10 },           // Fixed assets start at 1500
-      asset_bank: { start: 1000, increment: 10 },      // Bank accounts start at 1000
+      asset: { start: 1500, increment: 10 },
+      asset_bank: { start: 1000, increment: 10 },
       liability: { start: 2000, increment: 10 },
       credit_card: { start: 2200, increment: 10 },
       equity: { start: 3000, increment: 10 },
       revenue: { start: 4000, increment: 10 },
-      expense: { start: 6000, increment: 10 },         // Regular expenses start at 6000
-      expense_cogs: { start: 5000, increment: 10 },    // COGS at 5000
+      expense: { start: 6000, increment: 10 },
+      expense_cogs: { start: 5000, increment: 10 },
     };
 
     const suggestions: Record<string, string> = {};
 
-    // Find highest code in each range
     for (const [rangeKey, range] of Object.entries(CODE_RANGES)) {
-      let maxCode = range.start - range.increment; // Start below the range
+      let maxCode = range.start - range.increment;
 
       for (const acct of accountList) {
         const code = parseInt(acct.code, 10);
         if (isNaN(code)) continue;
 
-        // Determine which range this account belongs to
         let acctRange: string | null = null;
         if (acct.type === 'asset') {
           if (acct.subtype === 'bank_checking' || acct.subtype === 'bank_savings') {
@@ -330,7 +313,6 @@ export default function StatementsPage() {
         }
       }
 
-      // Suggest next code in sequence
       suggestions[rangeKey] = String(maxCode + range.increment);
     }
 
@@ -378,7 +360,8 @@ export default function StatementsPage() {
       if (historyFilterStartDate) params.append('startDate', historyFilterStartDate);
       if (historyFilterEndDate) params.append('endDate', historyFilterEndDate);
 
-      const res = await fetch(`/api/bookkeeping/statements/history?${params.toString()}`);
+      // Fetch all statement history (bank + CC imports)
+      const res = await fetch(`/api/bookkeeping/statements/history/all?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setAllBatches(data);
@@ -397,72 +380,26 @@ export default function StatementsPage() {
     }
   }, [showFullHistory, fetchFullHistory]);
 
-  const fetchPendingImports = useCallback(async (batchFilter?: string) => {
+  const fetchPendingImports = async (batchFilter?: string, sourceAccountFilter?: string) => {
+    setLoading(true);
     try {
-      let url = '/api/bookkeeping/statements/pending?status=pending';
+      const params = new URLSearchParams({ status: 'pending' });
       if (batchFilter) {
-        url += `&batchName=${encodeURIComponent(batchFilter)}`;
+        params.append('batchName', batchFilter);
       }
-      const res = await fetch(url);
+      if (sourceAccountFilter) {
+        params.append('sourceAccountId', sourceAccountFilter);
+      }
+
+      const res = await fetch(`/api/bookkeeping/statements/pending?${params.toString()}`);
       const data = await res.json();
       setPendingImports(data);
       setSelectedIds(new Set());
     } catch {
       // handled by empty state
+    } finally {
+      setLoading(false);
     }
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setCsvFile(file);
-      // Auto-generate batch name from filename
-      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
-      setBatchName(nameWithoutExt + ' - ' + new Date().toLocaleDateString('en-US', { timeZone: 'UTC' }));
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!sourceAccountId || !csvFile || !batchName) {
-      setError('Please select a source account, provide a batch name, and upload a CSV file');
-      return;
-    }
-
-    setError('');
-    setStep('importing');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', csvFile);
-      formData.append('sourceAccountId', sourceAccountId);
-      formData.append('batchName', batchName);
-
-      const res = await fetch('/api/bookkeeping/statements/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Upload failed');
-        setStep('upload');
-        return;
-      }
-
-      setUploadResult(data);
-      setStep('results');
-      // Refresh batches list
-      fetchBatches();
-    } catch {
-      setError('Network error during upload');
-      setStep('upload');
-    }
-  };
-
-  const goToReview = (batchNameToReview?: string) => {
-    setStep('review');
-    setSelectedBatch(batchNameToReview || uploadResult?.batchName || '');
-    fetchPendingImports(batchNameToReview || uploadResult?.batchName);
   };
 
   const toggleSelect = (id: string) => {
@@ -518,7 +455,8 @@ export default function StatementsPage() {
       await updateImport(id, { status: 'skipped' });
     }
     // Refresh the list
-    fetchPendingImports(selectedBatch);
+    fetchPendingImports(selectedBatch, selectedSourceAccountId);
+    fetchBatches();
   };
 
   const bookSelected = async () => {
@@ -547,7 +485,7 @@ export default function StatementsPage() {
         setError(data.error || 'Booking failed');
       } else {
         // Refresh the list
-        fetchPendingImports(selectedBatch);
+        fetchPendingImports(selectedBatch, selectedSourceAccountId);
         fetchBatches();
       }
     } catch {
@@ -558,8 +496,6 @@ export default function StatementsPage() {
   };
 
   const bookAllMatched = async () => {
-    if (!selectedBatch) return;
-
     setIsBooking(true);
     setError('');
 
@@ -567,7 +503,7 @@ export default function StatementsPage() {
       const res = await fetch('/api/bookkeeping/statements/book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchName: selectedBatch, bookMatched: true }),
+        body: JSON.stringify(selectedBatch ? { batchName: selectedBatch, bookMatched: true } : { bookMatched: true }),
       });
 
       const data = await res.json();
@@ -575,7 +511,7 @@ export default function StatementsPage() {
         setError(data.error || 'Booking failed');
       } else {
         // Refresh the list
-        fetchPendingImports(selectedBatch);
+        fetchPendingImports(selectedBatch, selectedSourceAccountId);
         fetchBatches();
       }
     } catch {
@@ -618,7 +554,6 @@ export default function StatementsPage() {
     setRuleSuccessMessage('');
 
     try {
-      // Create the rule
       const ruleRes = await fetch('/api/bookkeeping/rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -642,7 +577,6 @@ export default function StatementsPage() {
 
       setRuleSuccessMessage('Rule created! Click "Apply Rules" to match transactions.');
 
-      // Close modal after a short delay to show success message
       setTimeout(() => {
         closeRuleModal();
       }, 1500);
@@ -671,7 +605,6 @@ export default function StatementsPage() {
     try {
       let totalMatched = 0;
 
-      // Process each source account separately (rules can be account-specific)
       for (const sourceAcctId of sourceAccountIds) {
         const importsForAccount = unmatchedImports.filter(i => i.sourceAccount.id === sourceAcctId);
 
@@ -687,7 +620,6 @@ export default function StatementsPage() {
         if (testRes.ok) {
           const matches = await testRes.json();
 
-          // Update matched imports in the database
           const updatePromises: Promise<void>[] = [];
           for (let i = 0; i < importsForAccount.length; i++) {
             const match = matches[i];
@@ -711,8 +643,7 @@ export default function StatementsPage() {
 
       if (totalMatched > 0) {
         setApplyRulesMessage(`${totalMatched} transaction${totalMatched > 1 ? 's' : ''} matched!`);
-        // Refresh the list
-        await fetchPendingImports(selectedBatch);
+        await fetchPendingImports(selectedBatch, selectedSourceAccountId);
       } else {
         setApplyRulesMessage('No new matches found.');
       }
@@ -759,7 +690,6 @@ export default function StatementsPage() {
     ],
   };
 
-  // Get suggested code based on type and subtype
   const getSuggestedCode = (type: string, subtype: string) => {
     if (type === 'asset' && (subtype === 'bank_checking' || subtype === 'bank_savings')) {
       return suggestedCodes['asset_bank'] || '1000';
@@ -789,19 +719,16 @@ export default function StatementsPage() {
 
   const handleAccountTypeChange = (type: typeof newAccountType) => {
     setNewAccountType(type);
-    // Set default subtype for the new type
     const subtypes = SUBTYPES_BY_TYPE[type];
     if (subtypes && subtypes.length > 0) {
       const newSubtype = subtypes[0].value;
       setNewAccountSubtype(newSubtype);
-      // Update suggested code based on new type and subtype
       setNewAccountCode(getSuggestedCode(type, newSubtype));
     }
   };
 
   const handleAccountSubtypeChange = (subtype: string) => {
     setNewAccountSubtype(subtype);
-    // Update suggested code if subtype affects the code range
     setNewAccountCode(getSuggestedCode(newAccountType, subtype));
   };
 
@@ -835,7 +762,6 @@ export default function StatementsPage() {
         return;
       }
 
-      // Refresh accounts list (this also updates suggested codes)
       await fetchAccounts();
       closeAccountModal();
     } catch {
@@ -857,9 +783,9 @@ export default function StatementsPage() {
 
       if (res.ok) {
         fetchBatches();
-        if (selectedBatch === batchToDelete) {
-          setSelectedBatch('');
-          setPendingImports([]);
+        fetchPendingImports(selectedBatch, selectedSourceAccountId);
+        if (showFullHistory) {
+          fetchFullHistory();
         }
       }
     } catch {
@@ -881,11 +807,15 @@ export default function StatementsPage() {
     a.type === 'credit_card'
   );
   const targetAccounts = accounts.filter((a) =>
-    a.type === 'expense' || a.type === 'asset' || a.type === 'liability'
+    a.type === 'expense' || a.type === 'asset' || a.type === 'liability' || a.type === 'revenue'
   );
 
   const matchedCount = pendingImports.filter((i) => i.targetAccount).length;
   const unmatchedCount = pendingImports.length - matchedCount;
+
+  // Group pending imports by source account type for display
+  const bankTransactions = pendingImports.filter(i => i.sourceAccount.type !== 'credit_card');
+  const ccTransactions = pendingImports.filter(i => i.sourceAccount.type === 'credit_card');
 
   return (
     <div className="min-h-screen p-8">
@@ -894,17 +824,17 @@ export default function StatementsPage() {
         <div className="flex items-center gap-2 mb-2">
           <Link href="/" className="text-blue-600 hover:text-blue-700 text-sm">Dashboard</Link>
           <span className="text-gray-400">/</span>
-          <span className="text-gray-600 text-sm">Statement Import</span>
+          <span className="text-gray-600 text-sm">Transaction Review</span>
         </div>
         <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2 text-gray-900">Statement Import</h1>
+            <h1 className="text-3xl font-bold mb-2 text-gray-900">Transaction Review</h1>
             <p className="text-gray-600">
-              Import bank or credit card statement CSVs and book transactions with auto-categorization
+              Review and categorize imported transactions from all sources
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {step === 'review' && unmatchedCount > 0 && (
+            {unmatchedCount > 0 && (
               <button
                 onClick={applyRulesToUnmatched}
                 disabled={isApplyingRules}
@@ -913,6 +843,12 @@ export default function StatementsPage() {
                 {isApplyingRules ? 'Applying...' : 'Apply Rules'}
               </button>
             )}
+            <Link
+              href="/bookkeeping/statement-import"
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            >
+              Import Statements
+            </Link>
             <Link
               href="/bookkeeping/rules"
               target="_blank"
@@ -937,471 +873,383 @@ export default function StatementsPage() {
           <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm font-medium">{applyRulesMessage}</div>
         )}
 
-        {/* Step: Upload */}
-        {step === 'upload' && (
-          <div className="space-y-6">
-            {/* Import History */}
-            {(batches.length > 0 || showFullHistory || bankAccounts.length > 0) && (
-              <div className="bg-white border rounded-lg shadow-sm">
-                <div className="px-4 py-3 border-b flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-900">
-                    {showFullHistory ? 'Statement Import History' : 'Pending Batches'}
-                  </h2>
-                  <button
-                    onClick={() => setShowFullHistory(!showFullHistory)}
-                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-                  >
-                    {showFullHistory ? (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                        </svg>
-                        Show Pending Only
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                        Show All History
-                      </>
-                    )}
-                  </button>
-                </div>
+        {/* Import History */}
+        <div className="bg-white border rounded-lg shadow-sm mb-6">
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <h2 className="font-semibold text-gray-900">
+              {showFullHistory ? 'Import History' : 'Pending Batches'}
+            </h2>
+            <button
+              onClick={() => setShowFullHistory(!showFullHistory)}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+            >
+              {showFullHistory ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                  </svg>
+                  Show Pending Only
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  Show All History
+                </>
+              )}
+            </button>
+          </div>
 
-                {/* Filters (only shown when full history is enabled) */}
-                {showFullHistory && (
-                  <div className="px-4 py-3 border-b bg-gray-50">
-                    <div className="flex flex-wrap gap-4 items-end">
-                      <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Source Account
-                        </label>
-                        <select
-                          value={historyFilterAccountId}
-                          onChange={(e) => setHistoryFilterAccountId(e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
-                        >
-                          <option value="">All Accounts</option>
-                          {bankAccounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.code} — {a.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="min-w-[140px]">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Start Date
-                        </label>
-                        <input
-                          type="date"
-                          value={historyFilterStartDate}
-                          onChange={(e) => setHistoryFilterStartDate(e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
-                        />
-                      </div>
-                      <div className="min-w-[140px]">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          End Date
-                        </label>
-                        <input
-                          type="date"
-                          value={historyFilterEndDate}
-                          onChange={(e) => setHistoryFilterEndDate(e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
-                        />
-                      </div>
-                      {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && (
-                        <button
-                          onClick={() => {
-                            setHistoryFilterAccountId('');
-                            setHistoryFilterStartDate('');
-                            setHistoryFilterEndDate('');
-                          }}
-                          className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5"
-                        >
-                          Clear Filters
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Loading state */}
-                {showFullHistory && loadingHistory && (
-                  <div className="px-4 py-8 text-center text-gray-500">
-                    Loading history...
-                  </div>
-                )}
-
-                {/* Batch list */}
-                <div className="divide-y">
-                  {(showFullHistory ? allBatches : batches).map((batch) => (
-                    <div key={batch.batchName} className="px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">{batch.batchName}</div>
-                        <div className="text-sm text-gray-500">
-                          {batch.sourceAccount.code} — {batch.sourceAccount.name}
-                          {showFullHistory && batch.earliestDate && batch.latestDate && (
-                            <>
-                              {' '}• {formatDate(batch.earliestDate)}
-                              {batch.earliestDate !== batch.latestDate && ` to ${formatDate(batch.latestDate)}`}
-                            </>
-                          )}
-                          {' '}• {batch.pendingCount} pending, {batch.bookedCount} booked
-                          {batch.unmatchedCount > 0 && (
-                            <span className="text-amber-600"> • {batch.unmatchedCount} need categorization</span>
-                          )}
-                          {showFullHistory && batch.totalAmount !== undefined && batch.totalAmount > 0 && (
-                            <span className="ml-2 text-gray-500">
-                              • Total: {formatCurrency(batch.totalAmount)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        {batch.pendingCount > 0 && (
-                          <button
-                            onClick={() => goToReview(batch.batchName)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium"
-                          >
-                            Review
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteBatch(batch.batchName)}
-                          className="text-red-600 hover:text-red-700 px-2 py-1.5 text-sm font-medium"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Empty state */}
-                  {showFullHistory && !loadingHistory && allBatches.length === 0 && (
-                    <div className="px-4 py-8 text-center text-gray-500 text-sm">
-                      No import history found
-                      {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && ' matching filters'}
-                    </div>
-                  )}
-                  {!showFullHistory && batches.length === 0 && (
-                    <div className="px-4 py-4 text-center text-gray-500 text-sm">
-                      No pending batches
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer with count */}
-                {showFullHistory && allBatches.length > 0 && (
-                  <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-500">
-                    Showing {allBatches.length} batch{allBatches.length !== 1 ? 'es' : ''}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Upload Form */}
-            <div className="bg-white border rounded-lg p-6 shadow-sm">
-              <h2 className="text-lg font-semibold mb-4 text-gray-900">Upload New Statement</h2>
-
-              <div className="space-y-4">
-                {/* Source Account */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Source Account (Bank or Credit Card)
+          {/* Filters (only shown when full history is enabled) */}
+          {showFullHistory && (
+            <div className="px-4 py-3 border-b bg-gray-50">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Source Account
                   </label>
                   <select
-                    value={sourceAccountId}
-                    onChange={(e) => setSourceAccountId(e.target.value)}
-                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm text-gray-900"
+                    value={historyFilterAccountId}
+                    onChange={(e) => setHistoryFilterAccountId(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
                   >
-                    <option value="">Select account...</option>
+                    <option value="">All Accounts</option>
                     {bankAccounts.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.code} — {a.name} ({a.type === 'credit_card' ? 'Credit Card' : 'Bank'})
+                        {a.code} — {a.name}
                       </option>
                     ))}
                   </select>
                 </div>
-
-                {/* Batch Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Batch Name (for tracking)
+                <div className="min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Start Date
                   </label>
                   <input
-                    type="text"
-                    value={batchName}
-                    onChange={(e) => setBatchName(e.target.value)}
-                    placeholder="e.g., Chase Checking Jan 2024"
-                    className="w-full max-w-md border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                    type="date"
+                    value={historyFilterStartDate}
+                    onChange={(e) => setHistoryFilterStartDate(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
                   />
                 </div>
-
-                {/* File Upload */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    CSV File
+                <div className="min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    End Date
                   </label>
-                  <div className="mb-2 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 max-w-xl">
-                    <p className="font-medium mb-1">Expected CSV format:</p>
-                    <p className="font-mono text-xs">Account Number, Post Date, Check, Description, Debit, Credit, Status, Balance</p>
-                    <p className="text-xs mt-1">Standard bank CSV export format. Debit column = money out, Credit column = money in.</p>
-                  </div>
                   <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    className="block w-full max-w-md text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer"
+                    type="date"
+                    value={historyFilterEndDate}
+                    onChange={(e) => setHistoryFilterEndDate(e.target.value)}
+                    className="w-full border rounded px-2 py-1.5 text-sm text-gray-900"
                   />
-                  {csvFile && (
-                    <p className="mt-2 text-sm text-gray-600">Selected: {csvFile.name}</p>
-                  )}
                 </div>
-
-                <button
-                  onClick={handleUpload}
-                  disabled={!sourceAccountId || !csvFile || !batchName}
-                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                    sourceAccountId && csvFile && batchName
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  Upload & Process
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Importing */}
-        {step === 'importing' && (
-          <div className="bg-white border rounded-lg p-12 shadow-sm text-center">
-            <div className="animate-pulse text-gray-500 text-lg">Processing statement...</div>
-          </div>
-        )}
-
-        {/* Step: Results */}
-        {step === 'results' && uploadResult && (
-          <div className="bg-white border rounded-lg p-8 shadow-sm">
-            <div className="text-center">
-              <div className="text-green-600 text-5xl mb-4">✓</div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Complete</h2>
-              <p className="text-gray-600 mb-4">
-                Imported <span className="font-semibold">{uploadResult.imported}</span> transaction{uploadResult.imported !== 1 ? 's' : ''}
-                {uploadResult.duplicates > 0 && (
-                  <span className="text-gray-500"> ({uploadResult.duplicates} duplicate{uploadResult.duplicates !== 1 ? 's' : ''} skipped)</span>
-                )}
-              </p>
-              <div className="flex gap-4 justify-center mb-6">
-                <div className="bg-green-50 px-4 py-2 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{uploadResult.matched}</div>
-                  <div className="text-sm text-green-700">Auto-matched</div>
-                </div>
-                <div className="bg-amber-50 px-4 py-2 rounded-lg">
-                  <div className="text-2xl font-bold text-amber-600">{uploadResult.unmatched}</div>
-                  <div className="text-sm text-amber-700">Need Review</div>
-                </div>
-              </div>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => goToReview()}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-                >
-                  Review & Book Transactions
-                </button>
-                <button
-                  onClick={() => { setStep('upload'); setUploadResult(null); setCsvFile(null); setBatchName(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-medium transition-colors"
-                >
-                  Upload Another
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Review */}
-        {step === 'review' && (
-          <div className="space-y-4">
-            {/* Batch Selector & Actions */}
-            <div className="bg-white border rounded-lg p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Batch</label>
-                  <select
-                    value={selectedBatch}
-                    onChange={(e) => { setSelectedBatch(e.target.value); fetchPendingImports(e.target.value); }}
-                    className="border rounded px-3 py-1.5 text-sm text-gray-900"
+                {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && (
+                  <button
+                    onClick={() => {
+                      setHistoryFilterAccountId('');
+                      setHistoryFilterStartDate('');
+                      setHistoryFilterEndDate('');
+                    }}
+                    className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5"
                   >
-                    <option value="">All pending</option>
-                    {batches.map((b) => (
-                      <option key={b.batchName} value={b.batchName}>{b.batchName}</option>
-                    ))}
-                  </select>
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {showFullHistory && loadingHistory && (
+            <div className="px-4 py-8 text-center text-gray-500">
+              Loading history...
+            </div>
+          )}
+
+          {/* Batch list */}
+          <div className="divide-y max-h-64 overflow-y-auto">
+            {(showFullHistory ? allBatches : batches).map((batch) => (
+              <div key={batch.batchName} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                <div>
+                  <div className="font-medium text-gray-900">{batch.batchName}</div>
+                  <div className="text-sm text-gray-500">
+                    {batch.sourceAccount.code} — {batch.sourceAccount.name}
+                    {showFullHistory && batch.earliestDate && batch.latestDate && (
+                      <>
+                        {' '}• {formatDate(batch.earliestDate)}
+                        {batch.earliestDate !== batch.latestDate && ` to ${formatDate(batch.latestDate)}`}
+                      </>
+                    )}
+                    {' '}• {batch.pendingCount} pending, {batch.bookedCount} booked
+                    {batch.unmatchedCount > 0 && (
+                      <span className="text-amber-600"> • {batch.unmatchedCount} need categorization</span>
+                    )}
+                    {showFullHistory && batch.totalAmount !== undefined && batch.totalAmount !== 0 && (
+                      <span className="ml-2 text-gray-500">
+                        • Total: {formatCurrency(Math.abs(batch.totalAmount))}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600">
+                <div className="flex gap-2">
+                  {batch.pendingCount > 0 && (
+                    <button
+                      onClick={() => {
+                        setSelectedBatch(batch.batchName);
+                        setSelectedSourceAccountId('');
+                      }}
+                      className={`px-3 py-1.5 rounded text-sm font-medium ${
+                        selectedBatch === batch.batchName
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {selectedBatch === batch.batchName ? 'Viewing' : 'Review'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => deleteBatch(batch.batchName)}
+                    className="text-red-600 hover:text-red-700 px-2 py-1.5 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Empty state */}
+            {showFullHistory && !loadingHistory && allBatches.length === 0 && (
+              <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                No import history found
+                {(historyFilterAccountId || historyFilterStartDate || historyFilterEndDate) && ' matching filters'}
+              </div>
+            )}
+            {!showFullHistory && batches.length === 0 && (
+              <div className="px-4 py-4 text-center text-gray-500 text-sm">
+                No pending batches
+              </div>
+            )}
+          </div>
+
+          {/* Footer with count */}
+          {showFullHistory && allBatches.length > 0 && (
+            <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-500">
+              Showing {allBatches.length} batch{allBatches.length !== 1 ? 'es' : ''}
+            </div>
+          )}
+        </div>
+
+        {/* Filters & Actions */}
+        <div className="bg-white border rounded-lg p-4 shadow-sm mb-4 flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Batch</label>
+              <select
+                value={selectedBatch}
+                onChange={(e) => setSelectedBatch(e.target.value)}
+                className="border rounded px-3 py-1.5 text-sm text-gray-900"
+              >
+                <option value="">All batches</option>
+                {batches.map((b) => (
+                  <option key={b.batchName} value={b.batchName}>{b.batchName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Source Account</label>
+              <select
+                value={selectedSourceAccountId}
+                onChange={(e) => setSelectedSourceAccountId(e.target.value)}
+                className="border rounded px-3 py-1.5 text-sm text-gray-900"
+              >
+                <option value="">All accounts</option>
+                {bankAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="text-sm text-gray-600 pt-4">
+              {loading ? 'Loading...' : (
+                <>
                   {pendingImports.length} pending •
                   <span className="text-green-600 ml-1">{matchedCount} matched</span> •
                   <span className="text-amber-600 ml-1">{unmatchedCount} unmatched</span>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setStep('upload'); setSelectedBatch(''); setPendingImports([]); }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-medium"
-                >
-                  Back to Upload
-                </button>
-                {selectedBatch && matchedCount > 0 && (
-                  <button
-                    onClick={bookAllMatched}
-                    disabled={isBooking}
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-                  >
-                    {isBooking ? 'Booking...' : `Book All Matched (${matchedCount})`}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Bulk Actions */}
-            {selectedIds.size > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-wrap gap-3 items-center">
-                <span className="text-sm font-medium text-blue-800">{selectedIds.size} selected</span>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={bulkTargetAccountId}
-                    onChange={(e) => setBulkTargetAccountId(e.target.value)}
-                    className="border rounded px-2 py-1 text-xs text-gray-900"
-                  >
-                    <option value="">Set category...</option>
-                    {targetAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={applyBulkTargetAccount}
-                    disabled={!bulkTargetAccountId}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
-                  >
-                    Apply
-                  </button>
-                </div>
-                <button
-                  onClick={bookSelected}
-                  disabled={isBooking}
-                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
-                >
-                  Book Selected
-                </button>
-                <button
-                  onClick={skipSelected}
-                  className="text-gray-600 hover:text-gray-800 px-3 py-1 text-xs font-medium"
-                >
-                  Skip Selected
-                </button>
-              </div>
-            )}
-
-            {/* Transactions Table */}
-            <div className="bg-white rounded-lg shadow overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 w-10">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.size === pendingImports.length && pendingImports.length > 0}
-                        onChange={toggleSelectAll}
-                        className="rounded"
-                      />
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Date</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-24">Amount</th>
-                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-16">Type</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-64">Category</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {pendingImports.map((imp) => (
-                    <tr key={imp.id} className={`${!imp.targetAccount ? 'bg-amber-50' : ''}`}>
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(imp.id)}
-                          onChange={() => toggleSelect(imp.id)}
-                          className="rounded"
-                        />
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{formatDate(imp.postDate)}</td>
-                      <td className="px-3 py-2">
-                        <div className="text-gray-900">{imp.description}</div>
-                        {imp.matchedRule && (
-                          <div className="text-xs text-green-600">
-                            Rule: {imp.matchedRule.matchType} &quot;{imp.matchedRule.matchText}&quot;
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium">
-                        <span className={imp.isDebit ? 'text-red-600' : 'text-green-600'}>
-                          {imp.isDebit ? '-' : '+'}{formatCurrency(imp.amount)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${imp.isDebit ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                          {imp.isDebit ? 'OUT' : 'IN'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-1">
-                        <div className="flex items-center gap-2">
-                          <SearchableSelect
-                            value={imp.targetAccount?.id || ''}
-                            onChange={(value) => updateImport(imp.id, { targetAccountId: value || null })}
-                            options={targetAccounts}
-                            placeholder="Select category..."
-                            className="flex-1"
-                            onAddNew={openAccountModal}
-                          />
-                          {imp.targetAccount && (
-                            <button
-                              onClick={() => openRuleModal(imp)}
-                              className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
-                              title="Create a rule for this transaction"
-                            >
-                              + Rule
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          imp.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                          imp.status === 'booked' ? 'bg-green-100 text-green-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {imp.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {pendingImports.length === 0 && (
-                <div className="text-center py-12 text-gray-500">
-                  {selectedBatch ? 'No pending transactions in this batch' : 'No pending transactions'}
-                </div>
+                </>
               )}
             </div>
           </div>
+          <div className="flex gap-2 pt-4">
+            {matchedCount > 0 && (
+              <button
+                onClick={bookAllMatched}
+                disabled={isBooking}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              >
+                {isBooking ? 'Booking...' : `Book All Matched (${matchedCount})`}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Bulk Actions */}
+        {selectedIds.size > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex flex-wrap gap-3 items-center">
+            <span className="text-sm font-medium text-blue-800">{selectedIds.size} selected</span>
+            <div className="flex items-center gap-2">
+              <select
+                value={bulkTargetAccountId}
+                onChange={(e) => setBulkTargetAccountId(e.target.value)}
+                className="border rounded px-2 py-1 text-xs text-gray-900"
+              >
+                <option value="">Set category...</option>
+                {targetAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={applyBulkTargetAccount}
+                disabled={!bulkTargetAccountId}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
+              >
+                Apply
+              </button>
+            </div>
+            <button
+              onClick={bookSelected}
+              disabled={isBooking}
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-medium disabled:opacity-50"
+            >
+              Book Selected
+            </button>
+            <button
+              onClick={skipSelected}
+              className="text-gray-600 hover:text-gray-800 px-3 py-1 text-xs font-medium"
+            >
+              Skip Selected
+            </button>
+          </div>
         )}
+
+        {/* Transactions Table */}
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          {/* Show grouped headers if we have both bank and CC transactions */}
+          {bankTransactions.length > 0 && ccTransactions.length > 0 && (
+            <div className="px-4 py-2 bg-gray-50 border-b text-sm text-gray-600">
+              Combined view: {bankTransactions.length} bank transaction{bankTransactions.length !== 1 ? 's' : ''}, {ccTransactions.length} credit card transaction{ccTransactions.length !== 1 ? 's' : ''}
+            </div>
+          )}
+
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === pendingImports.length && pendingImports.length > 0}
+                    onChange={toggleSelectAll}
+                    className="rounded"
+                  />
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Date</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-32">Source</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-24">Amount</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-16">Type</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-64">Category</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {pendingImports.map((imp) => (
+                <tr key={imp.id} className={`${!imp.targetAccount ? 'bg-amber-50' : ''}`}>
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(imp.id)}
+                      onChange={() => toggleSelect(imp.id)}
+                      className="rounded"
+                    />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">{formatDate(imp.postDate)}</td>
+                  <td className="px-3 py-2 text-xs">
+                    <span className={`px-2 py-0.5 rounded-full ${
+                      imp.sourceAccount.type === 'credit_card'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {imp.sourceAccount.code}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="text-gray-900">{imp.description}</div>
+                    {imp.matchedRule && (
+                      <div className="text-xs text-green-600">
+                        Rule: {imp.matchedRule.matchType} &quot;{imp.matchedRule.matchText}&quot;
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    <span className={imp.isDebit ? 'text-red-600' : 'text-green-600'}>
+                      {imp.isDebit ? '-' : '+'}{formatCurrency(imp.amount)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${imp.isDebit ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {imp.isDebit ? 'OUT' : 'IN'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1">
+                    <div className="flex items-center gap-2">
+                      <SearchableSelect
+                        value={imp.targetAccount?.id || ''}
+                        onChange={(value) => updateImport(imp.id, { targetAccountId: value || null })}
+                        options={targetAccounts}
+                        placeholder="Select category..."
+                        className="flex-1"
+                        onAddNew={openAccountModal}
+                      />
+                      {imp.targetAccount && (
+                        <button
+                          onClick={() => openRuleModal(imp)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded transition-colors"
+                          title="Create a rule for this transaction"
+                        >
+                          + Rule
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {!loading && pendingImports.length === 0 && (
+            <div className="text-center py-12 text-gray-500">
+              <div className="text-4xl mb-2">
+                <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-lg font-medium text-gray-600">All caught up!</p>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedBatch || selectedSourceAccountId ? 'No pending transactions match your filters' : 'No pending transactions to review'}
+              </p>
+              <Link
+                href="/bookkeeping/statement-import"
+                className="inline-block mt-4 text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Import more statements
+              </Link>
+            </div>
+          )}
+
+          {loading && (
+            <div className="text-center py-12 text-gray-500">
+              Loading transactions...
+            </div>
+          )}
+        </div>
 
         {/* Rule Creation Modal */}
         {ruleModalOpen && ruleImportId && (
@@ -1530,13 +1378,9 @@ export default function StatementsPage() {
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
               <div className="px-6 py-4 border-b">
                 <h3 className="text-lg font-semibold text-gray-900">Add New Account</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Create a new account for categorizing transactions.
-                </p>
               </div>
 
               <div className="px-6 py-4 space-y-4">
-                {/* Account Code */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Account Code <span className="text-red-500">*</span>
@@ -1549,12 +1393,9 @@ export default function StatementsPage() {
                     maxLength={10}
                     className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Next available code suggested based on account type
-                  </p>
+                  <p className="mt-1 text-xs text-gray-500">Next available code suggested based on account type</p>
                 </div>
 
-                {/* Account Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Account Name <span className="text-red-500">*</span>
@@ -1569,11 +1410,8 @@ export default function StatementsPage() {
                   />
                 </div>
 
-                {/* Account Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Account Type
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
                   <select
                     value={newAccountType}
                     onChange={(e) => handleAccountTypeChange(e.target.value as typeof newAccountType)}
@@ -1588,25 +1426,19 @@ export default function StatementsPage() {
                   </select>
                 </div>
 
-                {/* Account Subtype */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Subtype
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Subtype</label>
                   <select
                     value={newAccountSubtype}
                     onChange={(e) => handleAccountSubtypeChange(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
                     {SUBTYPES_BY_TYPE[newAccountType]?.map((st) => (
-                      <option key={st.value} value={st.value}>
-                        {st.label}
-                      </option>
+                      <option key={st.value} value={st.value}>{st.label}</option>
                     ))}
                   </select>
                 </div>
 
-                {/* Description */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Description <span className="text-gray-400">(optional)</span>
@@ -1620,11 +1452,8 @@ export default function StatementsPage() {
                   />
                 </div>
 
-                {/* Error Message */}
                 {accountError && (
-                  <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm">
-                    {accountError}
-                  </div>
+                  <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm">{accountError}</div>
                 )}
               </div>
 
@@ -1632,14 +1461,14 @@ export default function StatementsPage() {
                 <button
                   onClick={closeAccountModal}
                   disabled={accountCreating}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateAccount}
                   disabled={accountCreating || !newAccountCode.trim() || !newAccountName.trim()}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg ${
                     accountCreating || !newAccountCode.trim() || !newAccountName.trim()
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-green-600 hover:bg-green-700 text-white'

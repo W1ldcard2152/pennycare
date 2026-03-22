@@ -1,7 +1,183 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+
+// Searchable select component for category dropdown
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select...',
+  className = '',
+  onAddNew,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; code: string; name: string }[];
+  placeholder?: string;
+  className?: string;
+  onAddNew?: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number }>({ left: 0 });
+  const [openUpward, setOpenUpward] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find(o => o.id === value);
+
+  const filteredOptions = search
+    ? options.filter(o =>
+        `${o.code} ${o.name}`.toLowerCase().includes(search.toLowerCase())
+      )
+    : options;
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        containerRef.current && !containerRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Focus input when opening and calculate position
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const dropdownHeight = 220; // Approximate height: search box + max-h-48 (192px) + padding
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      // Open upward if not enough space below and more space above
+      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+      setOpenUpward(shouldOpenUpward);
+
+      if (shouldOpenUpward) {
+        // Use bottom positioning so dropdown stays anchored when content shrinks
+        setDropdownPos({
+          bottom: window.innerHeight - rect.top + 4,
+          left: rect.left + window.scrollX,
+        });
+      } else {
+        setDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+        });
+      }
+      // Focus after position is set
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange('');
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <div
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center justify-between border rounded px-2 py-1 text-xs cursor-pointer bg-white ${
+          !value ? 'border-amber-400' : 'border-gray-300'
+        }`}
+      >
+        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-400'}`}>
+          {selectedOption ? `${selectedOption.code} — ${selectedOption.name}` : placeholder}
+        </span>
+        <div className="flex items-center gap-1 ml-1">
+          {value && (
+            <button
+              onClick={handleClear}
+              className="text-gray-400 hover:text-gray-600 p-0.5"
+              title="Clear"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+          <svg className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className={`fixed z-[100] w-64 bg-white border border-gray-200 rounded-lg shadow-lg flex ${openUpward ? 'flex-col-reverse' : 'flex-col'}`}
+          style={{
+            left: dropdownPos.left,
+            ...(openUpward ? { bottom: dropdownPos.bottom } : { top: dropdownPos.top }),
+          }}
+        >
+          <div className={`p-2 ${openUpward ? 'border-t' : 'border-b'}`}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type to search..."
+              className="w-full border rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-gray-500">No matches found</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  onClick={() => handleSelect(option.id)}
+                  className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-blue-50 ${
+                    option.id === value ? 'bg-blue-100 text-blue-800' : 'text-gray-700'
+                  }`}
+                >
+                  <span className="font-medium">{option.code}</span> — {option.name}
+                </div>
+              ))
+            )}
+            {onAddNew && (
+              <div
+                onClick={() => {
+                  setIsOpen(false);
+                  setSearch('');
+                  onAddNew();
+                }}
+                className="px-3 py-1.5 text-xs cursor-pointer hover:bg-green-50 text-green-700 border-t border-gray-100 flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add new account...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Account {
   id: string;
@@ -94,6 +270,17 @@ export default function CCImportPage() {
   const [ruleCreating, setRuleCreating] = useState(false);
   const [ruleSuccessMessage, setRuleSuccessMessage] = useState('');
 
+  // Account creation state
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [newAccountCode, setNewAccountCode] = useState('');
+  const [newAccountName, setNewAccountName] = useState('');
+  const [newAccountType, setNewAccountType] = useState<'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'credit_card'>('expense');
+  const [newAccountSubtype, setNewAccountSubtype] = useState('expense');
+  const [newAccountDescription, setNewAccountDescription] = useState('');
+  const [accountCreating, setAccountCreating] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [suggestedCodes, setSuggestedCodes] = useState<Record<string, string>>({});
+
   useEffect(() => {
     fetchAccounts();
     fetchBatches();
@@ -123,11 +310,67 @@ export default function CCImportPage() {
     }
   }, [accounts, interestAccountId]);
 
+  // Compute next available code for each account type based on existing codes
+  const computeSuggestedCodes = (accountList: Account[]) => {
+    // Code ranges by type (and subtype for some)
+    const CODE_RANGES: Record<string, { start: number; increment: number }> = {
+      asset: { start: 1500, increment: 10 },           // Fixed assets start at 1500
+      asset_bank: { start: 1000, increment: 10 },      // Bank accounts start at 1000
+      liability: { start: 2000, increment: 10 },
+      credit_card: { start: 2200, increment: 10 },
+      equity: { start: 3000, increment: 10 },
+      revenue: { start: 4000, increment: 10 },
+      expense: { start: 6000, increment: 10 },         // Regular expenses start at 6000
+      expense_cogs: { start: 5000, increment: 10 },    // COGS at 5000
+    };
+
+    const suggestions: Record<string, string> = {};
+
+    // Find highest code in each range
+    for (const [rangeKey, range] of Object.entries(CODE_RANGES)) {
+      let maxCode = range.start - range.increment; // Start below the range
+
+      for (const acct of accountList) {
+        const code = parseInt(acct.code, 10);
+        if (isNaN(code)) continue;
+
+        // Determine which range this account belongs to
+        let acctRange: string | null = null;
+        if (acct.type === 'asset') {
+          if (acct.subtype === 'bank_checking' || acct.subtype === 'bank_savings') {
+            acctRange = 'asset_bank';
+          } else {
+            acctRange = 'asset';
+          }
+        } else if (acct.type === 'expense') {
+          if (acct.subtype === 'cost_of_goods_sold') {
+            acctRange = 'expense_cogs';
+          } else {
+            acctRange = 'expense';
+          }
+        } else {
+          acctRange = acct.type;
+        }
+
+        if (acctRange === rangeKey && code > maxCode) {
+          maxCode = code;
+        }
+      }
+
+      // Suggest next code in sequence
+      suggestions[rangeKey] = String(maxCode + range.increment);
+    }
+
+    return suggestions;
+  };
+
   const fetchAccounts = async () => {
     try {
       const res = await fetch('/api/bookkeeping/accounts?balances=false');
       const data = await res.json();
-      setAccounts(data.filter((a: Account & { isActive?: boolean }) => a.isActive !== false));
+      const activeAccounts = data.filter((a: Account & { isActive?: boolean }) => a.isActive !== false);
+      setAccounts(activeAccounts);
+      setSuggestedCodes(computeSuggestedCodes(activeAccounts));
     } catch {
       // handled by empty state
     }
@@ -393,7 +636,7 @@ export default function CCImportPage() {
     setRuleMatchText(item.description);
     setRuleMatchType('starts_with');
     setRuleTargetAccountId(item.targetAccountId || '');
-    setRuleApplyToAllAccounts(false);
+    setRuleApplyToAllAccounts(true);
     setRuleSuccessMessage('');
     setRuleModalOpen(true);
   };
@@ -494,6 +737,126 @@ export default function CCImportPage() {
     } catch {
       setError('Network error creating rule');
       setRuleCreating(false);
+    }
+  };
+
+  // Account creation handlers
+  const SUBTYPES_BY_TYPE: Record<string, { value: string; label: string }[]> = {
+    asset: [
+      { value: 'bank_checking', label: 'Bank - Checking' },
+      { value: 'bank_savings', label: 'Bank - Savings' },
+      { value: 'accounts_receivable', label: 'Accounts Receivable' },
+      { value: 'other_current_asset', label: 'Other Current Asset' },
+      { value: 'fixed_asset', label: 'Fixed Asset' },
+      { value: 'other_asset', label: 'Other Asset' },
+    ],
+    liability: [
+      { value: 'accounts_payable', label: 'Accounts Payable' },
+      { value: 'other_current_liability', label: 'Other Current Liability' },
+      { value: 'long_term_liability', label: 'Long Term Liability' },
+    ],
+    equity: [
+      { value: 'owners_equity', label: "Owner's Equity" },
+      { value: 'retained_earnings', label: 'Retained Earnings' },
+      { value: 'opening_balance_equity', label: 'Opening Balance Equity' },
+    ],
+    revenue: [
+      { value: 'income', label: 'Income' },
+      { value: 'other_income', label: 'Other Income' },
+    ],
+    expense: [
+      { value: 'expense', label: 'Expense' },
+      { value: 'other_expense', label: 'Other Expense' },
+      { value: 'cost_of_goods_sold', label: 'Cost of Goods Sold' },
+    ],
+    credit_card: [
+      { value: 'credit_card', label: 'Credit Card' },
+    ],
+  };
+
+  // Get suggested code based on type and subtype
+  const getSuggestedCode = (type: string, subtype: string) => {
+    if (type === 'asset' && (subtype === 'bank_checking' || subtype === 'bank_savings')) {
+      return suggestedCodes['asset_bank'] || '1000';
+    }
+    if (type === 'expense' && subtype === 'cost_of_goods_sold') {
+      return suggestedCodes['expense_cogs'] || '5000';
+    }
+    return suggestedCodes[type] || '';
+  };
+
+  const openAccountModal = () => {
+    const defaultType = 'expense';
+    const defaultSubtype = 'expense';
+    setNewAccountCode(getSuggestedCode(defaultType, defaultSubtype));
+    setNewAccountName('');
+    setNewAccountType(defaultType);
+    setNewAccountSubtype(defaultSubtype);
+    setNewAccountDescription('');
+    setAccountError('');
+    setAccountModalOpen(true);
+  };
+
+  const closeAccountModal = () => {
+    setAccountModalOpen(false);
+    setAccountError('');
+  };
+
+  const handleAccountTypeChange = (type: typeof newAccountType) => {
+    setNewAccountType(type);
+    // Set default subtype for the new type
+    const subtypes = SUBTYPES_BY_TYPE[type];
+    if (subtypes && subtypes.length > 0) {
+      const newSubtype = subtypes[0].value;
+      setNewAccountSubtype(newSubtype);
+      // Update suggested code based on new type and subtype
+      setNewAccountCode(getSuggestedCode(type, newSubtype));
+    }
+  };
+
+  const handleAccountSubtypeChange = (subtype: string) => {
+    setNewAccountSubtype(subtype);
+    // Update suggested code if subtype affects the code range
+    setNewAccountCode(getSuggestedCode(newAccountType, subtype));
+  };
+
+  const handleCreateAccount = async () => {
+    if (!newAccountCode.trim() || !newAccountName.trim()) {
+      setAccountError('Code and name are required');
+      return;
+    }
+
+    setAccountCreating(true);
+    setAccountError('');
+
+    try {
+      const res = await fetch('/api/bookkeeping/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: newAccountCode.trim(),
+          name: newAccountName.trim(),
+          type: newAccountType,
+          subtype: newAccountSubtype,
+          description: newAccountDescription.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAccountError(data.error || 'Failed to create account');
+        setAccountCreating(false);
+        return;
+      }
+
+      // Refresh accounts list (this also updates suggested codes)
+      await fetchAccounts();
+      closeAccountModal();
+    } catch {
+      setAccountError('Network error creating account');
+    } finally {
+      setAccountCreating(false);
     }
   };
 
@@ -673,6 +1036,7 @@ export default function CCImportPage() {
           <div className="flex gap-2">
             <Link
               href="/bookkeeping/rules"
+              target="_blank"
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
             >
               Manage Rules
@@ -683,6 +1047,12 @@ export default function CCImportPage() {
             >
               Review Pending
             </Link>
+            <button
+              onClick={openAccountModal}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            >
+              + Add Account
+            </button>
           </div>
         </div>
 
@@ -1300,20 +1670,16 @@ export default function CCImportPage() {
                             <td className="px-4 py-2 text-right font-mono font-medium text-green-600">
                               -{formatCurrency(credit.amount)}
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="px-4 py-1">
                               <div className="flex items-center gap-2">
-                                <select
+                                <SearchableSelect
                                   value={credit.targetAccountId || ''}
-                                  onChange={(e) => updateCreditTarget(i, e.target.value || null)}
-                                  className={`flex-1 border rounded px-2 py-1.5 text-xs text-gray-900 ${
-                                    !credit.targetAccountId && credit.included ? 'border-amber-400 bg-amber-50' : ''
-                                  }`}
-                                >
-                                  <option value="">Select category...</option>
-                                  {targetAccounts.map((a) => (
-                                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                  ))}
-                                </select>
+                                  onChange={(value) => updateCreditTarget(i, value || null)}
+                                  options={targetAccounts}
+                                  placeholder="Select category..."
+                                  className="flex-1"
+                                  onAddNew={openAccountModal}
+                                />
                                 {credit.targetAccountId && (
                                   <button
                                     onClick={() => openRuleModal(i, true)}
@@ -1423,20 +1789,16 @@ export default function CCImportPage() {
                               {txn.isCredit ? '-' : ''}{formatCurrency(txn.amount)}
                             </span>
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-1">
                             <div className="flex items-center gap-2">
-                              <select
+                              <SearchableSelect
                                 value={txn.targetAccountId || ''}
-                                onChange={(e) => updateTransactionTarget(i, e.target.value || null)}
-                                className={`flex-1 border rounded px-2 py-1.5 text-xs text-gray-900 ${
-                                  !txn.targetAccountId && txn.included ? 'border-amber-400 bg-amber-50' : ''
-                                }`}
-                              >
-                                <option value="">Select category...</option>
-                                {targetAccounts.map((a) => (
-                                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                                ))}
-                              </select>
+                                onChange={(value) => updateTransactionTarget(i, value || null)}
+                                options={targetAccounts}
+                                placeholder="Select category..."
+                                className="flex-1"
+                                onAddNew={openAccountModal}
+                              />
                               {txn.targetAccountId && (
                                 <button
                                   onClick={() => openRuleModal(i)}
@@ -1709,6 +2071,134 @@ export default function CCImportPage() {
                   }`}
                 >
                   {ruleCreating ? 'Creating...' : 'Create Rule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Account Creation Modal */}
+        {accountModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-900">Add New Account</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Create a new account for categorizing transactions.
+                </p>
+              </div>
+
+              <div className="px-6 py-4 space-y-4">
+                {/* Account Code */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Account Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newAccountCode}
+                    onChange={(e) => setNewAccountCode(e.target.value)}
+                    placeholder="e.g., 6100"
+                    maxLength={10}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Next available code suggested based on account type
+                  </p>
+                </div>
+
+                {/* Account Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Account Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newAccountName}
+                    onChange={(e) => setNewAccountName(e.target.value)}
+                    placeholder="e.g., Office Supplies"
+                    maxLength={100}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  />
+                </div>
+
+                {/* Account Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Account Type
+                  </label>
+                  <select
+                    value={newAccountType}
+                    onChange={(e) => handleAccountTypeChange(e.target.value as typeof newAccountType)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="expense">Expense</option>
+                    <option value="revenue">Revenue</option>
+                    <option value="asset">Asset</option>
+                    <option value="liability">Liability</option>
+                    <option value="equity">Equity</option>
+                    <option value="credit_card">Credit Card</option>
+                  </select>
+                </div>
+
+                {/* Account Subtype */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Subtype
+                  </label>
+                  <select
+                    value={newAccountSubtype}
+                    onChange={(e) => handleAccountSubtypeChange(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    {SUBTYPES_BY_TYPE[newAccountType]?.map((st) => (
+                      <option key={st.value} value={st.value}>
+                        {st.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description <span className="text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newAccountDescription}
+                    onChange={(e) => setNewAccountDescription(e.target.value)}
+                    placeholder="Optional description..."
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  />
+                </div>
+
+                {/* Error Message */}
+                {accountError && (
+                  <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm">
+                    {accountError}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+                <button
+                  onClick={closeAccountModal}
+                  disabled={accountCreating}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateAccount}
+                  disabled={accountCreating || !newAccountCode.trim() || !newAccountName.trim()}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    accountCreating || !newAccountCode.trim() || !newAccountName.trim()
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+                >
+                  {accountCreating ? 'Creating...' : 'Create Account'}
                 </button>
               </div>
             </div>

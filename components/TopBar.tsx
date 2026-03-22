@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { MagnifyingGlassIcon, BellIcon, UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import CompanySelector from './CompanySelector';
+import FeedbackButton from './FeedbackButton';
 
 interface User {
   id: string;
@@ -71,8 +72,11 @@ export default function TopBar() {
           </form>
         </div>
 
-        {/* Right Side - Company Selector, Notifications & User */}
+        {/* Right Side - Feedback, Company Selector, Notifications & User */}
         <div className="ml-4 flex items-center space-x-4">
+          {/* Feedback Button */}
+          <FeedbackButton />
+
           {/* Company Selector */}
           <CompanySelector />
 

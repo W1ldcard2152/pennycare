@@ -229,7 +229,7 @@ function ExpensesPageContent() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Link href="/bookkeeping/statements"
+            <Link href="/bookkeeping/statement-import"
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
               Import Statements
             </Link>

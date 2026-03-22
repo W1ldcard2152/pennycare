@@ -40,5 +40,8 @@ prisma/**/*.db-journal
 # uploads
 uploads/
 
+# backups
+backups/
+
 # claude code
 /.claude

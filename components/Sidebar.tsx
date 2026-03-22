@@ -33,6 +33,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   LockClosedIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface NavItem {
@@ -55,8 +56,8 @@ const sections: NavSection[] = [
     icon: ArrowDownTrayIcon,
     items: [
       { name: 'eBay Sales', href: '/bookkeeping/ebay', icon: ShoppingCartIcon },
-      { name: 'Bank Statements', href: '/bookkeeping/statements', icon: BuildingLibraryIcon },
-      { name: 'Credit Cards', href: '/bookkeeping/cc-import', icon: CreditCardIcon },
+      { name: 'Statement Import', href: '/bookkeeping/statement-import', icon: BuildingLibraryIcon },
+      { name: 'Transaction Review', href: '/bookkeeping/transaction-review', icon: ClipboardDocumentListIcon },
       { name: 'Transaction Rules', href: '/bookkeeping/rules', icon: CogIcon },
     ],
   },
@@ -99,6 +100,7 @@ const sections: NavSection[] = [
       { name: 'Year-End Closing', href: '/admin/year-end', icon: LockClosedIcon },
       { name: 'Audit Trail', href: '/admin/audit', icon: MagnifyingGlassIcon },
       { name: 'Backup / Restore', href: '/admin/backup', icon: CircleStackIcon },
+      { name: 'Feedback', href: '/admin/feedback', icon: ChatBubbleLeftRightIcon },
     ],
   },
 ];

@@ -127,9 +127,8 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       case 'ebay_import':
         return '/bookkeeping/ebay';
       case 'statement_import':
-        return '/bookkeeping/statements';
       case 'cc_import':
-        return '/bookkeeping/cc-import';
+        return '/bookkeeping/transaction-review';
       case 'payroll':
         return '/payroll';
       case 'opening_balance':
