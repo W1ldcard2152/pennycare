@@ -172,7 +172,7 @@ export default function TaxLiabilityPage() {
                     type="date"
                     value={customStart}
                     onChange={(e) => setCustomStart(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-4 py-2"
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-gray-900"
                   />
                 </div>
                 <div>
@@ -181,7 +181,7 @@ export default function TaxLiabilityPage() {
                     type="date"
                     value={customEnd}
                     onChange={(e) => setCustomEnd(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-4 py-2"
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-gray-900"
                   />
                 </div>
               </>

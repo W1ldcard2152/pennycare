@@ -101,11 +101,11 @@ export default function PayrollSummaryReport() {
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="mt-1 rounded-md border-gray-300 shadow-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">End Date</label>
-                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" />
+                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="mt-1 rounded-md border-gray-300 shadow-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500" />
               </div>
             </>
           )}
