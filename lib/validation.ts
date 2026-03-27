@@ -132,16 +132,6 @@ export const createTimeEntrySchema = z.object({
 
 // ── Bookkeeping ──────────────────────────────────────
 
-// Valid subtypes per account type
-const VALID_SUBTYPES: Record<string, string[]> = {
-  asset: ['bank_checking', 'bank_savings', 'accounts_receivable', 'other_current_asset', 'fixed_asset', 'other_asset'],
-  liability: ['accounts_payable', 'other_current_liability', 'long_term_liability'],
-  equity: ['owners_equity', 'retained_earnings', 'opening_balance_equity'],
-  revenue: ['income', 'other_income'],
-  expense: ['expense', 'other_expense', 'cost_of_goods_sold'],
-  credit_card: ['credit_card'],
-};
-
 const accountTypeEnum = z.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'credit_card'], {
   message: 'Account type must be asset, liability, equity, revenue, expense, or credit_card',
 });
@@ -150,40 +140,21 @@ export const createAccountSchema = z.object({
   code: z.string().min(1, 'Account code is required').max(10, 'Account code must be 10 characters or less'),
   name: z.string().min(1, 'Account name is required').max(100, 'Account name must be 100 characters or less'),
   type: accountTypeEnum,
-  subtype: z.string().min(1, 'Subtype is required'),
+  accountGroup: z.string().min(1, 'Account group is required').max(100, 'Account group must be 100 characters or less'),
   description: z.string().optional().nullable(),
   taxLine: z.string().optional().nullable(),
-}).superRefine((data, ctx) => {
-  const validSubtypes = VALID_SUBTYPES[data.type];
-  if (!validSubtypes || !validSubtypes.includes(data.subtype)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `Invalid subtype '${data.subtype}' for account type '${data.type}'. Valid subtypes: ${validSubtypes?.join(', ') || 'none'}`,
-      path: ['subtype'],
-    });
-  }
 });
+// Note: Custom groups are allowed - users can type any group name or select from predefined ones
 
 export const updateAccountSchema = z.object({
   name: z.string().min(1, 'Account name is required').max(100).optional(),
   type: accountTypeEnum.optional(),
-  subtype: z.string().min(1, 'Subtype is required').optional(),
+  accountGroup: z.string().min(1, 'Account group is required').max(100).optional(),
   description: z.string().optional().nullable(),
   taxLine: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
-}).superRefine((data, ctx) => {
-  // Only validate subtype if both type and subtype are provided
-  if (data.type && data.subtype) {
-    const validSubtypes = VALID_SUBTYPES[data.type];
-    if (!validSubtypes || !validSubtypes.includes(data.subtype)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Invalid subtype '${data.subtype}' for account type '${data.type}'. Valid subtypes: ${validSubtypes?.join(', ') || 'none'}`,
-        path: ['subtype'],
-      });
-    }
-  }
 });
+// Note: Custom groups are allowed - users can type any group name or select from predefined ones
 
 const journalEntryLineSchema = z.object({
   accountId: z.string().min(1, 'Account is required'),

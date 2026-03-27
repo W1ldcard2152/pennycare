@@ -181,7 +181,7 @@ export async function GET(
         code: account.code,
         name: account.name,
         type: account.type,
-        subtype: account.subtype,
+        accountGroup: account.accountGroup,
         description: account.description,
         taxLine: account.taxLine,
         isActive: account.isActive,

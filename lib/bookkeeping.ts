@@ -1,93 +1,11 @@
 import { prisma } from './db';
 import { startOfDay, endOfDay } from './date-utils';
+import { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS } from './default-chart-of-accounts';
+import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
 
-// ============================================
-// CHART OF ACCOUNTS DEFINITIONS
-// ============================================
-
-export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'credit_card';
-
-export interface DefaultAccount {
-  code: string;
-  name: string;
-  type: AccountType;
-  subtype: string;
-  description?: string;
-}
-
-/**
- * Default chart of accounts for a small auto repair/dismantling business.
- * These are starter accounts — users can delete and add their own.
- */
-export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
-  // ── Assets (1000-1999) ──
-  { code: '1000', name: 'Checking Account', type: 'asset', subtype: 'bank_checking', description: 'Primary business checking account' },
-  { code: '1010', name: 'Savings Account', type: 'asset', subtype: 'bank_savings', description: 'Business savings account' },
-  { code: '1020', name: 'Petty Cash', type: 'asset', subtype: 'other_current_asset', description: 'Cash on hand' },
-  { code: '1050', name: 'eBay Pending Payouts', type: 'asset', subtype: 'other_current_asset', description: 'Funds held by eBay pending daily payout to bank' },
-  { code: '1060', name: 'CC Payments Pending', type: 'asset', subtype: 'other_current_asset', description: 'Credit card payments pending bank clearing' },
-  { code: '1100', name: 'Accounts Receivable', type: 'asset', subtype: 'accounts_receivable', description: 'Money owed by customers' },
-  { code: '1200', name: 'Parts Inventory', type: 'asset', subtype: 'other_current_asset', description: 'Salvaged and new parts inventory' },
-  { code: '1500', name: 'Tools & Equipment', type: 'asset', subtype: 'fixed_asset', description: 'Shop tools and equipment' },
-  { code: '1510', name: 'Vehicles', type: 'asset', subtype: 'fixed_asset', description: 'Business vehicles' },
-  { code: '1520', name: 'Accumulated Depreciation', type: 'asset', subtype: 'fixed_asset', description: 'Accumulated depreciation on fixed assets' },
-
-  // ── Liabilities (2000-2999) ──
-  { code: '2000', name: 'Accounts Payable', type: 'liability', subtype: 'accounts_payable', description: 'Money owed to vendors' },
-  { code: '2100', name: 'Payroll Liabilities', type: 'liability', subtype: 'other_current_liability', description: 'Wages, taxes, and withholdings payable' },
-  { code: '2110', name: 'Federal Tax Payable', type: 'liability', subtype: 'other_current_liability', description: 'Federal income tax withholdings payable' },
-  { code: '2120', name: 'State Tax Payable', type: 'liability', subtype: 'other_current_liability', description: 'State income tax withholdings payable' },
-  { code: '2130', name: 'Social Security Payable', type: 'liability', subtype: 'other_current_liability', description: 'Social Security (employee + employer) payable' },
-  { code: '2140', name: 'Medicare Payable', type: 'liability', subtype: 'other_current_liability', description: 'Medicare (employee + employer) payable' },
-  { code: '2150', name: 'FUTA Payable', type: 'liability', subtype: 'other_current_liability', description: 'Federal unemployment tax payable' },
-  { code: '2160', name: 'SUI Payable', type: 'liability', subtype: 'other_current_liability', description: 'State unemployment insurance payable' },
-  { code: '2170', name: 'NY SDI Payable', type: 'liability', subtype: 'other_current_liability', description: 'NY State Disability Insurance payable' },
-  { code: '2180', name: 'NY PFL Payable', type: 'liability', subtype: 'other_current_liability', description: 'NY Paid Family Leave payable' },
-  { code: '2190', name: 'Sales Tax Payable', type: 'liability', subtype: 'other_current_liability', description: 'Collected sales tax payable' },
-  { code: '2500', name: 'Loan Payable', type: 'liability', subtype: 'long_term_liability', description: 'Business loans' },
-
-  // ── Credit Cards (2200-2299) ──
-  { code: '2200', name: 'Credit Card', type: 'credit_card', subtype: 'credit_card', description: 'Business credit card' },
-
-  // ── Equity (3000-3999) ──
-  { code: '3000', name: 'Owner\'s Equity', type: 'equity', subtype: 'owners_equity', description: 'Owner\'s investment in the business' },
-  { code: '3100', name: 'Owner\'s Draw', type: 'equity', subtype: 'owners_equity', description: 'Owner withdrawals' },
-  { code: '3200', name: 'Retained Earnings', type: 'equity', subtype: 'retained_earnings', description: 'Accumulated profits/losses' },
-  { code: '3900', name: 'Opening Balance Equity', type: 'equity', subtype: 'opening_balance_equity', description: 'Temporary account for entering opening balances' },
-
-  // ── Revenue (4000-4999) ──
-  { code: '4000', name: 'eBay Parts Sales', type: 'revenue', subtype: 'income', description: 'Revenue from eBay parts sales (includes shipping charges)' },
-  { code: '4010', name: 'Direct Sales', type: 'revenue', subtype: 'income', description: 'Walk-in and direct parts sales' },
-  { code: '4020', name: 'Repair Revenue', type: 'revenue', subtype: 'income', description: 'Revenue from repair services' },
-  { code: '4030', name: 'Scrap/Core Revenue', type: 'revenue', subtype: 'income', description: 'Revenue from scrap metal and core returns' },
-  { code: '4900', name: 'Other Income', type: 'revenue', subtype: 'other_income', description: 'Miscellaneous income' },
-  { code: '4910', name: 'Cash Back Rewards', type: 'revenue', subtype: 'other_income', description: 'Credit card cash back rewards' },
-
-  // ── Expenses (5000-6999) ──
-  { code: '5000', name: 'Cost of Goods Sold', type: 'expense', subtype: 'cost_of_goods_sold', description: 'Direct cost of parts and vehicles purchased for resale' },
-  { code: '5010', name: 'Vehicle Purchases', type: 'expense', subtype: 'cost_of_goods_sold', description: 'Salvage vehicle acquisition costs' },
-  { code: '5020', name: 'Towing & Transport', type: 'expense', subtype: 'cost_of_goods_sold', description: 'Cost to transport vehicles' },
-  { code: '6000', name: 'Wages & Salaries', type: 'expense', subtype: 'expense', description: 'Employee gross pay' },
-  { code: '6010', name: 'Payroll Tax Expense', type: 'expense', subtype: 'expense', description: 'Employer portion of payroll taxes (SS, Medicare, FUTA, SUI)' },
-  { code: '6020', name: 'Workers Comp Expense', type: 'expense', subtype: 'expense', description: 'Workers compensation insurance' },
-  { code: '6100', name: 'Rent', type: 'expense', subtype: 'expense', description: 'Shop/office rent' },
-  { code: '6110', name: 'Utilities', type: 'expense', subtype: 'expense', description: 'Electric, gas, water, internet' },
-  { code: '6120', name: 'Insurance', type: 'expense', subtype: 'expense', description: 'Business insurance (general liability, property, etc.)' },
-  { code: '6130', name: 'Shop Supplies', type: 'expense', subtype: 'expense', description: 'Consumable shop supplies' },
-  { code: '6140', name: 'Tools & Small Equipment', type: 'expense', subtype: 'expense', description: 'Tools and equipment under capitalization threshold' },
-  { code: '6150', name: 'Vehicle Expenses', type: 'expense', subtype: 'expense', description: 'Fuel, maintenance, registration for business vehicles' },
-  { code: '6160', name: 'Advertising & Marketing', type: 'expense', subtype: 'expense', description: 'Flyers, online ads, signage' },
-  { code: '6170', name: 'Office Supplies', type: 'expense', subtype: 'expense', description: 'Office and computer supplies' },
-  { code: '6180', name: 'Professional Fees', type: 'expense', subtype: 'expense', description: 'Accountant, legal, consulting fees' },
-  { code: '6190', name: 'Bank Fees & Interest', type: 'expense', subtype: 'expense', description: 'Bank charges, credit card fees, loan interest' },
-  { code: '6200', name: 'eBay Fees', type: 'expense', subtype: 'expense', description: 'eBay Final Value Fees and other platform fees' },
-  { code: '6210', name: 'Shipping & Postage', type: 'expense', subtype: 'expense', description: 'Shipping costs for parts sales' },
-  { code: '6220', name: 'Licenses & Permits', type: 'expense', subtype: 'expense', description: 'Business licenses, DMV fees, permits' },
-  { code: '6230', name: 'Depreciation Expense', type: 'expense', subtype: 'expense', description: 'Depreciation of fixed assets' },
-  { code: '6300', name: 'Credit Card Interest', type: 'expense', subtype: 'expense', description: 'Credit card interest expense' },
-  { code: '6800', name: 'Reconciliation Discrepancies', type: 'expense', subtype: 'expense', description: 'Adjustments for reconciliation differences' },
-  { code: '6900', name: 'Miscellaneous Expense', type: 'expense', subtype: 'other_expense', description: 'Other business expenses' },
-];
+// Re-export for backward compatibility
+export { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS };
+export type { AccountType, DefaultAccount };
 
 // ============================================
 // CHART OF ACCOUNTS SEEDING
@@ -106,8 +24,9 @@ export async function seedChartOfAccounts(companyId: string): Promise<number> {
           code: acct.code,
           name: acct.name,
           type: acct.type,
-          subtype: acct.subtype || null,
+          accountGroup: acct.accountGroup || null,
           description: acct.description || null,
+          taxLine: acct.taxLine || null,
           isActive: true,
         },
       });
@@ -516,7 +435,7 @@ export interface AccountBalance {
   code: string;
   name: string;
   type: AccountType;
-  subtype: string | null;
+  accountGroup: string | null;
   debitTotal: number;
   creditTotal: number;
   balance: number; // Normal balance (debit-positive for assets/expenses, credit-positive for liabilities/equity/revenue)
@@ -585,7 +504,7 @@ export async function getAccountBalances(
       code: acct.code,
       name: acct.name,
       type,
-      subtype: acct.subtype,
+      accountGroup: acct.accountGroup,
       debitTotal: round2(totals.debits),
       creditTotal: round2(totals.credits),
       balance,

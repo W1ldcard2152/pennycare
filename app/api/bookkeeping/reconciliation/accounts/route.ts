@@ -15,7 +15,7 @@ export async function GET() {
         companyId: companyId!,
         isActive: true,
         OR: [
-          { type: 'asset', subtype: { in: ['bank_checking', 'bank_savings'] } },
+          { type: 'asset', accountGroup: 'Cash' },
           { type: 'credit_card' },
         ],
       },
@@ -83,7 +83,7 @@ export async function GET() {
           code: account.code,
           name: account.name,
           type: account.type,
-          subtype: account.subtype,
+          accountGroup: account.accountGroup,
           bookBalance,
           lastReconciled: lastCompleted
             ? {

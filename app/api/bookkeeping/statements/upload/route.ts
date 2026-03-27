@@ -55,11 +55,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate that the source account is a bank or credit card
-    const validSubtypes = ['bank_checking', 'bank_savings'];
-    const validTypes = ['credit_card'];
-    if (!validSubtypes.includes(sourceAccount.subtype || '') && !validTypes.includes(sourceAccount.type)) {
+    const isBankAccount = sourceAccount.type === 'asset' && sourceAccount.accountGroup === 'Cash';
+    const isCreditCard = sourceAccount.type === 'credit_card';
+    if (!isBankAccount && !isCreditCard) {
       return NextResponse.json(
-        { error: 'Source account must be a bank account (checking/savings) or credit card' },
+        { error: 'Source account must be a bank account (Cash group) or credit card' },
         { status: 400 }
       );
     }

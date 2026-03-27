@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { computeSuggestedCodes, getSuggestedCode, ACCOUNT_GROUPS, ACCOUNT_TYPE_LABELS } from '@/lib/account-codes';
+import type { AccountType } from '@/lib/account-codes';
 
 // Searchable select component for category dropdown
 function SearchableSelect({
@@ -275,7 +277,7 @@ export default function CCImportPage() {
   const [newAccountCode, setNewAccountCode] = useState('');
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState<'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'credit_card'>('expense');
-  const [newAccountSubtype, setNewAccountSubtype] = useState('expense');
+  const [newAccountGroup, setNewAccountGroup] = useState(ACCOUNT_GROUPS['expense'][0] || '');
   const [newAccountDescription, setNewAccountDescription] = useState('');
   const [accountCreating, setAccountCreating] = useState(false);
   const [accountError, setAccountError] = useState('');
@@ -309,60 +311,6 @@ export default function CCImportPage() {
       }
     }
   }, [accounts, interestAccountId]);
-
-  // Compute next available code for each account type based on existing codes
-  const computeSuggestedCodes = (accountList: Account[]) => {
-    // Code ranges by type (and subtype for some)
-    const CODE_RANGES: Record<string, { start: number; increment: number }> = {
-      asset: { start: 1500, increment: 10 },           // Fixed assets start at 1500
-      asset_bank: { start: 1000, increment: 10 },      // Bank accounts start at 1000
-      liability: { start: 2000, increment: 10 },
-      credit_card: { start: 2200, increment: 10 },
-      equity: { start: 3000, increment: 10 },
-      revenue: { start: 4000, increment: 10 },
-      expense: { start: 6000, increment: 10 },         // Regular expenses start at 6000
-      expense_cogs: { start: 5000, increment: 10 },    // COGS at 5000
-    };
-
-    const suggestions: Record<string, string> = {};
-
-    // Find highest code in each range
-    for (const [rangeKey, range] of Object.entries(CODE_RANGES)) {
-      let maxCode = range.start - range.increment; // Start below the range
-
-      for (const acct of accountList) {
-        const code = parseInt(acct.code, 10);
-        if (isNaN(code)) continue;
-
-        // Determine which range this account belongs to
-        let acctRange: string | null = null;
-        if (acct.type === 'asset') {
-          if (acct.subtype === 'bank_checking' || acct.subtype === 'bank_savings') {
-            acctRange = 'asset_bank';
-          } else {
-            acctRange = 'asset';
-          }
-        } else if (acct.type === 'expense') {
-          if (acct.subtype === 'cost_of_goods_sold') {
-            acctRange = 'expense_cogs';
-          } else {
-            acctRange = 'expense';
-          }
-        } else {
-          acctRange = acct.type;
-        }
-
-        if (acctRange === rangeKey && code > maxCode) {
-          maxCode = code;
-        }
-      }
-
-      // Suggest next code in sequence
-      suggestions[rangeKey] = String(maxCode + range.increment);
-    }
-
-    return suggestions;
-  };
 
   const fetchAccounts = async () => {
     try {
@@ -740,58 +688,19 @@ export default function CCImportPage() {
     }
   };
 
-  // Account creation handlers
-  const SUBTYPES_BY_TYPE: Record<string, { value: string; label: string }[]> = {
-    asset: [
-      { value: 'bank_checking', label: 'Bank - Checking' },
-      { value: 'bank_savings', label: 'Bank - Savings' },
-      { value: 'accounts_receivable', label: 'Accounts Receivable' },
-      { value: 'other_current_asset', label: 'Other Current Asset' },
-      { value: 'fixed_asset', label: 'Fixed Asset' },
-      { value: 'other_asset', label: 'Other Asset' },
-    ],
-    liability: [
-      { value: 'accounts_payable', label: 'Accounts Payable' },
-      { value: 'other_current_liability', label: 'Other Current Liability' },
-      { value: 'long_term_liability', label: 'Long Term Liability' },
-    ],
-    equity: [
-      { value: 'owners_equity', label: "Owner's Equity" },
-      { value: 'retained_earnings', label: 'Retained Earnings' },
-      { value: 'opening_balance_equity', label: 'Opening Balance Equity' },
-    ],
-    revenue: [
-      { value: 'income', label: 'Income' },
-      { value: 'other_income', label: 'Other Income' },
-    ],
-    expense: [
-      { value: 'expense', label: 'Expense' },
-      { value: 'other_expense', label: 'Other Expense' },
-      { value: 'cost_of_goods_sold', label: 'Cost of Goods Sold' },
-    ],
-    credit_card: [
-      { value: 'credit_card', label: 'Credit Card' },
-    ],
-  };
-
-  // Get suggested code based on type and subtype
-  const getSuggestedCode = (type: string, subtype: string) => {
-    if (type === 'asset' && (subtype === 'bank_checking' || subtype === 'bank_savings')) {
-      return suggestedCodes['asset_bank'] || '1000';
-    }
-    if (type === 'expense' && subtype === 'cost_of_goods_sold') {
-      return suggestedCodes['expense_cogs'] || '5000';
-    }
-    return suggestedCodes[type] || '';
+  // Account creation handlers - use ACCOUNT_GROUPS from lib/account-codes.ts
+  const getGroupOptions = (type: string): { value: string; label: string }[] => {
+    const groups = ACCOUNT_GROUPS[type as AccountType] || [];
+    return groups.map(g => ({ value: g, label: g }));
   };
 
   const openAccountModal = () => {
-    const defaultType = 'expense';
-    const defaultSubtype = 'expense';
-    setNewAccountCode(getSuggestedCode(defaultType, defaultSubtype));
+    const defaultType = 'expense' as AccountType;
+    const defaultGroup = ACCOUNT_GROUPS[defaultType][0] || '';
+    setNewAccountCode(getSuggestedCode(suggestedCodes, defaultGroup));
     setNewAccountName('');
     setNewAccountType(defaultType);
-    setNewAccountSubtype(defaultSubtype);
+    setNewAccountGroup(defaultGroup);
     setNewAccountDescription('');
     setAccountError('');
     setAccountModalOpen(true);
@@ -802,22 +711,19 @@ export default function CCImportPage() {
     setAccountError('');
   };
 
-  const handleAccountTypeChange = (type: typeof newAccountType) => {
+  const handleAccountTypeChange = (type: AccountType) => {
     setNewAccountType(type);
-    // Set default subtype for the new type
-    const subtypes = SUBTYPES_BY_TYPE[type];
-    if (subtypes && subtypes.length > 0) {
-      const newSubtype = subtypes[0].value;
-      setNewAccountSubtype(newSubtype);
-      // Update suggested code based on new type and subtype
-      setNewAccountCode(getSuggestedCode(type, newSubtype));
+    const groups = ACCOUNT_GROUPS[type];
+    if (groups && groups.length > 0) {
+      const newGroup = groups[0];
+      setNewAccountGroup(newGroup);
+      setNewAccountCode(getSuggestedCode(suggestedCodes, newGroup));
     }
   };
 
-  const handleAccountSubtypeChange = (subtype: string) => {
-    setNewAccountSubtype(subtype);
-    // Update suggested code if subtype affects the code range
-    setNewAccountCode(getSuggestedCode(newAccountType, subtype));
+  const handleAccountGroupChange = (group: string) => {
+    setNewAccountGroup(group);
+    setNewAccountCode(getSuggestedCode(suggestedCodes, group));
   };
 
   const handleCreateAccount = async () => {
@@ -837,7 +743,7 @@ export default function CCImportPage() {
           code: newAccountCode.trim(),
           name: newAccountName.trim(),
           type: newAccountType,
-          subtype: newAccountSubtype,
+          accountGroup: newAccountGroup,
           description: newAccountDescription.trim() || null,
         }),
       });
@@ -2141,19 +2047,19 @@ export default function CCImportPage() {
                   </select>
                 </div>
 
-                {/* Account Subtype */}
+                {/* Account Group */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Subtype
+                    Group
                   </label>
                   <select
-                    value={newAccountSubtype}
-                    onChange={(e) => handleAccountSubtypeChange(e.target.value)}
+                    value={newAccountGroup}
+                    onChange={(e) => handleAccountGroupChange(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                   >
-                    {SUBTYPES_BY_TYPE[newAccountType]?.map((st) => (
-                      <option key={st.value} value={st.value}>
-                        {st.label}
+                    {getGroupOptions(newAccountType).map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.label}
                       </option>
                     ))}
                   </select>

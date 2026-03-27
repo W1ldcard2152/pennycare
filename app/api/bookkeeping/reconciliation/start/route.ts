@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         companyId: companyId!,
         isActive: true,
         OR: [
-          { type: 'asset', subtype: { in: ['bank_checking', 'bank_savings'] } },
+          { type: 'asset', accountGroup: 'Cash' },
           { type: 'credit_card' },
         ],
       },
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         account: {
-          select: { id: true, code: true, name: true, type: true, subtype: true },
+          select: { id: true, code: true, name: true, type: true, accountGroup: true },
         },
       },
     });

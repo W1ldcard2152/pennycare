@@ -492,9 +492,9 @@ model Account {
   code        String
   name        String
   type        String   // "asset", "liability", "equity", "revenue", "expense", "credit_card"
-  subtype     String?  // Detail type for reporting (e.g., "bank_checking", "accounts_payable")
+  accountGroup String? @map("subtype") // Group for display hierarchy (e.g., "Cash", "Current Assets", "Cost of Goods Sold")
   description String?
-  taxLine     String?  // Tax form line mapping (e.g., "Schedule C: Line 9")
+  taxLine     String?  // Tax form line mapping (e.g., "B/S-Assets: Cash", "Sch C: Office expense")
 
   isActive    Boolean  @default(true)
 

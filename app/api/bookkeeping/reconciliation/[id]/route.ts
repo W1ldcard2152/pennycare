@@ -19,7 +19,7 @@ export async function GET(
       where: { id, companyId: companyId! },
       include: {
         account: {
-          select: { id: true, code: true, name: true, type: true, subtype: true },
+          select: { id: true, code: true, name: true, type: true, accountGroup: true },
         },
         clearedItems: {
           include: {

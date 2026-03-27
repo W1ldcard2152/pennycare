@@ -53,11 +53,11 @@ export async function GET() {
           companyId: companyId!,
           isActive: true,
           OR: [
-            { subtype: { in: ['bank_checking', 'bank_savings'] } },
+            { accountGroup: 'Cash' },
             { type: 'credit_card' },
           ],
         },
-        select: { id: true, code: true, name: true, type: true, subtype: true },
+        select: { id: true, code: true, name: true, type: true, accountGroup: true },
       }),
 
       // Recent completed reconciliations
@@ -108,14 +108,14 @@ export async function GET() {
 
     // Filter to key accounts for balance display
     const keyAccounts = allBalances.filter((b) => {
-      // Bank accounts
-      if (b.subtype === 'bank_checking' || b.subtype === 'bank_savings') return true;
+      // Bank accounts (Cash group)
+      if (b.accountGroup === 'Cash') return true;
       // Credit cards
       if (b.type === 'credit_card') return true;
-      // eBay Pending Payouts (1050) - only if has balance
-      if (b.code === '1050' && b.balance !== 0) return true;
-      // CC Payments Pending (1060) - only if has balance
-      if (b.code === '1060' && b.balance !== 0) return true;
+      // eBay Pending Payouts (1120) - only if has balance
+      if (b.code === '1120' && b.balance !== 0) return true;
+      // CC Payments Pending (1130) - only if has balance
+      if (b.code === '1130' && b.balance !== 0) return true;
       return false;
     });
 
@@ -199,7 +199,7 @@ export async function GET() {
         code: b.code,
         name: b.name,
         type: b.type,
-        subtype: b.subtype,
+        accountGroup: b.accountGroup,
         balance: b.balance,
       })),
       currentMonthPnL: {

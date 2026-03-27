@@ -118,10 +118,10 @@ export async function POST(
           adjustmentAccount = await prisma.account.create({
             data: {
               companyId: companyId!,
-              code: '6800',
+              code: '6810',
               name: 'Reconciliation Discrepancies',
               type: 'expense',
-              subtype: 'expense',
+              accountGroup: 'Other deductions',
               description: 'Adjustments for reconciliation differences',
               isActive: true,
             },

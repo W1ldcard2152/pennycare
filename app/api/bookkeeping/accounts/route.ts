@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Validation failed', details: validation.errors }, { status: 400 });
     }
 
-    const { code, name, type, subtype, description, taxLine } = validation.data;
+    const { code, name, type, accountGroup, description, taxLine } = validation.data;
 
     // Check for duplicate code
     const existing = await prisma.account.findUnique({
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
         code,
         name,
         type,
-        subtype,
+        accountGroup,
         description: description || null,
         taxLine: taxLine || null,
       },
