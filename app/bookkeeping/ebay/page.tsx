@@ -2,7 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { ArrowLeftIcon, ArrowUpTrayIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowUpTrayIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, Cog6ToothIcon } from '@heroicons/react/24/outline';
+
+interface AccountInfo {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+}
+
+interface EbayConfig {
+  pendingPayoutsAccount: AccountInfo | null;
+  salesAccount: AccountInfo | null;
+  feesAccount: AccountInfo | null;
+  isConfigured: boolean;
+}
 
 interface EbaySale {
   id: string;
@@ -111,6 +125,69 @@ export default function EbaySalesPage() {
   const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // Account config state
+  const [ebayConfig, setEbayConfig] = useState<EbayConfig | null>(null);
+  const [showAccountConfig, setShowAccountConfig] = useState(false);
+  const [allAccounts, setAllAccounts] = useState<AccountInfo[]>([]);
+  const [configPending, setConfigPending] = useState({ pendingPayouts: '', sales: '', fees: '' });
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const fetchEbayConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bookkeeping/ebay/config');
+      if (res.ok) {
+        const data = await res.json();
+        setEbayConfig(data);
+        setConfigPending({
+          pendingPayouts: data.pendingPayoutsAccount?.id || '',
+          sales: data.salesAccount?.id || '',
+          fees: data.feesAccount?.id || '',
+        });
+      }
+    } catch {
+      // Non-critical — config panel just won't show current values
+    }
+  }, []);
+
+  const fetchAccounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bookkeeping/accounts');
+      if (res.ok) {
+        const data = await res.json();
+        setAllAccounts(data.filter((a: AccountInfo & { isActive?: boolean }) => a.isActive !== false));
+      }
+    } catch {
+      // handled by empty state
+    }
+  }, []);
+
+  const saveAccountConfig = async () => {
+    if (!configPending.pendingPayouts || !configPending.sales || !configPending.fees) return;
+    setSavingConfig(true);
+    try {
+      const res = await fetch('/api/bookkeeping/ebay/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pendingPayoutsAccountId: configPending.pendingPayouts,
+          salesAccountId: configPending.sales,
+          feesAccountId: configPending.fees,
+        }),
+      });
+      if (res.ok) {
+        await fetchEbayConfig();
+        setShowAccountConfig(false);
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to save account config');
+      }
+    } catch {
+      setError('Failed to save account config');
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   const fetchSales = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -139,7 +216,8 @@ export default function EbaySalesPage() {
 
   useEffect(() => {
     fetchSales();
-  }, [fetchSales]);
+    fetchEbayConfig();
+  }, [fetchSales, fetchEbayConfig]);
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -364,6 +442,105 @@ export default function EbaySalesPage() {
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Account Settings */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <button
+            onClick={() => {
+              if (!showAccountConfig) fetchAccounts();
+              setShowAccountConfig(!showAccountConfig);
+            }}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors rounded-lg"
+          >
+            <div className="flex items-center gap-2">
+              <Cog6ToothIcon className="h-5 w-5 text-gray-500" />
+              <span className="font-semibold text-gray-900">Account Settings</span>
+              {ebayConfig && !ebayConfig.pendingPayoutsAccount && (
+                <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Not configured</span>
+              )}
+              {ebayConfig?.pendingPayoutsAccount && (
+                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Configured</span>
+              )}
+            </div>
+            <span className="text-gray-400 text-sm">{showAccountConfig ? '\u25B2' : '\u25BC'}</span>
+          </button>
+
+          {showAccountConfig && (
+            <div className="border-t px-6 pb-6">
+              <p className="text-sm text-gray-500 mt-4 mb-4">
+                Choose which accounts the eBay importer uses for journal entries. These default to the standard chart of accounts but can be remapped if you&apos;ve customized your accounts.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Pending Payouts <span className="text-gray-400">(asset)</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-1">Debit — funds eBay owes you</p>
+                  <select
+                    value={configPending.pendingPayouts}
+                    onChange={(e) => setConfigPending((p) => ({ ...p, pendingPayouts: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="">Select account...</option>
+                    {allAccounts.filter((a) => a.type === 'asset').map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sales Revenue <span className="text-gray-400">(revenue)</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-1">Credit — gross sales amount</p>
+                  <select
+                    value={configPending.sales}
+                    onChange={(e) => setConfigPending((p) => ({ ...p, sales: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="">Select account...</option>
+                    {allAccounts.filter((a) => a.type === 'revenue').map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    eBay Fees <span className="text-gray-400">(expense)</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-1">Debit — platform fees deducted</p>
+                  <select
+                    value={configPending.fees}
+                    onChange={(e) => setConfigPending((p) => ({ ...p, fees: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value="">Select account...</option>
+                    {allAccounts.filter((a) => a.type === 'expense').map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-400">
+                  {ebayConfig?.isConfigured
+                    ? 'Custom account mappings saved.'
+                    : 'Using default accounts from chart of accounts.'}
+                </div>
+                <button
+                  onClick={saveAccountConfig}
+                  disabled={savingConfig || !configPending.pendingPayouts || !configPending.sales || !configPending.fees}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm"
+                >
+                  {savingConfig ? 'Saving...' : 'Save Account Settings'}
+                </button>
+              </div>
             </div>
           )}
         </div>

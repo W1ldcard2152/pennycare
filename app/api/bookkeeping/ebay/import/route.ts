@@ -326,27 +326,50 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Check for required accounts (1050, 4000, 6200)
-    const requiredAccountCodes = ['1050', '4000', '6200'];
-    const accounts = await prisma.account.findMany({
-      where: {
-        companyId: companyId!,
-        code: { in: requiredAccountCodes },
-        isActive: true,
+    // Resolve eBay account mappings — use company config, fall back to defaults by code
+    const DEFAULT_CODES = { pendingPayouts: '1120', sales: '4010', fees: '6590' };
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId! },
+      select: {
+        ebayPendingPayoutsAccountId: true,
+        ebaySalesAccountId: true,
+        ebayFeesAccountId: true,
       },
     });
 
-    const accountMap = new Map(accounts.map((a) => [a.code, a.id]));
-    const missingAccounts = requiredAccountCodes.filter((code) => !accountMap.has(code));
+    // If configured, look up by ID; otherwise fall back to default codes
+    const [pendingPayoutsAcct, salesAcct, feesAcct] = await Promise.all([
+      company?.ebayPendingPayoutsAccountId
+        ? prisma.account.findFirst({ where: { id: company.ebayPendingPayoutsAccountId, companyId: companyId!, isActive: true } })
+        : prisma.account.findFirst({ where: { code: DEFAULT_CODES.pendingPayouts, companyId: companyId!, isActive: true } }),
+      company?.ebaySalesAccountId
+        ? prisma.account.findFirst({ where: { id: company.ebaySalesAccountId, companyId: companyId!, isActive: true } })
+        : prisma.account.findFirst({ where: { code: DEFAULT_CODES.sales, companyId: companyId!, isActive: true } }),
+      company?.ebayFeesAccountId
+        ? prisma.account.findFirst({ where: { id: company.ebayFeesAccountId, companyId: companyId!, isActive: true } })
+        : prisma.account.findFirst({ where: { code: DEFAULT_CODES.fees, companyId: companyId!, isActive: true } }),
+    ]);
 
-    if (missingAccounts.length > 0) {
+    const missingRoles: string[] = [];
+    if (!pendingPayoutsAcct) missingRoles.push('eBay Pending Payouts (asset)');
+    if (!salesAcct) missingRoles.push('eBay Sales (revenue)');
+    if (!feesAcct) missingRoles.push('eBay Fees (expense)');
+
+    if (missingRoles.length > 0) {
       return NextResponse.json(
         {
-          error: `Missing required accounts: ${missingAccounts.join(', ')}. Please seed the chart of accounts first or add: eBay Pending Payouts (1050), eBay Parts Sales (4000), eBay Fees (6200)`,
+          error: `Missing eBay account mappings: ${missingRoles.join(', ')}. Go to eBay Sales → Account Settings to configure which accounts to use.`,
         },
         { status: 400 }
       );
     }
+
+    const accountMap = new Map<string, string>([
+      ['pendingPayouts', pendingPayoutsAcct!.id],
+      ['sales', salesAcct!.id],
+      ['fees', feesAcct!.id],
+    ]);
 
     // Group sales by date for journal entries
     // Use formatDate() to get the UTC date string consistently
@@ -387,19 +410,19 @@ export async function POST(request: NextRequest) {
           sourceId: trimmedBatchName,
           lines: [
             {
-              accountId: accountMap.get('1050')!,
+              accountId: accountMap.get('pendingPayouts')!,
               description: `eBay payouts pending (${daySales.length} sale${daySales.length > 1 ? 's' : ''})`,
               debit: Math.round(totalNet * 100) / 100,
               credit: 0,
             },
             {
-              accountId: accountMap.get('6200')!,
+              accountId: accountMap.get('fees')!,
               description: `eBay fees (${daySales.length} sale${daySales.length > 1 ? 's' : ''})`,
               debit: Math.round(totalFees * 100) / 100,
               credit: 0,
             },
             {
-              accountId: accountMap.get('4000')!,
+              accountId: accountMap.get('sales')!,
               description: `eBay parts sales (${daySales.length} sale${daySales.length > 1 ? 's' : ''})`,
               debit: 0,
               credit: Math.round(totalGross * 100) / 100,

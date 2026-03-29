@@ -233,6 +233,36 @@ export default function Sidebar() {
           Dashboard
         </Link>
 
+        {/* Expand/Collapse All */}
+        {isInitialized && (
+          <div className="flex items-center justify-end px-3 mb-2">
+            {(() => {
+              const activeSection = sections.find(s => isSectionActive(pathname, s));
+              const expandedCount = sections.filter(s => expandedSections[s.name]).length;
+              const onlyActiveOpen = expandedCount <= 1 && (!activeSection || expandedSections[activeSection.name]);
+              const shouldExpand = onlyActiveOpen;
+              return (
+                <button
+                  onClick={() => {
+                    const updated = { ...expandedSections };
+                    for (const s of sections) {
+                      updated[s.name] = shouldExpand;
+                    }
+                    if (activeSection) {
+                      updated[activeSection.name] = true;
+                    }
+                    saveExpandedState(updated);
+                    setExpandedSections(updated);
+                  }}
+                  className="text-gray-400 hover:text-gray-200 text-xs transition-colors duration-150"
+                >
+                  {shouldExpand ? 'Expand All' : 'Collapse All'}
+                </button>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Collapsible Sections */}
         {sections.map((section) => {
           const isExpanded = expandedSections[section.name];

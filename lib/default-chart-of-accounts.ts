@@ -115,7 +115,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '1010', name: 'Checking Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
   { code: '1020', name: 'eBay Managed Payments Checking Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
   { code: '1030', name: 'Savings Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
-  { code: '1040', name: 'Cash', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash', description: 'Petty cash on hand' },
+  { code: '1040', name: 'Petty Cash', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash', description: 'Petty cash on hand' },
 
   // ── Current Assets ──
   { code: '1100', name: 'Parts Inventory', type: 'asset', accountGroup: 'Current Assets', taxLine: 'B/S-Assets: Other current assets' },
@@ -176,7 +176,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '3020', name: 'Retained Earnings', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Retained earnings' },
   { code: '3030', name: 'Adjustments to shareholders\' equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Adj to shareholders equity' },
   { code: '3040', name: 'Shareholder Distributions', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Shareholder distributions' },
-  { code: '3050', name: 'Shareholder Distributions', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Other equity', description: 'Owner\'s draw' },
   { code: '3060', name: 'NET INC/(NET LOSS)', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Net income / loss' },
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -207,7 +206,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   // ── COGS other costs ──
   { code: '5200', name: 'eBay Listing and selling costs', type: 'expense', accountGroup: 'COGS other costs', taxLine: 'COGS: Other costs' },
   { code: '5210', name: 'Freight and Shipping Costs', type: 'expense', accountGroup: 'COGS other costs', taxLine: 'COGS: Other costs' },
-  { code: '5220', name: 'Shipping and Freight', type: 'expense', accountGroup: 'COGS other costs', taxLine: 'COGS: Other costs' },
 
   // ══════════════════════════════════════════════════════════════════════════════
   // EXPENSES - OPERATING EXPENSES
@@ -222,8 +220,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
 
   // ── Salaries and wages ──
   { code: '6100', name: 'Payroll Expenses-Employee Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Sch C: Wages paid' },
-  { code: '6110', name: 'Payroll Expenses-Officer Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Comp. of Officers: M-3 Detail' },
-  { code: '6120', name: 'Payroll Expenses/Officers Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Comp. of Officers: M-3 Detail' },
+  { code: '6110', name: 'Payroll Expenses/Officer Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Comp. of Officers: M-3 Detail' },
 
   // ── Rent ──
   { code: '6200', name: 'Rent Expense', type: 'expense', accountGroup: 'Rent', taxLine: 'Rents' },
@@ -243,31 +240,20 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
 
   // ── Other deductions ──
   { code: '6500', name: 'Auto Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6510', name: 'Automotive Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6520', name: 'Auto Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6530', name: 'Bank Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6540', name: 'Cash Over or Short', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6550', name: 'Credit Card Finance Charges', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6560', name: 'Credit Card Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6570', name: 'Dues and Subscriptions', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6580', name: 'Dues And Subscriptions', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6590', name: 'eBay Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6600', name: 'eBay Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions', description: 'Final Value Fees and other platform fees' },
+  { code: '6590', name: 'eBay Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions', description: 'Final Value Fees and other platform fees' },
   { code: '6610', name: 'Insurance Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Insurance' },
-  { code: '6620', name: 'Insurance Exp', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Insurance' },
   { code: '6630', name: 'Office Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Office expense' },
-  { code: '6640', name: 'Office Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Office expense' },
   { code: '6650', name: 'Professional Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6660', name: 'Professional Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6670', name: 'Shipping & Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6680', name: 'Shipping & Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6690', name: 'Software', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6700', name: 'Software', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6710', name: 'Small Tools and Equipment', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6720', name: 'Small Tools and Equipment', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6730', name: 'Tow & Hwy Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6740', name: 'Misc. Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6750', name: 'Miscellaneous Exp', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6760', name: 'DMV Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6770', name: 'Computer and Internet Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Utilities' },
   { code: '6780', name: 'Utilities', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Utilities' },

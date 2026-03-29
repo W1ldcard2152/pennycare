@@ -116,6 +116,11 @@ model Company {
   sickAccrualHoursWorked Float? @default(30) // Per hours worked (NY: 1 hour per 30 hours)
   sickAnnualCapHours Float? @default(40) // Annual cap (NY: 40 hours for 5-99 employees)
 
+  // eBay Account Mappings (configurable per company)
+  ebayPendingPayoutsAccountId String?  // Asset account for eBay funds pending payout (default: 1120)
+  ebaySalesAccountId          String?  // Revenue account for eBay sales (default: 4010)
+  ebayFeesAccountId           String?  // Expense account for eBay fees (default: 6590)
+
   // Relations
   userAccess        UserCompanyAccess[]
   employees         Employee[]
