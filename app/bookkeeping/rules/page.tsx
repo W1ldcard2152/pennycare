@@ -8,7 +8,7 @@ interface Account {
   code: string;
   name: string;
   type: string;
-  subtype?: string;
+  accountGroup?: string | null;
 }
 
 interface TransactionRule {
@@ -228,7 +228,7 @@ export default function RulesPage() {
 
   // Filter accounts by type
   const bankAccounts = accounts.filter((a) =>
-    (a.type === 'asset' && (a.subtype === 'bank_checking' || a.subtype === 'bank_savings')) ||
+    (a.type === 'asset' && a.accountGroup === 'Cash') ||
     a.type === 'credit_card'
   );
   const targetAccounts = accounts.filter((a) =>

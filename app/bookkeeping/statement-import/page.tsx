@@ -172,7 +172,7 @@ interface Account {
   code: string;
   name: string;
   type: string;
-  subtype?: string;
+  accountGroup?: string | null;
 }
 
 interface ParsedTransaction {
@@ -690,7 +690,7 @@ export default function StatementImportPage() {
 
   // Filter accounts
   const bankAccounts = accounts.filter(a =>
-    (a.type === 'asset' && (a.subtype === 'bank_checking' || a.subtype === 'bank_savings')) ||
+    (a.type === 'asset' && a.accountGroup === 'Cash') ||
     a.type === 'credit_card'
   );
   const creditCardAccounts = accounts.filter(a => a.type === 'credit_card');
@@ -836,17 +836,17 @@ export default function StatementImportPage() {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        CSV File
+                        Statement File
                       </label>
                       <div className="mb-2 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 max-w-xl">
-                        <p className="font-medium mb-1">Expected CSV format:</p>
+                        <p className="font-medium mb-1">Accepted formats: CSV, XLS, XLSX</p>
                         <p className="font-mono text-xs">Account Number, Post Date, Check, Description, Debit, Credit, Status, Balance</p>
-                        <p className="text-xs mt-1">Standard bank CSV export format. Debit column = money out, Credit column = money in.</p>
+                        <p className="text-xs mt-1">Standard bank export format. Debit column = money out, Credit column = money in.</p>
                       </div>
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept=".csv"
+                        accept=".csv,.xls,.xlsx"
                         onChange={handleFileChange}
                         className="block w-full max-w-md text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer"
                       />

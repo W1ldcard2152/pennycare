@@ -24,7 +24,7 @@ interface AccountBalance {
   code: string;
   name: string;
   type: string;
-  subtype: string | null;
+  accountGroup: string | null;
   balance: number;
 }
 
@@ -152,7 +152,7 @@ export default function Dashboard() {
   if (!data) return null;
 
   const bankAccounts = data.accountBalances.filter(
-    (a) => a.subtype === 'bank_checking' || a.subtype === 'bank_savings'
+    (a) => a.type === 'asset' && a.accountGroup === 'Cash'
   );
   const creditCards = data.accountBalances.filter((a) => a.type === 'credit_card');
   const clearingAccounts = data.accountBalances.filter(

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { applyRules } from '@/lib/transaction-rules';
@@ -64,16 +65,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse the CSV file
-    const csvText = await file.text();
-    const parseResult = Papa.parse<BankCSVRow>(csvText, {
-      header: true,
-      skipEmptyLines: true,
-    });
+    // Parse file — support CSV, XLS, and XLSX
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xls') || fileName.endsWith('.xlsx');
+
+    let parseResult: Papa.ParseResult<BankCSVRow>;
+
+    if (isExcel) {
+      // Convert Excel to CSV-like rows
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const csvText = XLSX.utils.sheet_to_csv(sheet);
+      parseResult = Papa.parse<BankCSVRow>(csvText, {
+        header: true,
+        skipEmptyLines: true,
+      });
+    } else {
+      const csvText = await file.text();
+      parseResult = Papa.parse<BankCSVRow>(csvText, {
+        header: true,
+        skipEmptyLines: true,
+      });
+    }
 
     if (parseResult.errors.length > 0) {
       return NextResponse.json(
-        { error: 'CSV parsing error', details: parseResult.errors.slice(0, 5) },
+        { error: 'File parsing error', details: parseResult.errors.slice(0, 5) },
         { status: 400 }
       );
     }

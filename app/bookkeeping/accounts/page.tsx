@@ -25,6 +25,12 @@ interface Account {
   balance: number;
 }
 
+interface OpeningBalance {
+  entryId: string;
+  date: string;
+  amount: number;
+}
+
 const ACCOUNT_TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'expense', 'credit_card'];
 
 type SortKey = 'code' | 'name' | 'description' | 'balance' | 'isActive';
@@ -55,6 +61,10 @@ export default function AccountsPage() {
   const [useCustomGroup, setUseCustomGroup] = useState(false);
   const [editCustomGroup, setEditCustomGroup] = useState('');
   const [editUseCustomGroup, setEditUseCustomGroup] = useState(false);
+  const [editOpeningBalance, setEditOpeningBalance] = useState<OpeningBalance | null>(null);
+  const [editOBAmount, setEditOBAmount] = useState('');
+  const [editOBDate, setEditOBDate] = useState('');
+  const [loadingOB, setLoadingOB] = useState(false);
 
   // Hierarchical sort: primary, then secondary, then tertiary
   const [sortStack, setSortStack] = useState<SortEntry[]>([{ key: 'code', dir: 'asc' }]);
@@ -111,11 +121,11 @@ export default function AccountsPage() {
     } catch { setFormError('Failed to create account'); }
   };
 
-  const startEditAccount = (acct: Account) => {
+  const startEditAccount = async (acct: Account) => {
     setEditingAccount(acct);
     const groups = ACCOUNT_GROUPS[acct.type as AccountType] || [];
     const isCustomGroup = acct.accountGroup && !groups.includes(acct.accountGroup);
-    setEditUseCustomGroup(false); // Start with dropdown, show custom group if needed
+    setEditUseCustomGroup(false);
     setEditCustomGroup(isCustomGroup ? acct.accountGroup || '' : '');
     setFormData({
       code: acct.code,
@@ -125,12 +135,36 @@ export default function AccountsPage() {
       description: acct.description || '',
     });
     setFormError('');
+    setEditOpeningBalance(null);
+    setEditOBAmount('');
+    setEditOBDate('');
+
+    // Fetch opening balance for this account
+    setLoadingOB(true);
+    try {
+      const res = await fetch(`/api/bookkeeping/accounts/${acct.id}/transactions?limit=1`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.openingBalance) {
+          setEditOpeningBalance(data.openingBalance);
+          setEditOBAmount(String(data.openingBalance.amount));
+          setEditOBDate(new Date(data.openingBalance.date).toISOString().split('T')[0]);
+        }
+      }
+    } catch {
+      // Non-critical
+    } finally {
+      setLoadingOB(false);
+    }
   };
 
   const cancelEdit = () => {
     setEditingAccount(null);
     setEditUseCustomGroup(false);
     setEditCustomGroup('');
+    setEditOpeningBalance(null);
+    setEditOBAmount('');
+    setEditOBDate('');
     setFormData({
       code: '',
       name: '',
@@ -161,6 +195,45 @@ export default function AccountsPage() {
         setFormError(err.error || 'Failed to update account');
         return;
       }
+
+      // Handle opening balance changes
+      const newAmount = editOBAmount ? parseFloat(editOBAmount) : 0;
+      const oldAmount = editOpeningBalance?.amount ?? 0;
+      const oldDate = editOpeningBalance ? new Date(editOpeningBalance.date).toISOString().split('T')[0] : '';
+      const obChanged = newAmount !== oldAmount || editOBDate !== oldDate;
+
+      if (obChanged && (newAmount !== 0 || editOpeningBalance)) {
+        // Void existing opening balance if there is one
+        if (editOpeningBalance) {
+          const voidRes = await fetch(`/api/bookkeeping/journal-entries/${editOpeningBalance.entryId}/void`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Updating opening balance' }),
+          });
+          if (!voidRes.ok) {
+            const err = await voidRes.json();
+            setFormError(err.error || 'Account saved but failed to update opening balance');
+            fetchAccounts();
+            return;
+          }
+        }
+
+        // Create new opening balance if amount is non-zero
+        if (newAmount !== 0 && editOBDate) {
+          const obRes = await fetch(`/api/bookkeeping/accounts/${editingAccount.id}/opening-balance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: newAmount, date: editOBDate }),
+          });
+          if (!obRes.ok) {
+            const err = await obRes.json();
+            setFormError(err.error || 'Account saved but failed to set opening balance');
+            fetchAccounts();
+            return;
+          }
+        }
+      }
+
       cancelEdit();
       fetchAccounts();
     } catch { setFormError('Failed to update account'); }
@@ -589,6 +662,38 @@ export default function AccountsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
                   <input type="text" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                </div>
+                <div className="border-t pt-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">Opening Balance</label>
+                  {loadingOB ? (
+                    <p className="text-xs text-gray-400">Loading...</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editOBAmount}
+                          onChange={(e) => setEditOBAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">As of Date</label>
+                        <input
+                          type="date"
+                          value={editOBDate}
+                          onChange={(e) => setEditOBDate(e.target.value)}
+                          className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {!loadingOB && !editOBAmount && !editOpeningBalance && (
+                    <p className="text-xs text-gray-400 mt-1">Leave blank if no opening balance is needed.</p>
+                  )}
                 </div>
               </form>
               <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">

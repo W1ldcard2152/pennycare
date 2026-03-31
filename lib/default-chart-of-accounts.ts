@@ -162,21 +162,21 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
 
   // ── Mortgages, notes, bonds payable in 1 year or more ──
   { code: '2500', name: 'eBay Managed Payments Reserve Hold Funds', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
-  { code: '2510', name: 'LRAP FUNDS HELD', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
+  { code: '2510', name: 'Lrap Funds Held', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
 
   // ── Non-Current Liabilities ──
-  { code: '2600', name: 'NYS DMV LIENS', type: 'liability', accountGroup: 'Non-Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other liabilities' },
+  { code: '2600', name: 'NYS DMV Liens', type: 'liability', accountGroup: 'Non-Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other liabilities' },
 
   // ══════════════════════════════════════════════════════════════════════════════
   // EQUITY
   // ══════════════════════════════════════════════════════════════════════════════
 
-  { code: '3000', name: 'Opening Balance Equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Capital stock' },
+  { code: '3000', name: 'Shareholder Distributions', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Shareholder distributions', description: 'Owner\'s draw' },
   { code: '3010', name: 'Additional paid in capital', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Add\'l paid-in capital' },
   { code: '3020', name: 'Retained Earnings', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Retained earnings' },
   { code: '3030', name: 'Adjustments to shareholders\' equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Adj to shareholders equity' },
-  { code: '3040', name: 'Shareholder Distributions', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Shareholder distributions' },
-  { code: '3060', name: 'NET INC/(NET LOSS)', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Net income / loss' },
+  { code: '3060', name: 'Net Inc/(Net Loss)', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Net income / loss' },
+  { code: '3900', name: 'Opening Balance Equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Capital stock' },
 
   // ══════════════════════════════════════════════════════════════════════════════
   // REVENUE
