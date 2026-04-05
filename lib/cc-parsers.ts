@@ -89,8 +89,9 @@ const MONTH_ABBREVS: Record<string, number> = {
  *
  * @param text - The pasted text blob
  * @param year - Year to use for dates (from statement period end date)
+ * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
-export function parseCapitalOne(text: string, year: number): ParseResult {
+export function parseCapitalOne(text: string, year: number, statementEndMonth: number): ParseResult {
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
@@ -137,17 +138,16 @@ export function parseCapitalOne(text: string, year: number): ParseResult {
     }
 
     // Determine the correct year, handling year rollover
-    // (e.g., December transaction on a January statement)
+    // (e.g., December transaction on a January statement that closes in January)
+    // If a transaction month is more than 6 months after the statement end month,
+    // it's from the previous year (e.g., Dec transaction on a Jan/Feb statement)
     let transYear = year;
     let postYear = year;
 
-    // If the month is in the future relative to the statement end month,
-    // it's likely from the previous year
-    const statementEndMonth = new Date(year, 0, 1).getMonth(); // Assume we might need to check
-    if (transMonthNum > 6 && transMonthNum >= statementEndMonth + 6) {
+    if (transMonthNum - statementEndMonth > 6) {
       transYear = year - 1;
     }
-    if (postMonthNum > 6 && postMonthNum >= statementEndMonth + 6) {
+    if (postMonthNum - statementEndMonth > 6) {
       postYear = year - 1;
     }
 
@@ -183,8 +183,9 @@ export function parseCapitalOne(text: string, year: number): ParseResult {
  *
  * @param text - The pasted text blob
  * @param year - Year to use for dates
+ * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
-export function parseChase(text: string, year: number): ParseResult {
+export function parseChase(text: string, year: number, statementEndMonth: number): ParseResult {
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
@@ -210,28 +211,46 @@ export function parseChase(text: string, year: number): ParseResult {
     }
 
     const [datePart, month, day] = dateMatch;
-    const remainder = chunk.slice(datePart.length).trim();
 
-    // Extract amount from end - could be positive or negative
+    // Split chunk into lines to handle continuation lines (e.g., "Order Number ...")
+    const chunkLines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const firstLine = chunkLines[0];
+    const continuationLines = chunkLines.slice(1);
+
+    const firstLineRemainder = firstLine.slice(datePart.length).trim();
+
+    // Extract amount from end of first line - could be positive or negative
     // Pattern: optional negative sign directly attached to number at end
     const amountPattern = /(-?)(\d[\d,]*\.\d{2})$/;
-    const amountMatch = remainder.match(amountPattern);
+    const amountMatch = firstLineRemainder.match(amountPattern);
 
     if (!amountMatch) {
-      errors.push(`Could not parse amount from: "${chunk.substring(0, 50)}..."`);
+      errors.push(`Could not parse amount from: "${firstLine.substring(0, 50)}..."`);
       continue;
     }
 
     const [amountFull, negSign, amountStr] = amountMatch;
-    const description = remainder.slice(0, -amountFull.length).trim();
+    let description = firstLineRemainder.slice(0, -amountFull.length).trim();
 
     if (!description) {
-      errors.push(`Empty description in: "${chunk.substring(0, 50)}..."`);
+      errors.push(`Empty description in: "${firstLine.substring(0, 50)}..."`);
       continue;
     }
 
+    // Append continuation lines (e.g., "Order Number 113-8931723-9944253")
+    if (continuationLines.length > 0) {
+      description += ' | ' + continuationLines.join(' | ');
+    }
+
+    // Handle year rollover (e.g., December transaction on a January statement)
+    const monthNum = parseInt(month) - 1; // 0-indexed
+    let txnYear = year;
+    if (monthNum - statementEndMonth > 6) {
+      txnYear = year - 1;
+    }
+
     // Use localToBusinessDate for timezone-safe date creation (noon UTC)
-    const postDate = localToBusinessDate(parseInt(month), parseInt(day), year);
+    const postDate = localToBusinessDate(parseInt(month), parseInt(day), txnYear);
     const amount = parseFloat(amountStr.replace(/,/g, ''));
     const isCredit = negSign === '-';
 
@@ -318,7 +337,8 @@ export function parseCCStatement(
   format: 'capital_one' | 'chase' | 'paypal_credit',
   transactionsText: string,
   paymentsText: string,
-  year: number
+  year: number,
+  statementEndMonth: number = 0
 ): {
   transactions: ParsedCCTransaction[];
   payments: ParsedCCTransaction[];
@@ -329,12 +349,12 @@ export function parseCCStatement(
 
   switch (format) {
     case 'capital_one':
-      transResult = parseCapitalOne(transactionsText, year);
-      payResult = parseCapitalOne(paymentsText, year);
+      transResult = parseCapitalOne(transactionsText, year, statementEndMonth);
+      payResult = parseCapitalOne(paymentsText, year, statementEndMonth);
       break;
     case 'chase':
-      transResult = parseChase(transactionsText, year);
-      payResult = parseChase(paymentsText, year);
+      transResult = parseChase(transactionsText, year, statementEndMonth);
+      payResult = parseChase(paymentsText, year, statementEndMonth);
       break;
     case 'paypal_credit':
       transResult = parsePayPalCredit(transactionsText);

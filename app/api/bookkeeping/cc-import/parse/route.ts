@@ -36,13 +36,15 @@ export async function POST(request: NextRequest) {
       );
     }
     const year = endDate.getFullYear();
+    const statementEndMonth = endDate.getUTCMonth(); // 0-indexed
 
     // Parse the text
     const result = parseCCStatement(
       format,
       transactionsText || '',
       paymentsText || '',
-      year
+      year,
+      statementEndMonth
     );
 
     // Convert dates to ISO strings for JSON
