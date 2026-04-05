@@ -455,7 +455,11 @@ export default function TransactionReviewPage() {
       const res = await fetch('/api/bookkeeping/statements/book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selectedBatch ? { batchName: selectedBatch, bookMatched: true } : { bookMatched: true }),
+        body: JSON.stringify(
+          selectedBatch
+            ? { batchName: selectedBatch, bookMatched: true }
+            : { ids: pendingImports.filter((i) => i.targetAccount).map((i) => i.id) }
+        ),
       });
 
       const data = await res.json();
