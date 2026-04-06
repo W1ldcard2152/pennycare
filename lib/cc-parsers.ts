@@ -211,35 +211,33 @@ export function parseChase(text: string, year: number, statementEndMonth: number
     }
 
     const [datePart, month, day] = dateMatch;
+    const remainder = chunk.slice(datePart.length);
 
-    // Split chunk into lines to handle continuation lines (e.g., "Order Number ...")
-    const chunkLines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const firstLine = chunkLines[0];
-    const continuationLines = chunkLines.slice(1);
+    // Extract description + amount, with optional continuation text after.
+    // The amount is the first number with exactly 2 decimal places (e.g., 23.68).
+    // Continuation text (e.g., "Order Number ...") may follow on the same line
+    // (separated by spaces) or on a new line — both are handled by [\s\S]*.
+    // Credits have a negative sign directly attached (e.g., CA-73.88).
+    const txnPattern = /^(.+?)(-?)(\d[\d,]*\.\d{2})([\s\S]*)$/;
+    const txnMatch = remainder.match(txnPattern);
 
-    const firstLineRemainder = firstLine.slice(datePart.length).trim();
-
-    // Extract amount from end of first line - could be positive or negative
-    // Pattern: optional negative sign directly attached to number at end
-    const amountPattern = /(-?)(\d[\d,]*\.\d{2})$/;
-    const amountMatch = firstLineRemainder.match(amountPattern);
-
-    if (!amountMatch) {
-      errors.push(`Could not parse amount from: "${firstLine.substring(0, 50)}..."`);
+    if (!txnMatch) {
+      errors.push(`Could not parse amount from: "${chunk.substring(0, 50)}..."`);
       continue;
     }
 
-    const [amountFull, negSign, amountStr] = amountMatch;
-    let description = firstLineRemainder.slice(0, -amountFull.length).trim();
+    const [, descPart, negSign, amountStr, continuationRaw] = txnMatch;
+    let description = descPart.trim();
 
     if (!description) {
-      errors.push(`Empty description in: "${firstLine.substring(0, 50)}..."`);
+      errors.push(`Empty description in: "${chunk.substring(0, 50)}..."`);
       continue;
     }
 
-    // Append continuation lines (e.g., "Order Number 113-8931723-9944253")
-    if (continuationLines.length > 0) {
-      description += ' | ' + continuationLines.join(' | ');
+    // Append continuation text (e.g., "Order Number 113-8931723-9944253")
+    const continuation = continuationRaw.trim();
+    if (continuation) {
+      description += ' | ' + continuation.replace(/\s+/g, ' ');
     }
 
     // Handle year rollover (e.g., December transaction on a January statement)
