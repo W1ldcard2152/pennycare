@@ -696,7 +696,7 @@ export default function StatementImportPage() {
   const creditCardAccounts = accounts.filter(a => a.type === 'credit_card');
   const expenseAccounts = accounts.filter(a => a.type === 'expense');
   const targetAccounts = accounts.filter(a =>
-    a.type === 'expense' || a.type === 'asset' || a.type === 'liability' || a.type === 'revenue'
+    a.type === 'expense' || a.type === 'asset' || a.type === 'liability' || a.type === 'equity' || a.type === 'revenue'
   );
 
   // Calculations for text extract preview

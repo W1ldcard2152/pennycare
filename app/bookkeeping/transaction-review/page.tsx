@@ -725,7 +725,7 @@ export default function TransactionReviewPage() {
     isBankAccount(a.accountGroup, a.type) || a.type === 'credit_card'
   );
   const targetAccounts = accounts.filter((a) =>
-    a.type === 'expense' || a.type === 'asset' || a.type === 'liability' || a.type === 'revenue'
+    a.type === 'expense' || a.type === 'asset' || a.type === 'liability' || a.type === 'equity' || a.type === 'revenue'
   );
 
   const matchedCount = pendingImports.filter((i) => i.targetAccount).length;
