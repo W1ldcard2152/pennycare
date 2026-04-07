@@ -218,7 +218,7 @@ export function parseChase(text: string, year: number, statementEndMonth: number
     // Continuation text (e.g., "Order Number ...") may follow on the same line
     // (separated by spaces) or on a new line — both are handled by [\s\S]*.
     // Credits have a negative sign directly attached (e.g., CA-73.88).
-    const txnPattern = /^(.+?)(-?)(\d[\d,]*\.\d{2})([\s\S]*)$/;
+    const txnPattern = /^(.+?)(-?)(\d[\d,]*\.\d{2}|\.\d{2})([\s\S]*)$/;
     const txnMatch = remainder.match(txnPattern);
 
     if (!txnMatch) {
