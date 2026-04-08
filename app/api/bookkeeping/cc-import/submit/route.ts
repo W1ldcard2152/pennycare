@@ -66,15 +66,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Statement end date is required' }, { status: 400 });
     }
 
-    // Verify the source account exists, is a credit card, and belongs to this company
+    // Verify the source account exists and belongs to this company
     const sourceAccount = await prisma.account.findFirst({
       where: { id: sourceAccountId, companyId: companyId! },
     });
     if (!sourceAccount) {
       return NextResponse.json({ error: 'Source account not found' }, { status: 404 });
     }
-    if (sourceAccount.type !== 'credit_card') {
-      return NextResponse.json({ error: 'Source account must be a credit card' }, { status: 400 });
+    const isCreditCard = sourceAccount.type === 'credit_card';
+    const isBankAccount = sourceAccount.type === 'asset' && sourceAccount.accountGroup === 'Cash';
+    if (!isCreditCard && !isBankAccount) {
+      return NextResponse.json({ error: 'Source account must be a credit card or bank account' }, { status: 400 });
     }
 
     // Find the CC Payments Pending account (code 1060)
