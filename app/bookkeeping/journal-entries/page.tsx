@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import Link from 'next/link';
 
 // Sorting types
@@ -98,6 +98,8 @@ export default function JournalEntriesPage() {
   const [formError, setFormError] = useState('');
 
   // Filters
+  const [filterSearch, setFilterSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterSource, setFilterSource] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
@@ -132,11 +134,19 @@ export default function JournalEntriesPage() {
     fetchAccounts();
   }, []);
 
+  // Debounce search input (300ms)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(filterSearch), 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [filterSearch]);
+
   useEffect(() => {
     setOffset(0);
     fetchEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterSource, filterStatus, filterStartDate, filterEndDate, filterAccount]);
+  }, [debouncedSearch, filterSource, filterStatus, filterStartDate, filterEndDate, filterAccount]);
 
   useEffect(() => {
     fetchEntries();
@@ -147,6 +157,7 @@ export default function JournalEntriesPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (debouncedSearch) params.set('search', debouncedSearch);
       if (filterSource) params.set('source', filterSource);
       if (filterStatus) params.set('status', filterStatus);
       if (filterStartDate) params.set('startDate', filterStartDate);
@@ -175,6 +186,8 @@ export default function JournalEntriesPage() {
   };
 
   const clearFilters = () => {
+    setFilterSearch('');
+    setDebouncedSearch('');
     setFilterSource('');
     setFilterStatus('');
     setFilterStartDate('');
@@ -536,6 +549,16 @@ export default function JournalEntriesPage() {
         {/* Filter Bar */}
         <div className="mb-4 bg-white border rounded-lg p-4 shadow-sm">
           <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex-1 min-w-[200px] max-w-sm">
+              <label className="block text-xs text-gray-500 mb-1">Search</label>
+              <input
+                type="text"
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
+                placeholder="Entry #, memo, reference, description..."
+                className="w-full border rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
+              />
+            </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Start Date</label>
               <input
@@ -591,7 +614,7 @@ export default function JournalEntriesPage() {
                 ))}
               </select>
             </div>
-            {(filterSource || filterStatus || filterStartDate || filterEndDate || filterAccount) && (
+            {(filterSearch || filterSource || filterStatus || filterStartDate || filterEndDate || filterAccount) && (
               <button
                 onClick={clearFilters}
                 className="text-gray-500 hover:text-gray-700 text-sm underline"

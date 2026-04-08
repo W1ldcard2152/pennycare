@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const source = searchParams.get('source');
     const status = searchParams.get('status');
     const accountId = searchParams.get('accountId');
+    const search = searchParams.get('search')?.trim();
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
 
@@ -33,6 +34,19 @@ export async function GET(request: NextRequest) {
     // Filter by account: entry must have at least one line with this account
     if (accountId) {
       where.lines = { some: { accountId } };
+    }
+    // Search across entry number, memo, reference number, and line descriptions
+    if (search) {
+      const entryNum = parseInt(search);
+      const orConditions: Record<string, unknown>[] = [
+        { memo: { contains: search } },
+        { referenceNumber: { contains: search } },
+        { lines: { some: { description: { contains: search } } } },
+      ];
+      if (!isNaN(entryNum)) {
+        orConditions.push({ entryNumber: entryNum });
+      }
+      where.OR = orConditions;
     }
 
     const [entries, total] = await Promise.all([
