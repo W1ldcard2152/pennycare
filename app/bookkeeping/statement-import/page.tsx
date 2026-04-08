@@ -207,7 +207,7 @@ export default function StatementImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Text extract mode state
-  const [format, setFormat] = useState<'capital_one' | 'chase' | 'paypal_credit'>('capital_one');
+  const [format, setFormat] = useState<'capital_one' | 'chase' | 'paypal_credit' | 'esl_bank'>('capital_one');
   const [statementEndDate, setStatementEndDate] = useState('');
   const [interestAmount, setInterestAmount] = useState('');
   const [interestAccountId, setInterestAccountId] = useState('');
@@ -339,7 +339,7 @@ export default function StatementImportPage() {
   // Text extract mode handlers
   const handleTextParse = async () => {
     if (!sourceAccountId) {
-      setError('Please select a credit card account');
+      setError('Please select an account');
       return;
     }
     if (!format || !statementEndDate) {
@@ -513,7 +513,7 @@ export default function StatementImportPage() {
 
   const handleTextSubmit = async () => {
     if (!sourceAccountId) {
-      setError('Please select a credit card account');
+      setError('Please select an account');
       return;
     }
     if (!batchName) {
@@ -877,7 +877,7 @@ export default function StatementImportPage() {
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Credit Card Account
+                          Account Name
                         </label>
                         <select
                           value={sourceAccountId}
@@ -885,7 +885,7 @@ export default function StatementImportPage() {
                             const accountId = e.target.value;
                             setSourceAccountId(accountId);
                             // Auto-select format based on account name
-                            const account = creditCardAccounts.find(a => a.id === accountId);
+                            const account = bankAccounts.find(a => a.id === accountId);
                             if (account) {
                               const name = account.name.toLowerCase();
                               if (name.includes('capital one') || name.includes('capitalone')) {
@@ -894,15 +894,17 @@ export default function StatementImportPage() {
                                 setFormat('chase');
                               } else if (name.includes('paypal')) {
                                 setFormat('paypal_credit');
+                              } else if (name.includes('esl')) {
+                                setFormat('esl_bank');
                               }
                             }
                           }}
                           className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                         >
-                          <option value="">Select credit card...</option>
-                          {creditCardAccounts.map((a) => (
+                          <option value="">Select account...</option>
+                          {bankAccounts.map((a) => (
                             <option key={a.id} value={a.id}>
-                              {a.code} — {a.name}
+                              {a.code} — {a.name} ({a.type === 'credit_card' ? 'Credit Card' : 'Bank'})
                             </option>
                           ))}
                         </select>
@@ -920,6 +922,7 @@ export default function StatementImportPage() {
                           <option value="capital_one">Capital One</option>
                           <option value="chase">Chase</option>
                           <option value="paypal_credit">PayPal Credit</option>
+                          <option value="esl_bank">ESL Bank</option>
                         </select>
                       </div>
 
@@ -949,6 +952,7 @@ export default function StatementImportPage() {
                       </div>
                     </div>
 
+                    {format !== 'esl_bank' && (
                     <div className="space-y-4">
                       <div className="bg-gray-50 rounded-lg p-4">
                         <h3 className="font-medium text-gray-900 mb-3">Interest (Optional)</h3>
@@ -990,8 +994,10 @@ export default function StatementImportPage() {
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
 
+                  {format !== 'esl_bank' && (
                   <div className="mt-6">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Payments, Credits & Adjustments
@@ -1004,10 +1010,11 @@ export default function StatementImportPage() {
                       className="w-full border rounded-lg px-3 py-2 text-sm font-mono text-gray-900"
                     />
                   </div>
+                  )}
 
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Transactions (Charges)
+                      {format === 'esl_bank' ? 'Transactions' : 'Transactions (Charges)'}
                     </label>
                     <textarea
                       value={transactionsText}
@@ -1036,6 +1043,12 @@ export default function StatementImportPage() {
                       {format === 'paypal_credit' && (
                         <>
                           <p>PayPal: <code className="bg-blue-100 px-1 rounded">01/08/25 01/08/25 P9283... EBAY $126.74</code></p>
+                        </>
+                      )}
+                      {format === 'esl_bank' && (
+                        <>
+                          <p>ESL: <code className="bg-blue-100 px-1 rounded">01/02 ACH Deposit eBay ... 65.00 1,234.56</code></p>
+                          <p>Include the Beginning Balance line — it&apos;s used to determine withdrawals vs deposits</p>
                         </>
                       )}
                     </div>
