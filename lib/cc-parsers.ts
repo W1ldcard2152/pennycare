@@ -329,10 +329,136 @@ export function parsePayPalCredit(text: string): ParseResult {
 }
 
 /**
- * Parse credit card statement based on format type.
+ * Parse ESL Federal Credit Union bank statement text.
+ *
+ * Format: {MM/DD} {DESCRIPTION} {AMOUNT} {BALANCE}
+ * - Each transaction has a date, description, transaction amount, and running balance
+ * - "Beginning Balance" line has only one amount (the balance)
+ * - Continuation lines (reference numbers, etc.) follow without a date prefix
+ * - Withdrawal vs deposit is determined by comparing the running balance
+ * - Amounts may omit leading zero (e.g., .90 instead of 0.90)
+ *
+ * @param text - The pasted text blob
+ * @param year - Year to use for dates (from statement period end date)
+ * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
+ */
+export function parseESLBank(text: string, year: number, statementEndMonth: number): ParseResult {
+  const transactions: ParsedCCTransaction[] = [];
+  const errors: string[] = [];
+
+  // Split on date pattern with lookahead
+  const splitRegex = /(?=\d{2}\/\d{2}\s)/g;
+  const chunks = text.split(splitRegex).filter(chunk => chunk.trim());
+
+  // Amount pattern: matches 123.45, 1,234.56, .90
+  const amountRe = /(\d[\d,]*\.\d{2}|\.\d{2})/g;
+
+  let prevBalance: number | null = null;
+
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+
+    // Extract date
+    const dateMatch = trimmed.match(/^(\d{2})\/(\d{2})\s+/);
+    if (!dateMatch) continue;
+
+    const [datePart, month, day] = dateMatch;
+    const remainder = trimmed.slice(datePart.length);
+
+    // Find all dollar amounts in the remainder
+    const amounts: { value: number; index: number; length: number }[] = [];
+    let m;
+    // Reset lastIndex for the global regex
+    amountRe.lastIndex = 0;
+    while ((m = amountRe.exec(remainder)) !== null) {
+      amounts.push({
+        value: parseFloat(m[0].replace(/,/g, '')),
+        index: m.index,
+        length: m[0].length,
+      });
+    }
+
+    if (amounts.length === 0) {
+      errors.push(`No amounts found in: "${trimmed.substring(0, 50)}..."`);
+      continue;
+    }
+
+    // Beginning Balance: only 1 amount (the balance itself)
+    if (amounts.length === 1) {
+      const descText = remainder.slice(0, amounts[0].index).trim();
+      if (/beginning\s+balance/i.test(descText)) {
+        prevBalance = amounts[0].value;
+        continue; // Skip — not an actual transaction
+      }
+      // Single amount with no balance — can't determine debit/credit
+      errors.push(`Only one amount found (expected amount + balance): "${trimmed.substring(0, 60)}..."`);
+      continue;
+    }
+
+    // Last amount is the running balance, second-to-last is the transaction amount
+    const balanceEntry = amounts[amounts.length - 1];
+    const txnAmountEntry = amounts[amounts.length - 2];
+    const newBalance = balanceEntry.value;
+    const txnAmount = txnAmountEntry.value;
+
+    // Description is everything before the transaction amount
+    const descRaw = remainder.slice(0, txnAmountEntry.index);
+    // Continuation text is everything after the balance amount (e.g., reference numbers)
+    const continuationRaw = remainder.slice(balanceEntry.index + balanceEntry.length).trim();
+    // Clean up: collapse whitespace, trim, and separate continuation text
+    const descParts = descRaw.split(/\s{4,}|\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (continuationRaw) {
+      descParts.push(continuationRaw.replace(/\s+/g, ' '));
+    }
+    const description = descParts.join(' | ');
+
+    if (!description) {
+      errors.push(`Empty description in: "${trimmed.substring(0, 50)}..."`);
+      continue;
+    }
+
+    // Determine debit/credit by comparing balance change
+    let isCredit: boolean;
+    if (prevBalance !== null) {
+      // If balance went up, it's a deposit (credit); if down, withdrawal (debit)
+      isCredit = newBalance > prevBalance;
+    } else {
+      // No previous balance — fall back to description keywords
+      isCredit = /deposit|credit/i.test(description);
+    }
+
+    prevBalance = newBalance;
+
+    // Handle year rollover
+    const monthNum = parseInt(month) - 1;
+    let txnYear = year;
+    if (monthNum - statementEndMonth > 6) {
+      txnYear = year - 1;
+    }
+
+    const postDate = localToBusinessDate(parseInt(month), parseInt(day), txnYear);
+
+    transactions.push({
+      transDate: postDate,
+      description,
+      amount: txnAmount,
+      isCredit,
+    });
+  }
+
+  if (transactions.length === 0 && text.trim().length > 0) {
+    errors.push('No transactions could be parsed. Check that the text matches ESL Bank format.');
+  }
+
+  return { transactions, errors };
+}
+
+/**
+ * Parse statement based on format type.
  */
 export function parseCCStatement(
-  format: 'capital_one' | 'chase' | 'paypal_credit',
+  format: 'capital_one' | 'chase' | 'paypal_credit' | 'esl_bank',
   transactionsText: string,
   paymentsText: string,
   year: number,
@@ -357,6 +483,10 @@ export function parseCCStatement(
     case 'paypal_credit':
       transResult = parsePayPalCredit(transactionsText);
       payResult = parsePayPalCredit(paymentsText);
+      break;
+    case 'esl_bank':
+      transResult = parseESLBank(transactionsText, year, statementEndMonth);
+      payResult = { transactions: [], errors: [] }; // Bank statements have no payments section
       break;
     default:
       return {

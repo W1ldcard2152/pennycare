@@ -227,7 +227,7 @@ export default function CCImportPage() {
 
   // Form state
   const [sourceAccountId, setSourceAccountId] = useState('');
-  const [format, setFormat] = useState<'capital_one' | 'chase' | 'paypal_credit'>('capital_one');
+  const [format, setFormat] = useState<'capital_one' | 'chase' | 'paypal_credit' | 'esl_bank'>('capital_one');
   const [statementEndDate, setStatementEndDate] = useState('');
   const [batchName, setBatchName] = useState('');
   const [interestAmount, setInterestAmount] = useState('');
@@ -1180,6 +1180,7 @@ export default function CCImportPage() {
                       <option value="capital_one">Capital One</option>
                       <option value="chase">Chase</option>
                       <option value="paypal_credit">PayPal Credit</option>
+                      <option value="esl_bank">ESL Bank</option>
                     </select>
                   </div>
 
@@ -1214,7 +1215,8 @@ export default function CCImportPage() {
                   </div>
                 </div>
 
-                {/* Right Column - Interest */}
+                {/* Right Column - Interest (CC only) */}
+                {format !== 'esl_bank' && (
                 <div className="space-y-4">
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h3 className="font-medium text-gray-900 mb-3">Interest (Optional)</h3>
@@ -1261,9 +1263,11 @@ export default function CCImportPage() {
                     </div>
                   </div>
                 </div>
+                )}
               </div>
 
-              {/* Payments Textarea */}
+              {/* Payments Textarea (CC only) */}
+              {format !== 'esl_bank' && (
               <div className="mt-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payments, Credits & Adjustments
@@ -1279,11 +1283,12 @@ export default function CCImportPage() {
                   All items here will be booked as credits to the CC Payments Pending clearing account
                 </p>
               </div>
+              )}
 
               {/* Transactions Textarea */}
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Transactions (Charges)
+                  {format === 'esl_bank' ? 'Transactions' : 'Transactions (Charges)'}
                 </label>
                 <textarea
                   value={transactionsText}
@@ -1317,6 +1322,12 @@ export default function CCImportPage() {
                     <>
                       <p>PayPal: <code className="bg-blue-100 px-1 rounded">01/08/25 01/08/25 P9283... EBAY $126.74</code></p>
                       <p>Two dates, transaction ID, then description and amount</p>
+                    </>
+                  )}
+                  {format === 'esl_bank' && (
+                    <>
+                      <p>ESL: <code className="bg-blue-100 px-1 rounded">01/02 ACH Deposit eBay ... 65.00 1,234.56</code></p>
+                      <p>Include the Beginning Balance line — it&apos;s used to determine withdrawals vs deposits</p>
                     </>
                   )}
                 </div>

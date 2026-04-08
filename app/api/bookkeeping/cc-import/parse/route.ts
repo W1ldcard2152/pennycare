@@ -13,9 +13,9 @@ export async function POST(request: NextRequest) {
     const { format, transactionsText, paymentsText, statementEndDate } = body;
 
     // Validate required fields
-    if (!format || !['capital_one', 'chase', 'paypal_credit'].includes(format)) {
+    if (!format || !['capital_one', 'chase', 'paypal_credit', 'esl_bank'].includes(format)) {
       return NextResponse.json(
-        { error: 'Invalid format. Must be capital_one, chase, or paypal_credit' },
+        { error: 'Invalid format. Must be capital_one, chase, paypal_credit, or esl_bank' },
         { status: 400 }
       );
     }
