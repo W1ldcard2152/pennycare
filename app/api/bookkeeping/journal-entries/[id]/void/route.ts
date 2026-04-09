@@ -65,6 +65,19 @@ export async function POST(
       );
     }
 
+    // Remove any reconciliation cleared items for these lines (in-progress reconciliations
+    // mark lines as cleared without setting isReconciled=true, so they escape the check above)
+    const entryLines = await prisma.journalEntryLine.findMany({
+      where: { journalEntryId: id },
+      select: { id: true },
+    });
+    const lineIds = entryLines.map((l) => l.id);
+    if (lineIds.length > 0) {
+      await prisma.reconciledItem.deleteMany({
+        where: { journalEntryLineId: { in: lineIds } },
+      });
+    }
+
     const updated = await prisma.journalEntry.update({
       where: { id },
       data: {

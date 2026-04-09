@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, useMemo, use } from 'react';
 import Link from 'next/link';
 
 interface Account {
@@ -125,6 +125,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   // Filters
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
   const limit = 100;
 
@@ -266,6 +267,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   const clearFilters = () => {
     setStartDate('');
     setEndDate('');
+    setSearchText('');
     setPage(1);
   };
 
@@ -295,6 +297,20 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   if (!data) return null;
 
   const { account, balance, openingBalance, transactions, totals, pagination } = data;
+
+  // Client-side search filtering (preserves running balance from server)
+  const filteredTransactions = useMemo(() => {
+    if (!searchText.trim()) return transactions;
+    const q = searchText.toLowerCase();
+    return transactions.filter(tx =>
+      String(tx.entryNumber).includes(q) ||
+      tx.memo.toLowerCase().includes(q) ||
+      (tx.description && tx.description.toLowerCase().includes(q)) ||
+      (SOURCE_LABELS[tx.source] || tx.source).toLowerCase().includes(q) ||
+      formatCurrency(tx.debit).includes(q) ||
+      formatCurrency(tx.credit).includes(q)
+    );
+  }, [transactions, searchText]);
 
   return (
     <div className="min-h-screen p-8">
@@ -533,8 +549,15 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
               <h2 className="text-lg font-semibold text-gray-900">Transaction Register</h2>
 
-              {/* Date Filters */}
+              {/* Filters */}
               <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Search entry #, memo, description..."
+                  className="border rounded px-2 py-1 text-sm text-gray-900 placeholder-gray-400 w-64"
+                />
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-gray-500">From:</label>
                   <input
@@ -553,7 +576,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                     className="border rounded px-2 py-1 text-sm text-gray-900"
                   />
                 </div>
-                {(startDate || endDate) && (
+                {(startDate || endDate || searchText) && (
                   <button
                     onClick={clearFilters}
                     className="text-sm text-gray-500 hover:text-gray-700"
@@ -580,14 +603,14 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {transactions.length === 0 ? (
+                {filteredTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No transactions found for this account.
+                      {searchText ? 'No matching transactions found.' : 'No transactions found for this account.'}
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((tx) => (
+                  filteredTransactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
                         {formatDate(tx.date)}
@@ -603,7 +626,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                       <td className="px-4 py-3 text-sm text-gray-700">
                         {tx.memo}
                         {tx.description && tx.description !== tx.memo && (
-                          <span className="text-gray-400 ml-1">({tx.description})</span>
+                          <span className="text-gray-500 ml-1">({tx.description})</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm whitespace-nowrap">
@@ -624,20 +647,24 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
                   ))
                 )}
               </tbody>
-              {transactions.length > 0 && (
+              {filteredTransactions.length > 0 && (
                 <tfoot className="bg-gray-50 border-t">
                   <tr>
                     <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-gray-700">
-                      Page Totals
+                      {searchText ? 'Filtered Totals' : 'Page Totals'}
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                      {formatCurrency(totals.totalDebits)}
+                      {searchText
+                        ? formatCurrency(filteredTransactions.reduce((sum, tx) => sum + tx.debit, 0))
+                        : formatCurrency(totals.totalDebits)}
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
-                      {formatCurrency(totals.totalCredits)}
+                      {searchText
+                        ? formatCurrency(filteredTransactions.reduce((sum, tx) => sum + tx.credit, 0))
+                        : formatCurrency(totals.totalCredits)}
                     </td>
-                    <td className={`px-4 py-3 text-sm text-right font-semibold ${transactions[transactions.length - 1].runningBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {formatCurrency(transactions[transactions.length - 1].runningBalance)}
+                    <td className={`px-4 py-3 text-sm text-right font-semibold ${filteredTransactions[filteredTransactions.length - 1].runningBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                      {formatCurrency(filteredTransactions[filteredTransactions.length - 1].runningBalance)}
                     </td>
                   </tr>
                 </tfoot>

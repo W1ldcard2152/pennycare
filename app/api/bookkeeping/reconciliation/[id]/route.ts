@@ -22,6 +22,11 @@ export async function GET(
           select: { id: true, code: true, name: true, type: true, accountGroup: true },
         },
         clearedItems: {
+          where: {
+            journalEntryLine: {
+              journalEntry: { status: 'posted' },
+            },
+          },
           include: {
             journalEntryLine: {
               include: {
@@ -133,6 +138,14 @@ export async function GET(
     // CC book balance sign convention matches CC statement convention
     const difference = Math.round((reconciliation.statementBalance - clearedBalance) * 100) / 100;
 
+    // For completed reconciliations, cleared lines have isReconciled=true so they don't
+    // appear in unclearedLines/allTransactions. Total must include both.
+    // For in-progress, cleared lines still have isReconciled=false so they're already in allTransactions.
+    const totalCount =
+      reconciliation.status === 'completed'
+        ? reconciliation.clearedItems.length + allTransactions.length
+        : allTransactions.length;
+
     return NextResponse.json({
       id: reconciliation.id,
       account: reconciliation.account,
@@ -146,7 +159,7 @@ export async function GET(
       difference,
       transactions: allTransactions,
       clearedCount: reconciliation.clearedItems.length,
-      totalCount: allTransactions.length,
+      totalCount,
       status: reconciliation.status,
       completedAt: reconciliation.completedAt,
       completedBy: reconciliation.completedBy,

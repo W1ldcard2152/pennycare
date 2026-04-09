@@ -1492,7 +1492,7 @@ export default function CCImportPage() {
                                 className="rounded border-gray-300"
                               />
                             </td>
-                            <td className="px-4 py-2 font-mono text-xs text-gray-700">
+                            <td className="px-4 py-2 font-mono text-xs text-gray-900">
                               {formatDate(payment.postDate || payment.transDate)}
                             </td>
                             <td className="px-4 py-2 text-gray-900">{payment.description}</td>
@@ -1572,7 +1572,7 @@ export default function CCImportPage() {
                                 className="rounded border-gray-300"
                               />
                             </td>
-                            <td className="px-4 py-2 font-mono text-xs text-gray-700">
+                            <td className="px-4 py-2 font-mono text-xs text-gray-900">
                               {formatDate(credit.postDate || credit.transDate)}
                             </td>
                             <td className="px-4 py-2">
@@ -1689,7 +1689,7 @@ export default function CCImportPage() {
                               className="rounded border-gray-300"
                             />
                           </td>
-                          <td className="px-4 py-2 font-mono text-xs text-gray-700">
+                          <td className="px-4 py-2 font-mono text-xs text-gray-900">
                             {formatDate(txn.postDate || txn.transDate)}
                           </td>
                           <td className="px-4 py-2">

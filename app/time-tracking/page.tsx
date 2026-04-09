@@ -139,7 +139,7 @@ export default function TimeTrackingPage() {
                 {weekDays.map((day) => (
                   <th key={day.toISOString()} className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     <div>{formatDayOfWeek(day)}</div>
-                    <div className="text-gray-400">{formatDayMonth(day)}</div>
+                    <div className="text-gray-700">{formatDayMonth(day)}</div>
                   </th>
                 ))}
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
