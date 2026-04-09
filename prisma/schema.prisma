@@ -925,7 +925,7 @@ model ReconciledItem {
   reconciliation    Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
 
   journalEntryLineId  String
-  journalEntryLine    JournalEntryLine @relation(fields: [journalEntryLineId], references: [id])
+  journalEntryLine    JournalEntryLine @relation(fields: [journalEntryLineId], references: [id], onDelete: Cascade)
 
   // Snapshot of the transaction at reconciliation time
   amount          Float

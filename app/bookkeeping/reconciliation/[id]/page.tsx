@@ -662,7 +662,7 @@ export default function ReconciliationDetailPage({
                         />
                       </td>
                     )}
-                    <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                    <td className="px-3 py-2 font-mono text-xs text-gray-900 whitespace-nowrap">
                       {formatDate(t.date)}
                     </td>
                     <td className="px-3 py-2">
