@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const year = endDate.getFullYear();
+    const year = endDate.getUTCFullYear();
     const statementEndMonth = endDate.getUTCMonth(); // 0-indexed
 
     // Parse the text

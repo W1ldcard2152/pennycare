@@ -139,15 +139,19 @@ export function parseCapitalOne(text: string, year: number, statementEndMonth: n
 
     // Determine the correct year, handling year rollover
     // (e.g., December transaction on a January statement that closes in January)
-    // If a transaction month is more than 6 months after the statement end month,
-    // it's from the previous year (e.g., Dec transaction on a Jan/Feb statement)
+    // If the transaction month is after the statement end month (circularly),
+    // it's from the previous year. We check if the forward distance from
+    // statement end month to transaction month is more than 6 months,
+    // meaning the transaction is actually from before the year boundary.
     let transYear = year;
     let postYear = year;
 
-    if (transMonthNum - statementEndMonth > 6) {
+    const transMonthDiff = ((transMonthNum - statementEndMonth) % 12 + 12) % 12;
+    if (transMonthDiff > 6) {
       transYear = year - 1;
     }
-    if (postMonthNum - statementEndMonth > 6) {
+    const postMonthDiff = ((postMonthNum - statementEndMonth) % 12 + 12) % 12;
+    if (postMonthDiff > 6) {
       postYear = year - 1;
     }
 
@@ -243,7 +247,8 @@ export function parseChase(text: string, year: number, statementEndMonth: number
     // Handle year rollover (e.g., December transaction on a January statement)
     const monthNum = parseInt(month) - 1; // 0-indexed
     let txnYear = year;
-    if (monthNum - statementEndMonth > 6) {
+    const monthDiff = ((monthNum - statementEndMonth) % 12 + 12) % 12;
+    if (monthDiff > 6) {
       txnYear = year - 1;
     }
 
@@ -433,7 +438,8 @@ export function parseESLBank(text: string, year: number, statementEndMonth: numb
     // Handle year rollover
     const monthNum = parseInt(month) - 1;
     let txnYear = year;
-    if (monthNum - statementEndMonth > 6) {
+    const monthDiff = ((monthNum - statementEndMonth) % 12 + 12) % 12;
+    if (monthDiff > 6) {
       txnYear = year - 1;
     }
 
