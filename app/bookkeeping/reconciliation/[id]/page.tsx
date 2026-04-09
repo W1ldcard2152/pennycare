@@ -669,6 +669,8 @@ export default function ReconciliationDetailPage({
                       <Link
                         href={`/bookkeeping/journal-entries/${t.entryId}`}
                         className="text-blue-600 hover:text-blue-700 font-medium"
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
                         #{t.entryNumber}
                       </Link>

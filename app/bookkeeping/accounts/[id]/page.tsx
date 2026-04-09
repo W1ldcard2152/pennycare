@@ -271,6 +271,22 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
     setPage(1);
   };
 
+  // Client-side search filtering (preserves running balance from server)
+  // Must be before early returns to satisfy Rules of Hooks
+  const transactions = data?.transactions ?? [];
+  const filteredTransactions = useMemo(() => {
+    if (!searchText.trim()) return transactions;
+    const q = searchText.toLowerCase();
+    return transactions.filter(tx =>
+      String(tx.entryNumber).includes(q) ||
+      tx.memo.toLowerCase().includes(q) ||
+      (tx.description && tx.description.toLowerCase().includes(q)) ||
+      (SOURCE_LABELS[tx.source] || tx.source).toLowerCase().includes(q) ||
+      formatCurrency(tx.debit).includes(q) ||
+      formatCurrency(tx.credit).includes(q)
+    );
+  }, [transactions, searchText]);
+
   if (loading && !data) {
     return (
       <div className="min-h-screen p-8">
@@ -296,21 +312,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
 
   if (!data) return null;
 
-  const { account, balance, openingBalance, transactions, totals, pagination } = data;
-
-  // Client-side search filtering (preserves running balance from server)
-  const filteredTransactions = useMemo(() => {
-    if (!searchText.trim()) return transactions;
-    const q = searchText.toLowerCase();
-    return transactions.filter(tx =>
-      String(tx.entryNumber).includes(q) ||
-      tx.memo.toLowerCase().includes(q) ||
-      (tx.description && tx.description.toLowerCase().includes(q)) ||
-      (SOURCE_LABELS[tx.source] || tx.source).toLowerCase().includes(q) ||
-      formatCurrency(tx.debit).includes(q) ||
-      formatCurrency(tx.credit).includes(q)
-    );
-  }, [transactions, searchText]);
+  const { account, balance, openingBalance, totals, pagination } = data;
 
   return (
     <div className="min-h-screen p-8">
