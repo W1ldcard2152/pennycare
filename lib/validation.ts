@@ -171,6 +171,14 @@ export const createJournalEntrySchema = z.object({
   lines: z.array(journalEntryLineSchema).min(2, 'At least 2 lines are required'),
 });
 
+export const updateJournalEntrySchema = z.object({
+  date: z.string().min(1, 'Date is required'),
+  memo: z.string().min(1, 'Memo/description is required'),
+  referenceNumber: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  lines: z.array(journalEntryLineSchema).min(2, 'At least 2 lines are required'),
+});
+
 export const createVendorSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),

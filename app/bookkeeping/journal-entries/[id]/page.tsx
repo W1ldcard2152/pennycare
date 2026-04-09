@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
 
 interface Account {
@@ -8,6 +8,154 @@ interface Account {
   code: string;
   name: string;
   type: string;
+}
+
+// Searchable select component for account dropdown
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select account...',
+  className = '',
+  required = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; code: string; name: string }[];
+  placeholder?: string;
+  className?: string;
+  required?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number; width: number }>({ left: 0, width: 0 });
+  const [openUpward, setOpenUpward] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find(o => o.id === value);
+
+  const filteredOptions = search
+    ? options.filter(o =>
+        `${o.code} ${o.name}`.toLowerCase().includes(search.toLowerCase())
+      )
+    : options;
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        containerRef.current && !containerRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const dropdownHeight = 220;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+      setOpenUpward(shouldOpenUpward);
+
+      if (shouldOpenUpward) {
+        setDropdownPos({
+          bottom: window.innerHeight - rect.top + 4,
+          left: rect.left + window.scrollX,
+          width: rect.width,
+        });
+      } else {
+        setDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: rect.width,
+        });
+      }
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      {required && (
+        <input
+          type="text"
+          required
+          value={value}
+          onChange={() => {}}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between border rounded px-2 py-1.5 text-sm cursor-pointer bg-white border-gray-300"
+      >
+        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-400'}`}>
+          {selectedOption ? `${selectedOption.code} — ${selectedOption.name}` : placeholder}
+        </span>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className={`fixed z-[100] bg-white border border-gray-200 rounded-lg shadow-lg flex ${openUpward ? 'flex-col-reverse' : 'flex-col'}`}
+          style={{
+            left: dropdownPos.left,
+            width: Math.max(dropdownPos.width, 320),
+            ...(openUpward ? { bottom: dropdownPos.bottom } : { top: dropdownPos.top }),
+          }}
+        >
+          <div className={`p-2 ${openUpward ? 'border-t' : 'border-b'}`}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type to search..."
+              className="w-full border rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-500">No matches found</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  onClick={() => handleSelect(option.id)}
+                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${
+                    option.id === value ? 'bg-blue-100 text-blue-800' : 'text-gray-700'
+                  }`}
+                >
+                  <span className="font-medium">{option.code}</span> — {option.name}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface JournalEntryLine {
@@ -89,6 +237,19 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [editDate, setEditDate] = useState('');
+  const [editMemo, setEditMemo] = useState('');
+  const [editRef, setEditRef] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editLines, setEditLines] = useState<Array<{
+    accountId: string; description: string; debit: string; credit: string;
+  }>>([]);
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+
   // Void modal state
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [voidReason, setVoidReason] = useState('');
@@ -97,6 +258,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
 
   useEffect(() => {
     fetchEntry();
+    fetchAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entryId]);
 
@@ -118,6 +280,99 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       setEntry(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch('/api/bookkeeping/accounts');
+      const data = await res.json();
+      setAccounts(data.filter((a: Account & { isActive?: boolean }) => a.isActive !== false));
+    } catch {
+      // handled by empty state
+    }
+  };
+
+  const startEditing = () => {
+    if (!entry) return;
+    setEditDate(new Date(entry.date).toISOString().split('T')[0]);
+    setEditMemo(entry.memo);
+    setEditRef(entry.referenceNumber || '');
+    setEditNotes(entry.notes || '');
+    setEditLines(entry.lines.map(l => ({
+      accountId: l.accountId,
+      description: l.description || '',
+      debit: l.debit > 0 ? String(l.debit) : '',
+      credit: l.credit > 0 ? String(l.credit) : '',
+    })));
+    setEditError('');
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setEditError('');
+  };
+
+  const addEditLine = () => {
+    setEditLines([...editLines, { accountId: '', description: '', debit: '', credit: '' }]);
+  };
+
+  const removeEditLine = (index: number) => {
+    if (editLines.length <= 2) return;
+    setEditLines(editLines.filter((_, i) => i !== index));
+  };
+
+  const updateEditLine = (index: number, field: string, value: string) => {
+    const updated = [...editLines];
+    updated[index] = { ...updated[index], [field]: value };
+    if (field === 'debit' && value) updated[index].credit = '';
+    else if (field === 'credit' && value) updated[index].debit = '';
+    setEditLines(updated);
+  };
+
+  const editTotalDebits = editLines.reduce((sum, l) => sum + (parseFloat(l.debit) || 0), 0);
+  const editTotalCredits = editLines.reduce((sum, l) => sum + (parseFloat(l.credit) || 0), 0);
+  const editIsBalanced = Math.abs(editTotalDebits - editTotalCredits) < 0.01 && editTotalDebits > 0;
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!entry || !editIsBalanced) return;
+
+    setEditSaving(true);
+    setEditError('');
+
+    try {
+      const res = await fetch(`/api/bookkeeping/journal-entries/${entry.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: editDate,
+          memo: editMemo,
+          referenceNumber: editRef || null,
+          notes: editNotes || null,
+          lines: editLines.map(l => ({
+            accountId: l.accountId,
+            description: l.description || null,
+            debit: parseFloat(l.debit) || 0,
+            credit: parseFloat(l.credit) || 0,
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setEditError(err.error || 'Failed to update entry');
+        return;
+      }
+
+      const updated = await res.json();
+      setEntry(updated);
+      setEditing(false);
+    } catch {
+      setEditError('Failed to update entry');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -291,9 +546,15 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               )}
             </div>
 
-            {/* Void Button */}
-            {entry.status === 'posted' && (
-              <div>
+            {/* Action Buttons */}
+            {entry.status === 'posted' && !editing && (
+              <div className="flex gap-2">
+                <button
+                  onClick={startEditing}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                >
+                  Edit Entry
+                </button>
                 <button
                   onClick={openVoidModal}
                   className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
@@ -318,7 +579,116 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
           )}
         </div>
 
-        {/* Line Items */}
+        {/* Line Items — Edit Mode */}
+        {editing ? (
+          <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
+            <div className="px-6 py-4 border-b bg-blue-50">
+              <h2 className="text-lg font-semibold text-gray-900">Edit Journal Entry</h2>
+            </div>
+            <form onSubmit={saveEdit} className="p-6">
+              {editError && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{editError}</div>}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                  <input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Memo *</label>
+                  <input type="text" required value={editMemo} onChange={(e) => setEditMemo(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference #</label>
+                  <input type="text" value={editRef} onChange={(e) => setEditRef(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="Optional" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <input type="text" value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="Optional" />
+                </div>
+              </div>
+
+              <table className="w-full text-sm mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2 font-medium text-gray-700">Account</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-700">Description</th>
+                    <th className="text-right py-2 px-2 font-medium text-gray-700 w-32">Debit</th>
+                    <th className="text-right py-2 px-2 font-medium text-gray-700 w-32">Credit</th>
+                    <th className="w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editLines.map((line, idx) => (
+                    <tr key={idx} className="border-b border-gray-100">
+                      <td className="py-1 px-2">
+                        <SearchableSelect
+                          required
+                          value={line.accountId}
+                          onChange={(val) => updateEditLine(idx, 'accountId', val)}
+                          options={accounts}
+                          placeholder="Select account..."
+                        />
+                      </td>
+                      <td className="py-1 px-2">
+                        <input type="text" value={line.description} onChange={(e) => updateEditLine(idx, 'description', e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400" placeholder="Line description" />
+                      </td>
+                      <td className="py-1 px-2">
+                        <input type="number" step="0.01" min="0" value={line.debit} onChange={(e) => updateEditLine(idx, 'debit', e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                      </td>
+                      <td className="py-1 px-2">
+                        <input type="number" step="0.01" min="0" value={line.credit} onChange={(e) => updateEditLine(idx, 'credit', e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                      </td>
+                      <td className="py-1 px-1">
+                        {editLines.length > 2 && (
+                          <button type="button" onClick={() => removeEditLine(idx)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-semibold">
+                    <td className="py-2 px-2" colSpan={2}>
+                      <button type="button" onClick={addEditLine} className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        + Add Line
+                      </button>
+                    </td>
+                    <td className={`py-2 px-2 text-right ${editIsBalanced ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(editTotalDebits) || '$0.00'}
+                    </td>
+                    <td className={`py-2 px-2 text-right ${editIsBalanced ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(editTotalCredits) || '$0.00'}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div className={`mb-4 text-sm font-medium px-2 py-1 rounded inline-block ${editIsBalanced ? 'bg-green-50 text-green-700' : editTotalDebits === 0 && editTotalCredits === 0 ? 'bg-gray-50 text-gray-500' : 'bg-red-50 text-red-700'}`}>
+                {editIsBalanced ? 'Balanced' : editTotalDebits === 0 && editTotalCredits === 0 ? 'Enter amounts' : `Off by ${formatCurrency(Math.abs(editTotalDebits - editTotalCredits))}`}
+              </div>
+
+              <div className="flex gap-3 mt-4">
+                <button type="submit" disabled={!editIsBalanced || editSaving}
+                  className={`px-6 py-2 rounded-lg font-medium transition-colors ${editIsBalanced && !editSaving ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                  {editSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+                <button type="button" onClick={cancelEditing} disabled={editSaving}
+                  className="px-6 py-2 rounded-lg font-medium text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+        /* Line Items — View Mode */
         <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
           <div className="px-6 py-4 border-b bg-gray-50">
             <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
@@ -373,6 +743,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
             </table>
           </div>
         </div>
+        )}
 
         {/* Audit Info */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
