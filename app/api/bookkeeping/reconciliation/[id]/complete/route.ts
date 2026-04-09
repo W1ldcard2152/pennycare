@@ -31,6 +31,11 @@ export async function POST(
       include: {
         account: { select: { id: true, code: true, name: true, type: true } },
         clearedItems: {
+          where: {
+            journalEntryLine: {
+              journalEntry: { status: 'posted' },
+            },
+          },
           include: {
             journalEntryLine: true,
           },

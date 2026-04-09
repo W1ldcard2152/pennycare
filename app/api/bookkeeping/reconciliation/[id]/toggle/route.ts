@@ -82,7 +82,12 @@ export async function PATCH(
 
     // Get updated totals
     const updatedItems = await prisma.reconciledItem.findMany({
-      where: { reconciliationId: id },
+      where: {
+        reconciliationId: id,
+        journalEntryLine: {
+          journalEntry: { status: 'posted' },
+        },
+      },
     });
 
     // Calculate beginning balance
