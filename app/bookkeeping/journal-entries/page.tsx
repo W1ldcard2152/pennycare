@@ -3,6 +3,159 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import Link from 'next/link';
 
+// Searchable select component for account dropdown
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select account...',
+  className = '',
+  required = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; code: string; name: string }[];
+  placeholder?: string;
+  className?: string;
+  required?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number; width: number }>({ left: 0, width: 0 });
+  const [openUpward, setOpenUpward] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find(o => o.id === value);
+
+  const filteredOptions = search
+    ? options.filter(o =>
+        `${o.code} ${o.name}`.toLowerCase().includes(search.toLowerCase())
+      )
+    : options;
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        containerRef.current && !containerRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Focus input when opening and calculate position
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const dropdownHeight = 220;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+      setOpenUpward(shouldOpenUpward);
+
+      if (shouldOpenUpward) {
+        setDropdownPos({
+          bottom: window.innerHeight - rect.top + 4,
+          left: rect.left + window.scrollX,
+          width: rect.width,
+        });
+      } else {
+        setDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: rect.width,
+        });
+      }
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  // Hidden input for form validation when required
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      {required && (
+        <input
+          type="text"
+          required
+          value={value}
+          onChange={() => {}}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center justify-between border rounded px-2 py-1.5 text-sm cursor-pointer bg-white ${
+          !value && required ? 'border-gray-300' : 'border-gray-300'
+        }`}
+      >
+        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-400'}`}>
+          {selectedOption ? `${selectedOption.code} — ${selectedOption.name}` : placeholder}
+        </span>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className={`fixed z-[100] bg-white border border-gray-200 rounded-lg shadow-lg flex ${openUpward ? 'flex-col-reverse' : 'flex-col'}`}
+          style={{
+            left: dropdownPos.left,
+            width: Math.max(dropdownPos.width, 280),
+            ...(openUpward ? { bottom: dropdownPos.bottom } : { top: dropdownPos.top }),
+          }}
+        >
+          <div className={`p-2 ${openUpward ? 'border-t' : 'border-b'}`}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type to search..."
+              className="w-full border rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-500">No matches found</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <div
+                  key={option.id}
+                  onClick={() => handleSelect(option.id)}
+                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${
+                    option.id === value ? 'bg-blue-100 text-blue-800' : 'text-gray-700'
+                  }`}
+                >
+                  <span className="font-medium">{option.code}</span> — {option.name}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Sorting types
 type SortKey = 'entryNumber' | 'date' | 'memo' | 'source' | 'status' | 'amount';
 type SortDir = 'asc' | 'desc';
@@ -490,11 +643,13 @@ export default function JournalEntriesPage() {
                     {formLines.map((line, idx) => (
                       <tr key={idx} className="border-b border-gray-100">
                         <td className="py-1 px-2">
-                          <select required value={line.accountId} onChange={(e) => updateLine(idx, 'accountId', e.target.value)}
-                            className="w-full border rounded px-2 py-1.5 text-sm text-gray-900">
-                            <option value="">Select account...</option>
-                            {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                          </select>
+                          <SearchableSelect
+                            required
+                            value={line.accountId}
+                            onChange={(val) => updateLine(idx, 'accountId', val)}
+                            options={accounts}
+                            placeholder="Select account..."
+                          />
                         </td>
                         <td className="py-1 px-2">
                           <input type="text" value={line.description} onChange={(e) => updateLine(idx, 'description', e.target.value)}
