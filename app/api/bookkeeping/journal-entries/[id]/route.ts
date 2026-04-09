@@ -169,6 +169,18 @@ export async function PUT(
     );
 
     const updated = await prisma.$transaction(async (tx) => {
+      // First delete any ReconciledItem records referencing non-reconciled lines
+      // (SQLite FK cascade may not be enforced without explicit migration)
+      const nonReconciledLines = await tx.journalEntryLine.findMany({
+        where: { journalEntryId: id, isReconciled: false },
+        select: { id: true },
+      });
+      if (nonReconciledLines.length > 0) {
+        await tx.reconciledItem.deleteMany({
+          where: { journalEntryLineId: { in: nonReconciledLines.map(l => l.id) } },
+        });
+      }
+
       // Only delete non-reconciled lines
       await tx.journalEntryLine.deleteMany({
         where: { journalEntryId: id, isReconciled: false },
