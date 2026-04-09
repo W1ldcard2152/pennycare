@@ -71,11 +71,36 @@ export async function GET(
     });
 
     // Calculate totals and running balances
-    // For running balance, we need all lines up to the current page
-    // to get the correct starting balance
+    // The running balance must reflect the true account balance at each point,
+    // so we always include all transactions before the visible window.
+    const accountIsDebitNormal = isDebitNormal(account.type);
     let startingBalance = 0;
+
+    // If there's a start date filter, get the balance of all transactions before that date
+    if (startDate) {
+      const preFilterLines = await prisma.journalEntryLine.findMany({
+        where: {
+          accountId: id,
+          journalEntry: {
+            companyId: companyId!,
+            status: 'posted',
+            date: { lt: startOfDay(startDate) },
+          },
+        },
+        select: { debit: true, credit: true },
+      });
+
+      for (const line of preFilterLines) {
+        if (accountIsDebitNormal) {
+          startingBalance += line.debit - line.credit;
+        } else {
+          startingBalance += line.credit - line.debit;
+        }
+      }
+    }
+
+    // If paginated past page 1, also add the balance from prior pages within the filtered range
     if (offset > 0) {
-      // Get all lines before the current page to calculate starting balance
       const priorLines = await prisma.journalEntryLine.findMany({
         where: whereClause,
         select: { debit: true, credit: true },
@@ -86,7 +111,6 @@ export async function GET(
         take: offset,
       });
 
-      const accountIsDebitNormal = isDebitNormal(account.type);
       for (const line of priorLines) {
         if (accountIsDebitNormal) {
           startingBalance += line.debit - line.credit;
@@ -97,7 +121,6 @@ export async function GET(
     }
 
     // Build transactions array with running balance
-    const accountIsDebitNormal = isDebitNormal(account.type);
     let runningBalance = startingBalance;
     let totalDebits = 0;
     let totalCredits = 0;
