@@ -104,15 +104,44 @@ export async function PUT(
       }, { status: 409 });
     }
 
-    // Check if any lines are reconciled
+    // Reconciled line protection: block changes to reconciled lines, allow changes to others
     const reconciledLines = existing.lines.filter(l => l.isReconciled);
+
     if (reconciledLines.length > 0) {
-      const accountNames = [...new Set(reconciledLines.map(l => l.account.name))].join(', ');
-      return NextResponse.json({
-        error: 'Cannot edit: this entry contains reconciled transactions. Un-reconcile first.',
-        accounts: accountNames,
-      }, { status: 409 });
+      // Block date changes — date affects which reconciliation period the line falls in
+      const newDateParsed = parseBusinessDate(date);
+      const existingDateStr = existing.date.toISOString().split('T')[0];
+      const newDateStr = newDateParsed.toISOString().split('T')[0];
+      if (existingDateStr !== newDateStr) {
+        return NextResponse.json({
+          error: 'Cannot change the date: this entry has reconciled lines. Un-reconcile first.',
+          accounts: [...new Set(reconciledLines.map(l => l.account.name))].join(', '),
+        }, { status: 409 });
+      }
+
+      // Each reconciled line must be present and unchanged (same account + same amounts)
+      for (const rl of reconciledLines) {
+        const match = lineInputs.find(
+          l =>
+            l.accountId === rl.accountId &&
+            Math.round(l.debit * 100) === Math.round(rl.debit * 100) &&
+            Math.round(l.credit * 100) === Math.round(rl.credit * 100)
+        );
+        if (!match) {
+          return NextResponse.json({
+            error: `Cannot modify reconciled line for "${rl.account.name}". Un-reconcile first.`,
+            accounts: rl.account.name,
+          }, { status: 409 });
+        }
+      }
     }
+
+    // Build fingerprints so we don't delete/recreate reconciled lines
+    const reconciledFingerprints = new Set(
+      reconciledLines.map(
+        l => `${l.accountId}:${Math.round(l.debit * 100)}:${Math.round(l.credit * 100)}`
+      )
+    );
 
     // Build audit metadata capturing what changed
     const changes: Record<string, { from: unknown; to: unknown }> = {};
@@ -130,14 +159,22 @@ export async function PUT(
       credit: l.credit,
     }));
 
-    // Update in a transaction: delete old lines, create new ones
+    // Update in a transaction: delete non-reconciled lines, create new non-reconciled lines
+    // Reconciled lines are left in place (isReconciled=true preserved)
+    const linesToCreate = lineInputs.filter(
+      l =>
+        !reconciledFingerprints.has(
+          `${l.accountId}:${Math.round(l.debit * 100)}:${Math.round(l.credit * 100)}`
+        )
+    );
+
     const updated = await prisma.$transaction(async (tx) => {
-      // Delete existing lines
+      // Only delete non-reconciled lines
       await tx.journalEntryLine.deleteMany({
-        where: { journalEntryId: id },
+        where: { journalEntryId: id, isReconciled: false },
       });
 
-      // Update entry and create new lines
+      // Update entry and create new non-reconciled lines
       return tx.journalEntry.update({
         where: { id },
         data: {
@@ -146,7 +183,7 @@ export async function PUT(
           referenceNumber: referenceNumber || null,
           notes: notes || null,
           lines: {
-            create: lineInputs.map((l) => ({
+            create: linesToCreate.map((l) => ({
               accountId: l.accountId,
               description: l.description || null,
               debit: l.debit,

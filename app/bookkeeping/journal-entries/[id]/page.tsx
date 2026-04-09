@@ -164,6 +164,7 @@ interface JournalEntryLine {
   description: string | null;
   debit: number;
   credit: number;
+  isReconciled: boolean;
   account: Account;
 }
 
@@ -244,7 +245,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const [editRef, setEditRef] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editLines, setEditLines] = useState<Array<{
-    accountId: string; description: string; debit: string; credit: string;
+    accountId: string; description: string; debit: string; credit: string; isReconciled: boolean;
   }>>([]);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -304,6 +305,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       description: l.description || '',
       debit: l.debit > 0 ? String(l.debit) : '',
       credit: l.credit > 0 ? String(l.credit) : '',
+      isReconciled: l.isReconciled,
     })));
     setEditError('');
     setEditing(true);
@@ -320,6 +322,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
 
   const removeEditLine = (index: number) => {
     if (editLines.length <= 2) return;
+    if (editLines[index].isReconciled) return;
     setEditLines(editLines.filter((_, i) => i !== index));
   };
 
@@ -588,11 +591,23 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
             <form onSubmit={saveEdit} className="p-6">
               {editError && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{editError}</div>}
 
+              {editLines.some(l => l.isReconciled) && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  Lines marked <span className="font-semibold">Reconciled</span> are locked — their account and amounts cannot be changed. Only unreconciled lines are editable.
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
-                  <input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                  {editLines.some(l => l.isReconciled) ? (
+                    <div className="w-full border rounded-lg px-3 py-2 text-sm text-gray-500 bg-gray-50 cursor-not-allowed" title="Date cannot be changed while reconciled lines exist">
+                      {editDate}
+                    </div>
+                  ) : (
+                    <input type="date" required value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Memo *</label>
@@ -623,30 +638,56 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
                 </thead>
                 <tbody>
                   {editLines.map((line, idx) => (
-                    <tr key={idx} className="border-b border-gray-100">
+                    <tr key={idx} className={`border-b border-gray-100 ${line.isReconciled ? 'bg-amber-50' : ''}`}>
                       <td className="py-1 px-2">
-                        <SearchableSelect
-                          required
-                          value={line.accountId}
-                          onChange={(val) => updateEditLine(idx, 'accountId', val)}
-                          options={accounts}
-                          placeholder="Select account..."
-                        />
+                        {line.isReconciled ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-700">
+                              {accounts.find(a => a.id === line.accountId)
+                                ? `${accounts.find(a => a.id === line.accountId)!.code} — ${accounts.find(a => a.id === line.accountId)!.name}`
+                                : line.accountId}
+                            </span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-200 text-amber-800 font-medium whitespace-nowrap">Reconciled</span>
+                          </div>
+                        ) : (
+                          <SearchableSelect
+                            required
+                            value={line.accountId}
+                            onChange={(val) => updateEditLine(idx, 'accountId', val)}
+                            options={accounts}
+                            placeholder="Select account..."
+                          />
+                        )}
                       </td>
                       <td className="py-1 px-2">
-                        <input type="text" value={line.description} onChange={(e) => updateEditLine(idx, 'description', e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400" placeholder="Line description" />
+                        <input type="text" value={line.description}
+                          onChange={(e) => !line.isReconciled && updateEditLine(idx, 'description', e.target.value)}
+                          readOnly={line.isReconciled}
+                          className={`w-full border rounded px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 ${line.isReconciled ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}
+                          placeholder="Line description" />
                       </td>
                       <td className="py-1 px-2">
-                        <input type="number" step="0.01" min="0" value={line.debit} onChange={(e) => updateEditLine(idx, 'debit', e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                        {line.isReconciled ? (
+                          <div className="px-2 py-1.5 text-sm text-right text-gray-500">
+                            {line.debit ? formatCurrency(parseFloat(line.debit)) : ''}
+                          </div>
+                        ) : (
+                          <input type="number" step="0.01" min="0" value={line.debit} onChange={(e) => updateEditLine(idx, 'debit', e.target.value)}
+                            className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                        )}
                       </td>
                       <td className="py-1 px-2">
-                        <input type="number" step="0.01" min="0" value={line.credit} onChange={(e) => updateEditLine(idx, 'credit', e.target.value)}
-                          className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                        {line.isReconciled ? (
+                          <div className="px-2 py-1.5 text-sm text-right text-gray-500">
+                            {line.credit ? formatCurrency(parseFloat(line.credit)) : ''}
+                          </div>
+                        ) : (
+                          <input type="number" step="0.01" min="0" value={line.credit} onChange={(e) => updateEditLine(idx, 'credit', e.target.value)}
+                            className="w-full border rounded px-2 py-1.5 text-sm text-right text-gray-900 placeholder-gray-400" placeholder="0.00" />
+                        )}
                       </td>
                       <td className="py-1 px-1">
-                        {editLines.length > 2 && (
+                        {editLines.length > 2 && !line.isReconciled && (
                           <button type="button" onClick={() => removeEditLine(idx)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
                         )}
                       </td>

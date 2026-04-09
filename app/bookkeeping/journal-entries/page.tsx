@@ -256,7 +256,9 @@ export default function JournalEntriesPage() {
   const [filterSource, setFilterSource] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
+  const [debouncedStartDate, setDebouncedStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [debouncedEndDate, setDebouncedEndDate] = useState('');
   const [filterAccount, setFilterAccount] = useState('');
 
   // Pagination
@@ -295,11 +297,26 @@ export default function JournalEntriesPage() {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, [filterSearch]);
 
+  // Debounce date inputs (2000ms) so the year can be fully typed before fetching
+  const startDateTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    if (startDateTimerRef.current) clearTimeout(startDateTimerRef.current);
+    startDateTimerRef.current = setTimeout(() => setDebouncedStartDate(filterStartDate), 2000);
+    return () => { if (startDateTimerRef.current) clearTimeout(startDateTimerRef.current); };
+  }, [filterStartDate]);
+
+  const endDateTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    if (endDateTimerRef.current) clearTimeout(endDateTimerRef.current);
+    endDateTimerRef.current = setTimeout(() => setDebouncedEndDate(filterEndDate), 2000);
+    return () => { if (endDateTimerRef.current) clearTimeout(endDateTimerRef.current); };
+  }, [filterEndDate]);
+
   useEffect(() => {
     setOffset(0);
     fetchEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, filterSource, filterStatus, filterStartDate, filterEndDate, filterAccount]);
+  }, [debouncedSearch, filterSource, filterStatus, debouncedStartDate, debouncedEndDate, filterAccount]);
 
   useEffect(() => {
     fetchEntries();
@@ -313,8 +330,8 @@ export default function JournalEntriesPage() {
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (filterSource) params.set('source', filterSource);
       if (filterStatus) params.set('status', filterStatus);
-      if (filterStartDate) params.set('startDate', filterStartDate);
-      if (filterEndDate) params.set('endDate', filterEndDate);
+      if (debouncedStartDate) params.set('startDate', debouncedStartDate);
+      if (debouncedEndDate) params.set('endDate', debouncedEndDate);
       if (filterAccount) params.set('accountId', filterAccount);
 
       const res = await fetch(`/api/bookkeeping/journal-entries?${params}`);
@@ -344,7 +361,9 @@ export default function JournalEntriesPage() {
     setFilterSource('');
     setFilterStatus('');
     setFilterStartDate('');
+    setDebouncedStartDate('');
     setFilterEndDate('');
+    setDebouncedEndDate('');
     setFilterAccount('');
     setOffset(0);
   };
