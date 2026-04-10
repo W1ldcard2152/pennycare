@@ -281,6 +281,7 @@ export const updateStatementImportSchema = z.object({
   targetAccountId: z.string().min(1).optional().nullable(),
   matchedRuleId: z.string().min(1).optional().nullable(),
   memo: z.string().optional().nullable(),
+  note: z.string().optional().nullable(),
   status: z.enum(['pending', 'booked', 'skipped']).optional(),
 });
 

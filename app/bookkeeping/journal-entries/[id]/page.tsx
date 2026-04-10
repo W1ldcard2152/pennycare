@@ -257,9 +257,19 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const [voidLoading, setVoidLoading] = useState(false);
   const [voidError, setVoidError] = useState('');
 
+  // Audit history
+  const [auditLogs, setAuditLogs] = useState<Array<{
+    id: string;
+    action: string;
+    userName: string;
+    timestamp: string;
+    metadata: Record<string, unknown> | null;
+  }>>([]);
+
   useEffect(() => {
     fetchEntry();
     fetchAccounts();
+    fetchAuditLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entryId]);
 
@@ -291,6 +301,18 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       setAccounts(data.filter((a: Account & { isActive?: boolean }) => a.isActive !== false));
     } catch {
       // handled by empty state
+    }
+  };
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await fetch(`/api/bookkeeping/journal-entries/${entryId}/audit`);
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(data);
+      }
+    } catch {
+      // non-critical, silent fail
     }
   };
 
@@ -372,6 +394,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
       const updated = await res.json();
       setEntry(updated);
       setEditing(false);
+      fetchAuditLogs();
     } catch {
       setEditError('Failed to update entry');
     } finally {
@@ -788,8 +811,8 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
 
         {/* Audit Info */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Audit Information</h2>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Audit History</h2>
+          <div className="grid grid-cols-2 gap-4 text-sm mb-4">
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase mb-1">Created</p>
               <p className="text-gray-700">{formatDateTime(entry.createdAt)}</p>
@@ -799,6 +822,45 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               <p className="text-gray-700">{formatDateTime(entry.updatedAt)}</p>
             </div>
           </div>
+
+          {auditLogs.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase mb-2">Change Log</p>
+              <div className="space-y-3">
+                {auditLogs.map(log => {
+                  const changes = log.metadata?.changes as Record<string, { from: unknown; to: unknown }> | undefined;
+                  const actionLabel: Record<string, string> = {
+                    'journal_entry.edit': 'Edited',
+                    'journal_entry.void': 'Voided',
+                    'journal_entry.create': 'Created',
+                  };
+                  return (
+                    <div key={log.id} className="flex gap-3 text-sm border-l-2 border-gray-200 pl-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-gray-900">{actionLabel[log.action] || log.action}</span>
+                          <span className="text-gray-500">by {log.userName}</span>
+                          <span className="text-gray-400 text-xs">{formatDateTime(log.timestamp)}</span>
+                        </div>
+                        {changes && Object.keys(changes).length > 0 && (
+                          <div className="text-xs text-gray-600 space-y-0.5">
+                            {Object.entries(changes).map(([field, val]) => (
+                              <div key={field}>
+                                <span className="font-medium capitalize">{field}:</span>{' '}
+                                <span className="line-through text-gray-400">{String(val.from ?? '—')}</span>
+                                {' → '}
+                                <span>{String(val.to ?? '—')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Back Link */}

@@ -827,6 +827,9 @@ model StatementImport {
   matchedRule     TransactionRule? @relation(fields: [matchedRuleId], references: [id])
   memo            String?  // description or rule's defaultMemo
 
+  // User note — added during review, carried into journal entry notes
+  note            String?
+
   // Status
   status          String   @default("pending") // "pending", "booked", "skipped"
   importBatch     String   // groups rows from same upload (e.g., "bank-4717-2025-12")

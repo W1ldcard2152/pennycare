@@ -89,6 +89,9 @@ export async function PATCH(
         memo: validation.data.memo !== undefined
           ? validation.data.memo
           : undefined,
+        note: validation.data.note !== undefined
+          ? (validation.data.note || null)
+          : undefined,
         status: validation.data.status !== undefined
           ? validation.data.status
           : undefined,

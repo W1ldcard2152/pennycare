@@ -194,6 +194,7 @@ interface StatementImport {
   isDebit: boolean;
   status: 'pending' | 'booked' | 'skipped';
   memo: string | null;
+  note: string | null;
   importBatch: string;
   sourceAccount: { id: string; code: string; name: string; type: string };
   targetAccount: { id: string; code: string; name: string } | null;
@@ -374,7 +375,7 @@ export default function TransactionReviewPage() {
     }
   };
 
-  const updateImport = async (id: string, updates: { targetAccountId?: string | null; memo?: string | null; status?: string }) => {
+  const updateImport = async (id: string, updates: { targetAccountId?: string | null; memo?: string | null; note?: string | null; status?: string }) => {
     try {
       const res = await fetch(`/api/bookkeeping/statements/${id}`, {
         method: 'PATCH',
@@ -1088,7 +1089,7 @@ export default function TransactionReviewPage() {
                       className="rounded"
                     />
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{formatDate(imp.postDate)}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-900">{formatDate(imp.postDate)}</td>
                   <td className="px-3 py-2 text-xs">
                     <span className={`px-2 py-0.5 rounded-full ${
                       imp.sourceAccount.type === 'credit_card'
@@ -1105,6 +1106,16 @@ export default function TransactionReviewPage() {
                         Rule: {imp.matchedRule.matchType} &quot;{imp.matchedRule.matchText}&quot;
                       </div>
                     )}
+                    <input
+                      type="text"
+                      defaultValue={imp.note || ''}
+                      onBlur={(e) => {
+                        const val = e.target.value.trim() || null;
+                        if (val !== imp.note) updateImport(imp.id, { note: val });
+                      }}
+                      placeholder="Add note..."
+                      className="mt-1 w-full text-xs text-gray-600 border-0 border-b border-dashed border-gray-300 bg-transparent placeholder-gray-300 focus:outline-none focus:border-blue-400 focus:placeholder-gray-400"
+                    />
                   </td>
                   <td className="px-3 py-2 text-right font-medium">
                     <span className={imp.isDebit ? 'text-red-600' : 'text-green-600'}>

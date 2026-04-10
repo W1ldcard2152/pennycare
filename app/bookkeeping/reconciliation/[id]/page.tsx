@@ -307,6 +307,13 @@ export default function ReconciliationDetailPage({
     );
   };
 
+  // Compute cleared interest separately (credit card interest entries on the CC account)
+  const clearedInterest = data
+    ? data.transactions
+        .filter(t => t.isCleared && t.credit > 0 && t.memo.toLowerCase().includes('credit card interest'))
+        .reduce((sum, t) => sum + t.credit, 0)
+    : 0;
+
   // Filtering and sorting
   const filteredTransactions = data
     ? data.transactions
@@ -436,22 +443,45 @@ export default function ReconciliationDetailPage({
                 {formatCurrency(data.beginningBalance)}
               </div>
             </div>
-            <div>
-              <div className="text-xs text-gray-500 uppercase">
-                {isCreditCard ? 'Charges' : 'Deposits'}
-              </div>
-              <div className="font-semibold text-green-600">
-                +{formatCurrency(isCreditCard ? data.clearedCredits : data.clearedDebits)}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500 uppercase">
-                {isCreditCard ? 'Payments/Credits' : 'Withdrawals'}
-              </div>
-              <div className="font-semibold text-red-600">
-                -{formatCurrency(isCreditCard ? data.clearedDebits : data.clearedCredits)}
-              </div>
-            </div>
+            {isCreditCard ? (
+              <>
+                <div>
+                  <div className="text-xs text-gray-500 uppercase">Charges</div>
+                  <div className="font-semibold text-red-600">
+                    +{formatCurrency(data.clearedCredits - clearedInterest)}
+                  </div>
+                </div>
+                {clearedInterest > 0 && (
+                  <div>
+                    <div className="text-xs text-gray-500 uppercase">Interest Charged</div>
+                    <div className="font-semibold text-red-600">
+                      +{formatCurrency(clearedInterest)}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs text-gray-500 uppercase">Payments/Credits</div>
+                  <div className="font-semibold text-green-600">
+                    -{formatCurrency(data.clearedDebits)}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div className="text-xs text-gray-500 uppercase">Deposits</div>
+                  <div className="font-semibold text-green-600">
+                    +{formatCurrency(data.clearedDebits)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 uppercase">Withdrawals</div>
+                  <div className="font-semibold text-red-600">
+                    -{formatCurrency(data.clearedCredits)}
+                  </div>
+                </div>
+              </>
+            )}
             <div>
               <div className="text-xs text-gray-500 uppercase">
                 {isCreditCard ? 'Book Balance' : 'Cleared Balance'}

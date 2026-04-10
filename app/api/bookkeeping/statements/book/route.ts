@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
         date: imp.postDate,
         memo: imp.memo || imp.description,
         referenceNumber: imp.checkNumber || undefined,
+        notes: imp.note || undefined,
         source: 'statement_import',
         sourceId: imp.id,
         lines: [
