@@ -35,9 +35,10 @@ export async function GET(request: NextRequest) {
     if (accountId) {
       where.lines = { some: { accountId } };
     }
-    // Search across entry number, memo, reference number, and line descriptions
+    // Search across entry number, memo, reference number, line descriptions, and amounts
     if (search) {
       const entryNum = parseInt(search);
+      const amount = parseFloat(search.replace(/[$,]/g, ''));
       const orConditions: Record<string, unknown>[] = [
         { memo: { contains: search } },
         { referenceNumber: { contains: search } },
@@ -45,6 +46,10 @@ export async function GET(request: NextRequest) {
       ];
       if (!isNaN(entryNum)) {
         orConditions.push({ entryNumber: entryNum });
+      }
+      if (!isNaN(amount) && amount > 0) {
+        orConditions.push({ lines: { some: { debit: amount } } });
+        orConditions.push({ lines: { some: { credit: amount } } });
       }
       where.OR = orConditions;
     }
