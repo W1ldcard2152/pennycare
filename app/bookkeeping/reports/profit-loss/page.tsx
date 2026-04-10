@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeftIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import { PrintLayout } from '@/components/PrintLayout';
@@ -49,6 +49,7 @@ export default function ProfitLossPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
+  const expensesSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch('/api/company')
@@ -56,6 +57,55 @@ export default function ProfitLossPage() {
       .then(d => d && setCompanyInfo(d))
       .catch(() => {});
   }, []);
+
+  // Insert "Expenses (continued)" header rows when printing spans pages.
+  // beforeprint fires after @media print styles are applied, so getBoundingClientRect()
+  // reflects print layout. Page height = 9.5in × 96px/in = 912px for letter with 0.75in margins.
+  useEffect(() => {
+    if (!data) return;
+
+    const PAGE_HEIGHT = 9.5 * 96; // 912px
+
+    const handleBeforePrint = () => {
+      const section = expensesSectionRef.current;
+      if (!section) return;
+      const tbody = section.querySelector('tbody');
+      if (!tbody) return;
+
+      const rows = Array.from(tbody.querySelectorAll('tr:not([data-continuation-header])'));
+      if (rows.length < 2) return;
+
+      const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      let lastPage = Math.floor((rows[0].getBoundingClientRect().top + scrollY) / PAGE_HEIGHT);
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] as HTMLElement;
+        const rowPage = Math.floor((row.getBoundingClientRect().top + scrollY) / PAGE_HEIGHT);
+        if (rowPage > lastPage) {
+          const cont = document.createElement('tr');
+          cont.setAttribute('data-continuation-header', 'true');
+          cont.innerHTML =
+            `<td colspan="3" style="text-align:center;padding:8pt 0 4pt 0;font-size:10pt;font-weight:600;` +
+            `letter-spacing:0.06em;text-transform:uppercase;color:#9a3412;">` +
+            `EXPENSES <em style="font-weight:400;font-size:9pt;letter-spacing:0;text-transform:none;">(continued)</em>` +
+            `<div style="width:180px;height:1pt;background:#c2410c;margin:4pt auto 0;"></div></td>`;
+          tbody.insertBefore(cont, row);
+          lastPage = rowPage;
+        }
+      }
+    };
+
+    const handleAfterPrint = () => {
+      document.querySelectorAll('[data-continuation-header]').forEach(el => el.remove());
+    };
+
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [data]);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -214,8 +264,8 @@ export default function ProfitLossPage() {
                 </div>
               </div>
 
-              {/* Expenses Section */}
-              <div className="report-section">
+              {/* Expenses Section — single table so beforeprint can insert <tr> continuation headers */}
+              <div className="report-section" ref={expensesSectionRef}>
                 <div className="px-6 py-3 bg-orange-50 section-header">
                   <h3 className="text-sm font-semibold text-orange-800 uppercase tracking-wide text-center">Expenses</h3>
                 </div>
@@ -228,95 +278,77 @@ export default function ProfitLossPage() {
                   const operatingTotal = operating.reduce((sum, a) => sum + a.balance, 0);
                   const otherTotal = other.reduce((sum, a) => sum + a.balance, 0);
 
+                  if (filteredCogs.length === 0 && filteredOperating.length === 0 && filteredOther.length === 0) {
+                    return <div className="px-6 py-4 text-sm text-gray-400 italic">No expenses recorded</div>;
+                  }
+
                   return (
-                    <>
-                      {/* COGS */}
-                      {filteredCogs.length > 0 && (
-                        <div className="expense-subgroup">
-                          <table className="w-full text-sm">
-                            <tbody>
-                              <tr className="bg-gray-50">
-                                <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Cost of Goods Sold</td>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {filteredCogs.length > 0 && (
+                          <>
+                            <tr className="bg-gray-50">
+                              <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Cost of Goods Sold</td>
+                            </tr>
+                            {filteredCogs.map((acct) => (
+                              <tr key={acct.accountId} className="border-b border-gray-100">
+                                <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
+                                <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
+                                <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
                               </tr>
-                              {filteredCogs.map((acct) => (
-                                <tr key={acct.accountId} className="border-b border-gray-100">
-                                  <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
-                                  <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
-                                  <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
-                                </tr>
-                              ))}
-                              <tr className="subtotal-row">
-                                <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal COGS</td>
-                                <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(cogsTotal)}</td>
+                            ))}
+                            <tr className="subtotal-row">
+                              <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal COGS</td>
+                              <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(cogsTotal)}</td>
+                            </tr>
+                          </>
+                        )}
+                        {filteredOperating.length > 0 && (
+                          <>
+                            <tr className="bg-gray-50">
+                              <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Operating Expenses</td>
+                            </tr>
+                            {filteredOperating.map((acct) => (
+                              <tr key={acct.accountId} className="border-b border-gray-100">
+                                <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
+                                <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
+                                <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
                               </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* Operating Expenses */}
-                      {filteredOperating.length > 0 && (
-                        <div className="expense-subgroup">
-                          <table className="w-full text-sm">
-                            <tbody>
-                              <tr className="bg-gray-50">
-                                <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Operating Expenses</td>
+                            ))}
+                            <tr className="subtotal-row">
+                              <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal Operating Expenses</td>
+                              <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(operatingTotal)}</td>
+                            </tr>
+                          </>
+                        )}
+                        {filteredOther.length > 0 && (
+                          <>
+                            <tr className="bg-gray-50">
+                              <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Other Expenses</td>
+                            </tr>
+                            {filteredOther.map((acct) => (
+                              <tr key={acct.accountId} className="border-b border-gray-100">
+                                <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
+                                <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
+                                <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
                               </tr>
-                              {filteredOperating.map((acct) => (
-                                <tr key={acct.accountId} className="border-b border-gray-100">
-                                  <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
-                                  <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
-                                  <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
-                                </tr>
-                              ))}
-                              <tr className="subtotal-row">
-                                <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal Operating Expenses</td>
-                                <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(operatingTotal)}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* Other Expenses */}
-                      {filteredOther.length > 0 && (
-                        <div className="expense-subgroup">
-                          <table className="w-full text-sm">
-                            <tbody>
-                              <tr className="bg-gray-50">
-                                <td colSpan={3} className="px-6 py-2 text-sm font-medium text-gray-700 text-right italic">Other Expenses</td>
-                              </tr>
-                              {filteredOther.map((acct) => (
-                                <tr key={acct.accountId} className="border-b border-gray-100">
-                                  <td className="px-6 py-2 text-gray-500 w-20 font-mono text-xs">{acct.code}</td>
-                                  <td className="px-6 py-2 text-gray-900 pl-10">{acct.name}</td>
-                                  <td className="px-6 py-2 text-right font-medium text-gray-900 w-32">{formatCurrency(acct.balance)}</td>
-                                </tr>
-                              ))}
-                              <tr className="subtotal-row">
-                                <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal Other Expenses</td>
-                                <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(otherTotal)}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {filteredCogs.length === 0 && filteredOperating.length === 0 && filteredOther.length === 0 && (
-                        <div className="px-6 py-4 text-sm text-gray-400 italic">No expenses recorded</div>
-                      )}
-                    </>
+                            ))}
+                            <tr className="subtotal-row">
+                              <td colSpan={2} className="px-6 py-2 text-sm font-medium text-gray-600 pl-14">Subtotal Other Expenses</td>
+                              <td className="px-6 py-2 text-right font-medium text-gray-700">{formatCurrency(otherTotal)}</td>
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-orange-50 border-t border-orange-200 font-semibold">
+                          <td colSpan={2} className="px-6 py-3 text-orange-800">Total Expenses</td>
+                          <td className="px-6 py-3 text-right text-orange-800 w-32">{formatCurrency(data.totalExpenses)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   );
                 })()}
-                {/* Total Expenses */}
-                <table className="w-full text-sm">
-                  <tfoot>
-                    <tr className="bg-orange-50 border-t border-orange-200 font-semibold">
-                      <td colSpan={2} className="px-6 py-3 text-orange-800">Total Expenses</td>
-                      <td className="px-6 py-3 text-right text-orange-800 w-32">{formatCurrency(data.totalExpenses)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
               </div>
 
               {/* Net Income */}

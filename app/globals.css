@@ -262,15 +262,25 @@ body {
     page-break-after: avoid;
   }
 
-  /* Report sections - allow page breaks within sections */
+  /* Explicitly allow fragmentation — modern browsers require break-inside: auto,
+     not just removing page-break-inside: avoid */
+  .print-layout .bg-white,
+  .print-layout .overflow-hidden,
+  .print-layout .report-section {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Report sections */
   .print-layout .report-section {
     margin-bottom: 16pt;
-    overflow: visible !important;
   }
 
   /* Section header should not be orphaned from its content */
   .print-layout .section-header {
     page-break-after: avoid;
+    break-after: avoid;
   }
 
   /* Subgroups (COGS, Operating Expenses, etc.) - allow page breaks */
