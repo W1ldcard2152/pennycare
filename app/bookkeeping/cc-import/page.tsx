@@ -566,6 +566,22 @@ export default function CCImportPage() {
     });
   };
 
+  // For items in the Payments table: selecting a category auto-reclassifies the item as a credit
+  // (routes it to StatementImport instead of the clearing account). Clearing reverts to payment.
+  const updatePaymentTarget = (index: number, targetAccountId: string | null) => {
+    setParsedPayments(prev => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        targetAccountId,
+        matchedRuleName: null,
+        matchedRuleId: null,
+        category: targetAccountId ? 'credit' : 'payment',
+      };
+      return updated;
+    });
+  };
+
   const updateTransactionTarget = (index: number, targetAccountId: string | null) => {
     setParsedTransactions(prev => {
       const updated = [...prev];
@@ -1463,8 +1479,7 @@ export default function CCImportPage() {
                       Payments ({includedPayments.length} of {actualPayments.length} selected)
                     </h2>
                     <p className="text-xs text-blue-700 mt-1">
-                      Will be booked to CC Payments Pending clearing account
-                      <span className="text-blue-500 ml-2">(click type badge to reclassify as credit)</span>
+                      Actual payments go to CC Payments Pending. Assign a category to any returns — they&apos;ll move to Credits automatically.
                     </p>
                   </div>
                 </div>
@@ -1475,6 +1490,7 @@ export default function CCImportPage() {
                         <th className="px-3 py-2 w-10"></th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Date</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase w-64">Category if Return</th>
                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase w-28">Amount</th>
                         <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase w-24">Type</th>
                       </tr>
@@ -1496,6 +1512,16 @@ export default function CCImportPage() {
                               {formatDate(payment.postDate || payment.transDate)}
                             </td>
                             <td className="px-4 py-2 text-gray-900">{payment.description}</td>
+                            <td className="px-4 py-1">
+                              <SearchableSelect
+                                value={payment.targetAccountId || ''}
+                                onChange={(value) => updatePaymentTarget(i, value || null)}
+                                options={targetAccounts}
+                                placeholder="Leave blank if actual payment..."
+                                className="flex-1"
+                                onAddNew={openAccountModal}
+                              />
+                            </td>
                             <td className="px-4 py-2 text-right font-mono font-medium text-blue-600">
                               -{formatCurrency(payment.amount)}
                             </td>
@@ -1517,7 +1543,7 @@ export default function CCImportPage() {
                     </tbody>
                     <tfoot className="bg-blue-50">
                       <tr>
-                        <td colSpan={4} className="px-4 py-2 text-right font-medium text-gray-700">
+                        <td colSpan={5} className="px-4 py-2 text-right font-medium text-gray-700">
                           Total Selected Payments:
                         </td>
                         <td className="px-4 py-2 text-right font-mono font-bold text-blue-700">

@@ -118,6 +118,19 @@ body {
   /* Remove min-h-screen which can cause overflow */
   .min-h-screen {
     min-height: auto !important;
+    padding: 0 !important;
+  }
+
+  /* Remove inner page padding and centering constraints in print */
+  .print-content > div {
+    padding: 0 !important;
+  }
+  .print-layout .max-w-4xl,
+  .print-layout .max-w-5xl,
+  .print-layout .max-w-6xl {
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
   }
 
   /* Ensure proper page flow */
@@ -192,9 +205,19 @@ body {
     content: '';
     display: block;
     width: 200px;
-    height: 1.5pt;
+    height: 1pt;
     background: #000;
     margin: 4pt auto 0 auto;
+  }
+
+  /* Revenue section — green underline */
+  .print-layout .bg-green-50.section-header::after {
+    background: #16a34a;
+  }
+
+  /* Expenses section — orange underline */
+  .print-layout .bg-orange-50.section-header::after {
+    background: #c2410c;
   }
 
   .print-layout .section-header h3 {
@@ -239,11 +262,10 @@ body {
     page-break-after: avoid;
   }
 
-  /* Report sections - keep header with content */
+  /* Report sections - allow page breaks within sections */
   .print-layout .report-section {
     margin-bottom: 16pt;
     overflow: visible !important;
-    page-break-inside: avoid;
   }
 
   /* Section header should not be orphaned from its content */
@@ -251,10 +273,8 @@ body {
     page-break-after: avoid;
   }
 
-  /* Subgroups (COGS, Operating Expenses, etc.) - keep together on page */
+  /* Subgroups (COGS, Operating Expenses, etc.) - allow page breaks */
   .print-layout .expense-subgroup {
-    page-break-inside: avoid;
-    page-break-before: avoid;
     margin-bottom: 8pt;
   }
 

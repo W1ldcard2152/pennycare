@@ -22,6 +22,14 @@ interface ProfitLossData {
   netIncome: number;
 }
 
+interface CompanyInfo {
+  companyName: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+}
+
 function formatCurrency(amount: number): string {
   return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
@@ -40,6 +48,14 @@ export default function ProfitLossPage() {
   const [data, setData] = useState<ProfitLossData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
+
+  useEffect(() => {
+    fetch('/api/company')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setCompanyInfo(d))
+      .catch(() => {});
+  }, []);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -80,10 +96,19 @@ export default function ProfitLossPage() {
     return accounts.filter(a => a.balance !== 0);
   };
 
+  const companyAddress = companyInfo
+    ? [
+        companyInfo.address,
+        [companyInfo.city, companyInfo.state, companyInfo.zipCode].filter(Boolean).join(', '),
+      ].filter(Boolean).join(' \u2022 ')
+    : undefined;
+
   return (
     <PrintLayout
       title="Profit & Loss Statement"
       subtitle={formatDateRange(startDate, endDate)}
+      companyName={companyInfo?.companyName}
+      companyAddress={companyAddress}
     >
       <div className="min-h-screen p-8">
         <div className="max-w-4xl mx-auto">
@@ -295,15 +320,19 @@ export default function ProfitLossPage() {
               </div>
 
               {/* Net Income */}
-              <div className={`px-6 py-5 ${data.netIncome >= 0 ? 'bg-green-100 net-income-positive' : 'bg-red-100 net-income-negative'}`}>
-                <div className="flex justify-between items-center">
-                  <span className={`text-xl font-bold ${data.netIncome >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                    Net Income
-                  </span>
-                  <span className={`text-2xl font-bold ${data.netIncome >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                    {formatCurrency(data.netIncome)}
-                  </span>
-                </div>
+              <div className={data.netIncome >= 0 ? 'net-income-positive' : 'net-income-negative'}>
+                <table className="w-full">
+                  <tbody>
+                    <tr className={data.netIncome >= 0 ? 'bg-green-100' : 'bg-red-100'}>
+                      <td className={`px-6 py-5 text-xl font-bold ${data.netIncome >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                        Net Income:
+                      </td>
+                      <td className={`px-6 py-5 text-right text-2xl font-bold w-32 ${data.netIncome >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                        {formatCurrency(data.netIncome)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
