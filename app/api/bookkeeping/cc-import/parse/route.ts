@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse statement end date to extract year
+    // Parse statement end date
     const endDate = new Date(statementEndDate);
     if (isNaN(endDate.getTime())) {
       return NextResponse.json(
@@ -35,10 +35,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Extract year and month for year-rollover detection
     const year = endDate.getUTCFullYear();
     const statementEndMonth = endDate.getUTCMonth(); // 0-indexed
 
-    // Parse the text
+    // Parse the text, passing year and statement end month for proper year rollover handling
     const result = parseCCStatement(
       format,
       transactionsText || '',

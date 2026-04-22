@@ -88,10 +88,16 @@ const MONTH_ABBREVS: Record<string, number> = {
  * Credits: Mar 19 Mar 19 CREDIT-CASH BACK REWARD - $208.51 (note space between - and $)
  *
  * @param text - The pasted text blob
+<<<<<<< HEAD
  * @param year - Year to use for dates (from statement period end date)
  * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
 export function parseCapitalOne(text: string, year: number, statementEndMonth: number): ParseResult {
+=======
+ * @param statementEndDate - Statement end date to determine year and handle rollovers
+ */
+export function parseCapitalOne(text: string, statementEndDate: Date): ParseResult {
+>>>>>>> d403564 (Fix credit card import year-rollover bug for Capital One and Chase statements The credit card importer was incorrectly assigning years to transactions when the statement period crossed a year boundary. For example, a statement ending on 2/13/2026 would incorrectly assign December 2025 transactions to December 2024. Root cause: The Capital One and Chase parsers only receive month/day from pasted text (e.g., Dec 16 or 01/25) and must infer the year. The previous logic used a flawed heuristic that compared transaction months against an arbitrary threshold rather than the actual statement end date. Changes:)
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
@@ -138,20 +144,16 @@ export function parseCapitalOne(text: string, year: number, statementEndMonth: n
     }
 
     // Determine the correct year, handling year rollover
-    // (e.g., December transaction on a January statement that closes in January)
-    // If the transaction month is after the statement end month (circularly),
-    // it's from the previous year. We check if the forward distance from
-    // statement end month to transaction month is more than 6 months,
-    // meaning the transaction is actually from before the year boundary.
+    // (e.g., December transaction on a January/February statement should be previous year)
     let transYear = year;
     let postYear = year;
 
-    const transMonthDiff = ((transMonthNum - statementEndMonth) % 12 + 12) % 12;
-    if (transMonthDiff > 6) {
+    // If transaction month is after the statement end month, it must be from the previous year
+    // Example: statement ends Feb 13, 2026 (month 1), transaction is Dec (month 11) -> Dec 2025
+    if (transMonthNum > statementEndMonth) {
       transYear = year - 1;
     }
-    const postMonthDiff = ((postMonthNum - statementEndMonth) % 12 + 12) % 12;
-    if (postMonthDiff > 6) {
+    if (postMonthNum > statementEndMonth) {
       postYear = year - 1;
     }
 
@@ -186,10 +188,16 @@ export function parseCapitalOne(text: string, year: number, statementEndMonth: n
  * Credits: 01/28     eBay O*26-12528-08142 800-4563229 CA-73.88 (negative attached to amount)
  *
  * @param text - The pasted text blob
+<<<<<<< HEAD
  * @param year - Year to use for dates
  * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
 export function parseChase(text: string, year: number, statementEndMonth: number): ParseResult {
+=======
+ * @param statementEndDate - Statement end date to determine year and handle rollovers
+ */
+export function parseChase(text: string, statementEndDate: Date): ParseResult {
+>>>>>>> d403564 (Fix credit card import year-rollover bug for Capital One and Chase statements The credit card importer was incorrectly assigning years to transactions when the statement period crossed a year boundary. For example, a statement ending on 2/13/2026 would incorrectly assign December 2025 transactions to December 2024. Root cause: The Capital One and Chase parsers only receive month/day from pasted text (e.g., Dec 16 or 01/25) and must infer the year. The previous logic used a flawed heuristic that compared transaction months against an arbitrary threshold rather than the actual statement end date. Changes:)
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
@@ -244,16 +252,18 @@ export function parseChase(text: string, year: number, statementEndMonth: number
       description += ' | ' + continuation.replace(/\s+/g, ' ');
     }
 
-    // Handle year rollover (e.g., December transaction on a January statement)
-    const monthNum = parseInt(month) - 1; // 0-indexed
-    let txnYear = year;
-    const monthDiff = ((monthNum - statementEndMonth) % 12 + 12) % 12;
-    if (monthDiff > 6) {
-      txnYear = year - 1;
+    // Determine the correct year, handling year rollover
+    // (e.g., December transaction on a January/February statement should be previous year)
+    const transMonthNum = parseInt(month) - 1;  // Convert to 0-11
+    let transYear = year;
+
+    // If transaction month is after the statement end month, it must be from the previous year
+    if (transMonthNum > statementEndMonth) {
+      transYear = year - 1;
     }
 
     // Use localToBusinessDate for timezone-safe date creation (noon UTC)
-    const postDate = localToBusinessDate(parseInt(month), parseInt(day), txnYear);
+    const postDate = localToBusinessDate(parseInt(month), parseInt(day), transYear);
     const amount = parseFloat(amountStr.replace(/,/g, ''));
     const isCredit = negSign === '-';
 
@@ -435,11 +445,13 @@ export function parseESLBank(text: string, year: number, statementEndMonth: numb
 
     prevBalance = newBalance;
 
-    // Handle year rollover
+    // Determine the correct year, handling year rollover
+    // (e.g., December transaction on a January/February statement should be previous year)
     const monthNum = parseInt(month) - 1;
     let txnYear = year;
-    const monthDiff = ((monthNum - statementEndMonth) % 12 + 12) % 12;
-    if (monthDiff > 6) {
+
+    // If transaction month is after the statement end month, it must be from the previous year
+    if (monthNum > statementEndMonth) {
       txnYear = year - 1;
     }
 
@@ -487,6 +499,7 @@ export function parseCCStatement(
       payResult = parseChase(paymentsText, year, statementEndMonth);
       break;
     case 'paypal_credit':
+      // PayPal Credit includes full year in dates, so no rollover handling needed
       transResult = parsePayPalCredit(transactionsText);
       payResult = parsePayPalCredit(paymentsText);
       break;
