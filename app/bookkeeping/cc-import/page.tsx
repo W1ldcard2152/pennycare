@@ -1484,7 +1484,7 @@ export default function CCImportPage() {
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm text-gray-900">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 w-10"></th>
@@ -1571,7 +1571,7 @@ export default function CCImportPage() {
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm text-gray-900">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 w-10"></th>
@@ -1691,7 +1691,7 @@ export default function CCImportPage() {
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm text-gray-900">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 w-10"></th>
