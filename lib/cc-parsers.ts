@@ -88,16 +88,10 @@ const MONTH_ABBREVS: Record<string, number> = {
  * Credits: Mar 19 Mar 19 CREDIT-CASH BACK REWARD - $208.51 (note space between - and $)
  *
  * @param text - The pasted text blob
-<<<<<<< HEAD
  * @param year - Year to use for dates (from statement period end date)
  * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
 export function parseCapitalOne(text: string, year: number, statementEndMonth: number): ParseResult {
-=======
- * @param statementEndDate - Statement end date to determine year and handle rollovers
- */
-export function parseCapitalOne(text: string, statementEndDate: Date): ParseResult {
->>>>>>> d403564 (Fix credit card import year-rollover bug for Capital One and Chase statements The credit card importer was incorrectly assigning years to transactions when the statement period crossed a year boundary. For example, a statement ending on 2/13/2026 would incorrectly assign December 2025 transactions to December 2024. Root cause: The Capital One and Chase parsers only receive month/day from pasted text (e.g., Dec 16 or 01/25) and must infer the year. The previous logic used a flawed heuristic that compared transaction months against an arbitrary threshold rather than the actual statement end date. Changes:)
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
@@ -188,16 +182,10 @@ export function parseCapitalOne(text: string, statementEndDate: Date): ParseResu
  * Credits: 01/28     eBay O*26-12528-08142 800-4563229 CA-73.88 (negative attached to amount)
  *
  * @param text - The pasted text blob
-<<<<<<< HEAD
  * @param year - Year to use for dates
  * @param statementEndMonth - 0-indexed month of the statement end date (0=Jan, 11=Dec)
  */
 export function parseChase(text: string, year: number, statementEndMonth: number): ParseResult {
-=======
- * @param statementEndDate - Statement end date to determine year and handle rollovers
- */
-export function parseChase(text: string, statementEndDate: Date): ParseResult {
->>>>>>> d403564 (Fix credit card import year-rollover bug for Capital One and Chase statements The credit card importer was incorrectly assigning years to transactions when the statement period crossed a year boundary. For example, a statement ending on 2/13/2026 would incorrectly assign December 2025 transactions to December 2024. Root cause: The Capital One and Chase parsers only receive month/day from pasted text (e.g., Dec 16 or 01/25) and must infer the year. The previous logic used a flawed heuristic that compared transaction months against an arbitrary threshold rather than the actual statement end date. Changes:)
   const transactions: ParsedCCTransaction[] = [];
   const errors: string[] = [];
 
