@@ -163,18 +163,18 @@ describe('NY SDI', () => {
 });
 
 describe('NY PFL', () => {
-  it('withholds 0.388% of gross pay', () => {
+  it('withholds 0.432% of gross pay (2026 rate)', () => {
     const result = calculatePayroll(makeInput());
-    expect(result.nyPFL).toBe(roundCurrency(1000 * 0.00388));
+    expect(result.nyPFL).toBe(roundCurrency(1000 * 0.00432));
   });
 
-  it('caps at annual maximum ($354.53)', () => {
+  it('caps at annual maximum ($411.91 for 2026)', () => {
     // A very large weekly paycheck would hit the annual max in one go
     const result = calculatePayroll(
       makeInput({ regularHours: 40, hourlyRate: 5000 })
     );
-    // 200,000 * 0.00388 = $776, but capped at $354.53
-    expect(result.nyPFL).toBe(354.53);
+    // 200,000 * 0.00432 = $864, but capped at $411.91
+    expect(result.nyPFL).toBe(411.91);
   });
 });
 
@@ -193,10 +193,24 @@ describe('Federal Income Tax', () => {
     expect(married.federalIncomeTax).toBeLessThan(single.federalIncomeTax);
   });
 
-  it('reduces tax with more allowances', () => {
-    const noAllowances = calculatePayroll(makeInput({ w4Allowances: 0 }));
-    const twoAllowances = calculatePayroll(makeInput({ w4Allowances: 2 }));
+  it('reduces tax with more allowances on a pre-2020 W-4', () => {
+    // Allowances only matter on the pre-2020 W-4 (Worksheet 1B). 2020+ W-4 ignores them.
+    const noAllowances = calculatePayroll(makeInput({ w4FormType: '2019_prior', w4Allowances: 0 }));
+    const twoAllowances = calculatePayroll(makeInput({ w4FormType: '2019_prior', w4Allowances: 2 }));
     expect(twoAllowances.federalIncomeTax).toBeLessThan(noAllowances.federalIncomeTax);
+  });
+
+  it('matches Paychex worksheet 1B for MFJ, 1 allowance, $1000/wk (Pub 15-T 2026)', () => {
+    // Adjusted = $52,000 - $4,300 = $47,700 in MFJ standard schedule
+    // Tax = $2,480 + 12% × ($47,700 - $44,100) = $2,912/yr → $56.00/wk
+    const result = calculatePayroll(makeInput({
+      regularHours: 40,
+      hourlyRate: 25,
+      w4FormType: '2019_prior',
+      w4FilingStatus: 'married',
+      w4Allowances: 1,
+    }));
+    expect(result.federalIncomeTax).toBe(56);
   });
 
   it('does not withhold when federalTaxability is exempt', () => {
@@ -250,6 +264,18 @@ describe('NY State Income Tax', () => {
     const noAllowances = calculatePayroll(makeInput({ w4Allowances: 0 }));
     const threeAllowances = calculatePayroll(makeInput({ w4Allowances: 3 }));
     expect(threeAllowances.stateIncomeTax).toBeLessThan(noAllowances.stateIncomeTax);
+  });
+
+  it('matches Paychex for MFJ, 1 allowance, $1000/wk (NYS-50-T-NYS 1/26)', () => {
+    // Net wages = $52,000 - ($7,950 + $1,000) = $43,050
+    // Tax = $586 + 5.40% × ($43,050 - $13,900) = $2,160.10/yr → $41.54/wk
+    const result = calculatePayroll(makeInput({
+      regularHours: 40,
+      hourlyRate: 25,
+      w4FilingStatus: 'married',
+      w4Allowances: 1,
+    }));
+    expect(result.stateIncomeTax).toBe(41.54);
   });
 });
 

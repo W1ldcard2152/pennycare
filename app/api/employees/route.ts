@@ -87,11 +87,21 @@ export async function POST(request: NextRequest) {
 
         // Tax information
         taxIdEncrypted,
+        w4FormType: data.w4FormType || '2019_prior',
         w4Allowances: data.w4Allowances !== undefined ? parseInt(data.w4Allowances) : 0,
         w4FilingStatus: data.w4FilingStatus || data.filingStatus || 'single',
         additionalWithholding: data.additionalWithholding
           ? parseFloat(data.additionalWithholding)
           : null,
+        // Default all taxability fields to 'taxable' so payroll calculates correctly
+        // out of the box. Edit on the Tax Settings page to mark any tax exempt.
+        federalTaxability: data.federalTaxability || 'taxable',
+        stateTaxability: data.stateTaxability || 'taxable',
+        socialSecurityTaxability: data.socialSecurityTaxability || 'taxable',
+        medicareTaxability: data.medicareTaxability || 'taxable',
+        unemploymentTaxability: data.unemploymentTaxability || 'taxable',
+        disabilityTaxability: data.disabilityTaxability || 'taxable',
+        paidFamilyLeaveTaxability: data.paidFamilyLeaveTaxability || 'taxable',
 
         // Payment info
         paymentInfo: data.paymentMethod

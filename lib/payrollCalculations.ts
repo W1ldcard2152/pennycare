@@ -18,8 +18,10 @@ export interface PayrollInput {
   overtimeMultiplier: number;
 
   // Employee tax info
+  w4FormType?: string | null; // "2019_prior" or "2020_later"
   w4FilingStatus: string | null;
   w4Allowances: number | null;
+  additionalWithholding?: number | null; // W-4 line 4(c) per pay period
 
   // Taxability — "taxable" (default) means the tax applies; "exempt" skips it.
   // Null/undefined is treated as "taxable" so legacy records keep withholding.
@@ -106,8 +108,8 @@ const NY_SDI_RATE = 0.005; // 0.5%
 const NY_SDI_WEEKLY_MAX = 0.60; // $0.60 per week max
 const NY_SDI_ANNUAL_MAX = 31.20; // $31.20 per year max
 
-const NY_PFL_RATE = 0.00388; // 0.388% for 2025
-const NY_PFL_ANNUAL_MAX = 354.53; // 2025 max
+const NY_PFL_RATE = 0.00432; // 0.432% for 2026 (NY DFS rate decision)
+const NY_PFL_ANNUAL_MAX = 411.91; // 2026 max
 
 const NY_SUI_WAGE_BASE = 13000; // First $13,000 per employee in 2026
 const FUTA_WAGE_BASE = 7000; // First $7,000 per employee
@@ -207,15 +209,20 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     ? Math.min(grossPay * NY_SDI_RATE, NY_SDI_WEEKLY_MAX)
     : 0;
 
-  // Calculate NY Paid Family Leave (PFL)
-  // 0.432% of gross, max $411.91 annually
+  // Calculate NY Paid Family Leave (PFL) — 2026: 0.432% of gross, max $411.91 annually
   const nyPFL = isTaxable(input.paidFamilyLeaveTaxability)
     ? Math.min(grossPay * NY_PFL_RATE, NY_PFL_ANNUAL_MAX)
     : 0;
 
   // Calculate Federal Income Tax (on taxable wages after pre-tax deductions)
   const federalIncomeTax = isTaxable(input.federalTaxability)
-    ? estimateFederalTax(taxableWages, input.w4FilingStatus, input.w4Allowances)
+    ? estimateFederalTax(
+        taxableWages,
+        input.w4FilingStatus,
+        input.w4Allowances,
+        input.w4FormType,
+        input.additionalWithholding,
+      )
     : 0;
 
   // Calculate NY State Income Tax (on taxable wages after pre-tax deductions)
@@ -345,146 +352,160 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
 }
 
 /**
- * Federal tax withholding using IRS Publication 15-T (2026) percentage method
- * https://www.irs.gov/publications/p15t
+ * IRS Publication 15-T (2026) Annual Payroll Period STANDARD Withholding Rate Schedules
+ * (W-4 from 2020 or later, Step 2 NOT checked).
  *
- * Uses the computational approach: annualize wages, subtract standard deduction,
- * apply progressive tax brackets, then convert back to per-pay-period amount.
+ * Each row is the bracket the Adjusted Annual Wage Amount falls into:
+ * tax = base + rate × (adjustedWage - lower).
+ */
+type Bracket = { lower: number; upper: number; base: number; rate: number };
+
+const FEDERAL_BRACKETS_2026: Record<'married' | 'single' | 'head_of_household', Bracket[]> = {
+  married: [
+    { lower: 0,       upper: 19300,    base: 0,           rate: 0    },
+    { lower: 19300,   upper: 44100,    base: 0,           rate: 0.10 },
+    { lower: 44100,   upper: 120100,   base: 2480,        rate: 0.12 },
+    { lower: 120100,  upper: 230700,   base: 11600,       rate: 0.22 },
+    { lower: 230700,  upper: 422850,   base: 35932,       rate: 0.24 },
+    { lower: 422850,  upper: 531750,   base: 82048,       rate: 0.32 },
+    { lower: 531750,  upper: 788000,   base: 116896,      rate: 0.35 },
+    { lower: 788000,  upper: Infinity, base: 206583.50,   rate: 0.37 },
+  ],
+  single: [
+    { lower: 0,       upper: 7500,     base: 0,           rate: 0    },
+    { lower: 7500,    upper: 19900,    base: 0,           rate: 0.10 },
+    { lower: 19900,   upper: 57900,    base: 1240,        rate: 0.12 },
+    { lower: 57900,   upper: 113200,   base: 5800,        rate: 0.22 },
+    { lower: 113200,  upper: 209275,   base: 17966,       rate: 0.24 },
+    { lower: 209275,  upper: 263725,   base: 41024,       rate: 0.32 },
+    { lower: 263725,  upper: 648100,   base: 58448,       rate: 0.35 },
+    { lower: 648100,  upper: Infinity, base: 192979.25,   rate: 0.37 },
+  ],
+  head_of_household: [
+    { lower: 0,       upper: 15550,    base: 0,           rate: 0    },
+    { lower: 15550,   upper: 33250,    base: 0,           rate: 0.10 },
+    { lower: 33250,   upper: 83000,    base: 1770,        rate: 0.12 },
+    { lower: 83000,   upper: 121250,   base: 7740,        rate: 0.22 },
+    { lower: 121250,  upper: 217300,   base: 16155,       rate: 0.24 },
+    { lower: 217300,  upper: 271750,   base: 39207,       rate: 0.32 },
+    { lower: 271750,  upper: 656150,   base: 56631,       rate: 0.35 },
+    { lower: 656150,  upper: Infinity, base: 191171,      rate: 0.37 },
+  ],
+};
+
+function lookupBracketTax(amount: number, brackets: Bracket[]): number {
+  for (const b of brackets) {
+    if (amount <= b.upper) {
+      return b.base + b.rate * Math.max(0, amount - b.lower);
+    }
+  }
+  return 0;
+}
+
+const PUB15T_2026_PER_ALLOWANCE = 4300;
+const PUB15T_2026_STEP2_UNCHECKED_MFJ = 12900;
+const PUB15T_2026_STEP2_UNCHECKED_OTHER = 8600;
+
+/**
+ * Federal income tax withholding per IRS Publication 15-T (2026), Annual Payroll Period.
+ *
+ * - Pre-2020 W-4 (w4FormType = "2019_prior"): Worksheet 1B — subtract allowances × $4,300
+ *   from annual wages, then apply the STANDARD rate schedule for the filing status.
+ *   The pre-2020 brackets historically baked in the standard deduction, so no further
+ *   adjustment is applied.
+ *
+ * - 2020+ W-4 (default): Worksheet 1A — subtract the Step 2 unchecked adjustment
+ *   ($12,900 MFJ; $8,600 single/HoH/MFS), then apply the STANDARD rate schedule.
+ *   The current calculator has no W-4 4(b) deductions or 4(a) other-income inputs,
+ *   so those are treated as $0. Step 2 checked is not currently modeled.
+ *
+ * Additional withholding (W-4 4(c)) is added on top, per pay period.
  */
 function estimateFederalTax(
   grossPay: number,
   filingStatus: string | null,
-  allowances: number | null
+  allowances: number | null,
+  w4FormType: string | null | undefined,
+  additionalWithholding: number | null | undefined,
 ): number {
-  // Convert weekly pay to annual for bracket calculation
   const annualizedPay = grossPay * 52;
 
-  // 2026 Standard deduction (IRS Rev. Proc. 2025-XX)
-  const standardDeduction = filingStatus === 'married' ? 30000 : 15000;
+  const status: 'married' | 'single' | 'head_of_household' =
+    filingStatus === 'married' ? 'married'
+    : filingStatus === 'head_of_household' ? 'head_of_household'
+    : 'single';
 
-  // Allowance value for pre-2020 W-4 compatibility (estimated value per allowance)
-  const allowanceValue = (allowances || 0) * 4400;
-
-  const taxableIncome = Math.max(0, annualizedPay - standardDeduction - allowanceValue);
-
-  // 2026 Federal progressive tax brackets (IRS Publication 15-T)
-  let annualTax = 0;
-  if (filingStatus === 'married') {
-    // Married Filing Jointly brackets for 2026
-    if (taxableIncome <= 23850) {
-      annualTax = taxableIncome * 0.10;
-    } else if (taxableIncome <= 96950) {
-      annualTax = 2385 + (taxableIncome - 23850) * 0.12;
-    } else if (taxableIncome <= 206700) {
-      annualTax = 11157 + (taxableIncome - 96950) * 0.22;
-    } else if (taxableIncome <= 394600) {
-      annualTax = 35302 + (taxableIncome - 206700) * 0.24;
-    } else if (taxableIncome <= 501050) {
-      annualTax = 80398 + (taxableIncome - 394600) * 0.32;
-    } else if (taxableIncome <= 751600) {
-      annualTax = 114462 + (taxableIncome - 501050) * 0.35;
-    } else {
-      annualTax = 202154.50 + (taxableIncome - 751600) * 0.37;
-    }
+  let adjustedAnnualWage: number;
+  if (w4FormType === '2019_prior') {
+    // Worksheet 1B (pre-2020 W-4): allowances only.
+    adjustedAnnualWage = Math.max(0, annualizedPay - (allowances || 0) * PUB15T_2026_PER_ALLOWANCE);
   } else {
-    // Single or Head of Household brackets for 2026
-    if (taxableIncome <= 11925) {
-      annualTax = taxableIncome * 0.10;
-    } else if (taxableIncome <= 48475) {
-      annualTax = 1192.50 + (taxableIncome - 11925) * 0.12;
-    } else if (taxableIncome <= 103350) {
-      annualTax = 5578.50 + (taxableIncome - 48475) * 0.22;
-    } else if (taxableIncome <= 197300) {
-      annualTax = 17651 + (taxableIncome - 103350) * 0.24;
-    } else if (taxableIncome <= 250525) {
-      annualTax = 40199 + (taxableIncome - 197300) * 0.32;
-    } else if (taxableIncome <= 626350) {
-      annualTax = 57231 + (taxableIncome - 250525) * 0.35;
-    } else {
-      annualTax = 188769.75 + (taxableIncome - 626350) * 0.37;
-    }
+    // Worksheet 1A (2020+ W-4, Step 2 unchecked): standard-deduction adjustment.
+    const adj = status === 'married' ? PUB15T_2026_STEP2_UNCHECKED_MFJ : PUB15T_2026_STEP2_UNCHECKED_OTHER;
+    adjustedAnnualWage = Math.max(0, annualizedPay - adj);
   }
 
-  // Convert back to weekly
-  return annualTax / 52;
+  const annualTax = lookupBracketTax(adjustedAnnualWage, FEDERAL_BRACKETS_2026[status]);
+  const weeklyTax = annualTax / 52;
+
+  return weeklyTax + (additionalWithholding || 0);
 }
 
 /**
- * NY State tax withholding using NYS Publication NYS-50-T-NYS (2026)
- * https://www.tax.ny.gov/pdf/publications/withholding/nys50_t_nys.pdf
+ * NYS-50-T-NYS (1/26) Method II Annual Tax Rate Schedules.
+ * Single and Married schedules are identical through line 5 ($96,800), then diverge.
+ * NY treats Head of Household as Single for withholding purposes.
+ */
+const NY_STATE_BRACKETS_2026: Record<'single' | 'married', Bracket[]> = {
+  single: [
+    { lower: 0,        upper: 8500,    base: 0,         rate: 0.0390 },
+    { lower: 8500,     upper: 11700,   base: 332,       rate: 0.0440 },
+    { lower: 11700,    upper: 13900,   base: 472,       rate: 0.0515 },
+    { lower: 13900,    upper: 80650,   base: 586,       rate: 0.0540 },
+    { lower: 80650,    upper: 96800,   base: 4190,      rate: 0.0590 },
+    { lower: 96800,    upper: 107650,  base: 5143,      rate: 0.0703 },
+    { lower: 107650,   upper: 157650,  base: 5906,      rate: 0.0753 },
+    { lower: 157650,   upper: 215400,  base: 9673,      rate: 0.0640 },
+    { lower: 215400,   upper: 265400,  base: 13369,     rate: 0.1144 },
+    { lower: 265400,   upper: Infinity, base: 19091,    rate: 0.0735 },
+  ],
+  married: [
+    { lower: 0,        upper: 8500,    base: 0,         rate: 0.0390 },
+    { lower: 8500,     upper: 11700,   base: 332,       rate: 0.0440 },
+    { lower: 11700,    upper: 13900,   base: 472,       rate: 0.0515 },
+    { lower: 13900,    upper: 80650,   base: 586,       rate: 0.0540 },
+    { lower: 80650,    upper: 96800,   base: 4190,      rate: 0.0590 },
+    { lower: 96800,    upper: 107650,  base: 5143,      rate: 0.0657 },
+    { lower: 107650,   upper: 157650,  base: 5855,      rate: 0.0707 },
+    { lower: 157650,   upper: 211550,  base: 9388,      rate: 0.0801 },
+    { lower: 211550,   upper: 323200,  base: 13708,     rate: 0.0640 },
+    { lower: 323200,   upper: 373200,  base: 20854,     rate: 0.1349 },
+    { lower: 373200,   upper: 1077550, base: 27600,     rate: 0.0735 },
+    { lower: 1077550,  upper: Infinity, base: 79369,    rate: 0.0765 },
+  ],
+};
+
+/**
+ * NY State income tax withholding per NYS Publication NYS-50-T-NYS (1/26),
+ * Method II (Exact Calculation Method).
  *
- * Uses the Exact Calculation Method (Method II):
- * 1. Annualize gross wages
- * 2. Subtract exemption allowance from Annual Exemption Table
- * 3. Apply annual tax rate schedule
- * 4. Divide by number of pay periods
+ * Annual exemption per Table A: base $7,950 (married) / $7,400 (single) + $1,000 per
+ * additional allowance.
  */
 function estimateNYStateTax(
   grossPay: number,
   filingStatus: string | null,
-  allowances: number | null
+  allowances: number | null,
 ): number {
-  // Convert weekly pay to annual
   const annualizedPay = grossPay * 52;
 
-  // NYS-50-T-NYS Annual Exemption Table for Allowances (2026)
-  // Single: Base $7,400 + $1,000 per additional allowance
-  // Married: Base $7,950 + $1,000 per additional allowance
-  const baseExemption = filingStatus === 'married' ? 7950 : 7400;
-  const allowanceExemption = (allowances || 0) * 1000;
-  const totalExemption = baseExemption + allowanceExemption;
+  const status: 'single' | 'married' = filingStatus === 'married' ? 'married' : 'single';
+  const baseExemption = status === 'married' ? 7950 : 7400;
+  const totalExemption = baseExemption + (allowances || 0) * 1000;
 
-  const taxableIncome = Math.max(0, annualizedPay - totalExemption);
+  const netWages = Math.max(0, annualizedPay - totalExemption);
+  const annualTax = lookupBracketTax(netWages, NY_STATE_BRACKETS_2026[status]);
 
-  // NY State tax brackets for 2026 (NYS-50-T-NYS Method II Annual Tax Rate Schedule)
-  // Note: 2026 rates reflect phased-in tax cuts (0.1% reduction in bottom 5 brackets)
-  let annualTax = 0;
-
-  if (filingStatus === 'married') {
-    // Married Filing Jointly brackets
-    if (taxableIncome <= 17150) {
-      annualTax = taxableIncome * 0.04;
-    } else if (taxableIncome <= 23600) {
-      annualTax = 686 + (taxableIncome - 17150) * 0.045;
-    } else if (taxableIncome <= 27900) {
-      annualTax = 976.25 + (taxableIncome - 23600) * 0.0525;
-    } else if (taxableIncome <= 161550) {
-      annualTax = 1202 + (taxableIncome - 27900) * 0.055;
-    } else if (taxableIncome <= 323200) {
-      annualTax = 8552.75 + (taxableIncome - 161550) * 0.06;
-    } else if (taxableIncome <= 2155350) {
-      annualTax = 18251.75 + (taxableIncome - 323200) * 0.0685;
-    } else if (taxableIncome <= 5000000) {
-      annualTax = 143754.03 + (taxableIncome - 2155350) * 0.0965;
-    } else if (taxableIncome <= 25000000) {
-      annualTax = 418212.93 + (taxableIncome - 5000000) * 0.103;
-    } else {
-      annualTax = 2478212.93 + (taxableIncome - 25000000) * 0.109;
-    }
-  } else {
-    // Single or Head of Household brackets
-    if (taxableIncome <= 8500) {
-      annualTax = taxableIncome * 0.04;
-    } else if (taxableIncome <= 11700) {
-      annualTax = 340 + (taxableIncome - 8500) * 0.045;
-    } else if (taxableIncome <= 13900) {
-      annualTax = 484 + (taxableIncome - 11700) * 0.0525;
-    } else if (taxableIncome <= 80650) {
-      annualTax = 599.50 + (taxableIncome - 13900) * 0.055;
-    } else if (taxableIncome <= 215400) {
-      annualTax = 4270.75 + (taxableIncome - 80650) * 0.06;
-    } else if (taxableIncome <= 1077550) {
-      annualTax = 12355.75 + (taxableIncome - 215400) * 0.0685;
-    } else if (taxableIncome <= 5000000) {
-      annualTax = 71413.03 + (taxableIncome - 1077550) * 0.0965;
-    } else if (taxableIncome <= 25000000) {
-      annualTax = 449929.48 + (taxableIncome - 5000000) * 0.103;
-    } else {
-      annualTax = 2509929.48 + (taxableIncome - 25000000) * 0.109;
-    }
-  }
-
-  // Convert back to weekly
   return annualTax / 52;
 }
 
