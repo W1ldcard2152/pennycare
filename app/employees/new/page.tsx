@@ -378,53 +378,10 @@ export default function NewEmployeePage() {
               </div>
             </div>
 
-            {/* Tax Withholding Checkboxes */}
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h3 className="font-medium text-blue-900 mb-3">Tax Withholding</h3>
-              <p className="text-sm text-blue-700 mb-4">Enable tax withholding for this employee. These should typically all be checked.</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
-                  <input
-                    type="checkbox"
-                    name="federalTaxesWithheld"
-                    value="true"
-                    defaultChecked
-                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-900">Federal</span>
-                </label>
-                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
-                  <input
-                    type="checkbox"
-                    name="stateTaxesWithheld"
-                    value="true"
-                    defaultChecked
-                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-900">NY State</span>
-                </label>
-                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
-                  <input
-                    type="checkbox"
-                    name="disabilityTaxesWithheld"
-                    value="true"
-                    defaultChecked
-                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-900">SDI</span>
-                </label>
-                <label className="flex items-center p-2 bg-white rounded border border-blue-100 cursor-pointer hover:bg-blue-50">
-                  <input
-                    type="checkbox"
-                    name="paidFamilyLeaveTaxesWithheld"
-                    value="true"
-                    defaultChecked
-                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="text-sm text-gray-900">PFL</span>
-                </label>
-              </div>
-            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              All standard W-2 tax withholdings (Federal, NY State, FICA, SDI, PFL, Unemployment) are enabled by
+              default for new employees. To mark any as exempt, edit the employee&apos;s Tax Settings after creation.
+            </p>
           </div>
 
           {/* Payment Method */}

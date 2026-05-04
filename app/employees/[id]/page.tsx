@@ -39,7 +39,6 @@ interface Employee {
   overrideAmount?: number;
   overridePercentage?: number;
   federalTaxability?: string;
-  federalTaxesWithheld?: boolean;
   federalResidency?: string;
 
   // Social Security & Medicare
@@ -50,7 +49,6 @@ interface Employee {
   stateFilingStatus?: string;
   stateResidency?: string;
   stateAllowances?: number;
-  stateTaxesWithheld?: boolean;
   stateTaxability?: string;
 
   // State Unemployment
@@ -60,11 +58,9 @@ interface Employee {
 
   // State Disability
   disabilityTaxability?: string;
-  disabilityTaxesWithheld?: boolean;
 
   // Paid Family Leave
   paidFamilyLeaveTaxability?: string;
-  paidFamilyLeaveTaxesWithheld?: boolean;
 
   paymentInfo?: {
     paymentMethod: string;

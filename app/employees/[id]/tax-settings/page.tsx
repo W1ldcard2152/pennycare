@@ -14,7 +14,6 @@ interface TaxSettings {
   overrideAmount?: number;
   overridePercentage?: number;
   federalTaxability?: string;
-  federalTaxesWithheld: boolean;
   federalResidency?: string;
   socialSecurityTaxability?: string;
   medicareTaxability?: string;
@@ -23,7 +22,6 @@ interface TaxSettings {
   stateFilingStatus?: string;
   stateResidency?: string;
   stateAllowances?: number;
-  stateTaxesWithheld: boolean;
   stateTaxability?: string;
 
   // Unemployment
@@ -33,9 +31,7 @@ interface TaxSettings {
 
   // Disability & PFL
   disabilityTaxability?: string;
-  disabilityTaxesWithheld: boolean;
   paidFamilyLeaveTaxability?: string;
-  paidFamilyLeaveTaxesWithheld: boolean;
 }
 
 export default function TaxSettingsPage() {
@@ -45,11 +41,7 @@ export default function TaxSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<TaxSettings>({
-    federalTaxesWithheld: true,
-    stateTaxesWithheld: true,
     dependentHealthInsurance: false,
-    disabilityTaxesWithheld: true,
-    paidFamilyLeaveTaxesWithheld: true,
   });
 
   useEffect(() => {
@@ -72,7 +64,6 @@ export default function TaxSettingsPage() {
         overrideAmount: data.overrideAmount,
         overridePercentage: data.overridePercentage,
         federalTaxability: data.federalTaxability || 'taxable',
-        federalTaxesWithheld: data.federalTaxesWithheld ?? true,
         federalResidency: data.federalResidency || 'resident',
         socialSecurityTaxability: data.socialSecurityTaxability || 'taxable',
         medicareTaxability: data.medicareTaxability || 'taxable',
@@ -80,7 +71,6 @@ export default function TaxSettingsPage() {
         stateFilingStatus: data.stateFilingStatus || 'single',
         stateResidency: data.stateResidency || 'resident',
         stateAllowances: data.stateAllowances ?? 0,
-        stateTaxesWithheld: data.stateTaxesWithheld ?? true,
         stateTaxability: data.stateTaxability || 'taxable',
 
         unemploymentTaxability: data.unemploymentTaxability || 'taxable',
@@ -88,9 +78,7 @@ export default function TaxSettingsPage() {
         dependentHealthInsurance: data.dependentHealthInsurance ?? false,
 
         disabilityTaxability: data.disabilityTaxability || 'taxable',
-        disabilityTaxesWithheld: data.disabilityTaxesWithheld ?? true,
         paidFamilyLeaveTaxability: data.paidFamilyLeaveTaxability || 'taxable',
-        paidFamilyLeaveTaxesWithheld: data.paidFamilyLeaveTaxesWithheld ?? true,
       });
     } catch (error) {
       console.error('Error fetching employee:', error);
@@ -149,52 +137,11 @@ export default function TaxSettingsPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Tax Withholding Quick Settings */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-2 text-blue-900">Tax Withholding</h2>
-            <p className="text-sm text-blue-700 mb-4">Enable tax withholding for this employee. These should typically all be checked.</p>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  checked={settings.federalTaxesWithheld}
-                  onChange={(e) => setSettings({ ...settings, federalTaxesWithheld: e.target.checked })}
-                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <span className="text-sm font-medium text-gray-900">Federal Income Tax</span>
-              </label>
-
-              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  checked={settings.stateTaxesWithheld}
-                  onChange={(e) => setSettings({ ...settings, stateTaxesWithheld: e.target.checked })}
-                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <span className="text-sm font-medium text-gray-900">NY State Income Tax</span>
-              </label>
-
-              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  checked={settings.disabilityTaxesWithheld}
-                  onChange={(e) => setSettings({ ...settings, disabilityTaxesWithheld: e.target.checked })}
-                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <span className="text-sm font-medium text-gray-900">NY Disability (SDI)</span>
-              </label>
-
-              <label className="flex items-center p-3 bg-white rounded-lg border border-blue-100 cursor-pointer hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  checked={settings.paidFamilyLeaveTaxesWithheld}
-                  onChange={(e) => setSettings({ ...settings, paidFamilyLeaveTaxesWithheld: e.target.checked })}
-                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <span className="text-sm font-medium text-gray-900">NY Paid Family Leave</span>
-              </label>
-            </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg shadow p-4">
+            <p className="text-sm text-blue-900">
+              Each tax below has a <strong>Taxability</strong> setting. <strong>Taxable</strong> means the tax applies to this
+              employee&apos;s wages; <strong>Exempt</strong> means it&apos;s skipped. Default is Taxable for all standard W-2 employees.
+            </p>
           </div>
 
           {/* Federal Tax Settings */}

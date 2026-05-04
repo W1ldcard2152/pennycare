@@ -93,12 +93,6 @@ export async function POST(request: NextRequest) {
           ? parseFloat(data.additionalWithholding)
           : null,
 
-        // Tax withholding settings (default to true for new employees)
-        federalTaxesWithheld: data.federalTaxesWithheld === 'true' || data.federalTaxesWithheld === true ? true : (data.federalTaxesWithheld === 'false' || data.federalTaxesWithheld === false ? false : true),
-        stateTaxesWithheld: data.stateTaxesWithheld === 'true' || data.stateTaxesWithheld === true ? true : (data.stateTaxesWithheld === 'false' || data.stateTaxesWithheld === false ? false : true),
-        disabilityTaxesWithheld: data.disabilityTaxesWithheld === 'true' || data.disabilityTaxesWithheld === true ? true : (data.disabilityTaxesWithheld === 'false' || data.disabilityTaxesWithheld === false ? false : true),
-        paidFamilyLeaveTaxesWithheld: data.paidFamilyLeaveTaxesWithheld === 'true' || data.paidFamilyLeaveTaxesWithheld === true ? true : (data.paidFamilyLeaveTaxesWithheld === 'false' || data.paidFamilyLeaveTaxesWithheld === false ? false : true),
-
         // Payment info
         paymentInfo: data.paymentMethod
           ? {

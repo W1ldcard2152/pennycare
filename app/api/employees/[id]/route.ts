@@ -132,7 +132,6 @@ export async function PUT(
         overrideAmount: data.overrideAmount ? parseFloat(data.overrideAmount) : null,
         overridePercentage: data.overridePercentage ? parseFloat(data.overridePercentage) : null,
         federalTaxability: data.federalTaxability || null,
-        federalTaxesWithheld: data.federalTaxesWithheld === 'true' || data.federalTaxesWithheld === true,
         federalResidency: data.federalResidency || null,
 
         // Social Security & Medicare
@@ -143,7 +142,6 @@ export async function PUT(
         stateFilingStatus: data.stateFilingStatus || null,
         stateResidency: data.stateResidency || null,
         stateAllowances: data.stateAllowances ? parseInt(data.stateAllowances) : null,
-        stateTaxesWithheld: data.stateTaxesWithheld === 'true' || data.stateTaxesWithheld === true,
         stateTaxability: data.stateTaxability || null,
 
         // State Unemployment
@@ -153,11 +151,9 @@ export async function PUT(
 
         // State Disability
         disabilityTaxability: data.disabilityTaxability || null,
-        disabilityTaxesWithheld: data.disabilityTaxesWithheld === 'true' || data.disabilityTaxesWithheld === true,
 
         // Paid Family Leave
         paidFamilyLeaveTaxability: data.paidFamilyLeaveTaxability || null,
-        paidFamilyLeaveTaxesWithheld: data.paidFamilyLeaveTaxesWithheld === 'true' || data.paidFamilyLeaveTaxesWithheld === true,
       },
       include: {
         paymentInfo: true,
@@ -211,7 +207,9 @@ export async function PUT(
     const trackFields = [
       'firstName', 'lastName', 'position', 'employmentType', 'payType',
       'hourlyRate', 'annualSalary', 'w4FilingStatus', 'w4Allowances',
-      'federalTaxesWithheld', 'stateTaxesWithheld', 'isActive',
+      'federalTaxability', 'stateTaxability', 'socialSecurityTaxability',
+      'medicareTaxability', 'unemploymentTaxability', 'disabilityTaxability',
+      'paidFamilyLeaveTaxability', 'isActive',
     ];
     const changes = computeChanges(
       existing as unknown as Record<string, unknown>,

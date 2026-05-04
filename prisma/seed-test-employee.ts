@@ -136,7 +136,6 @@ async function main() {
         overrideAmount: null,
         overridePercentage: null,
         federalTaxability: 'taxable',
-        federalTaxesWithheld: true,
         federalResidency: 'resident',
 
         // Social Security & Medicare
@@ -147,7 +146,6 @@ async function main() {
         stateFilingStatus: 'married',
         stateResidency: 'resident',
         stateAllowances: 2,
-        stateTaxesWithheld: true,
         stateTaxability: 'taxable',
 
         // NYC/Yonkers local tax
@@ -162,11 +160,9 @@ async function main() {
 
         // NY Disability Insurance
         disabilityTaxability: 'taxable',
-        disabilityTaxesWithheld: true,
 
         // NY Paid Family Leave
         paidFamilyLeaveTaxability: 'taxable',
-        paidFamilyLeaveTaxesWithheld: true,
 
         // Workers Comp Class Code
         workersCompClassCode: '5183', // Plumbing - NOC
@@ -218,7 +214,6 @@ async function main() {
         overrideAmount: null,
         overridePercentage: null,
         federalTaxability: 'taxable',
-        federalTaxesWithheld: true,
         federalResidency: 'resident',
 
         // Social Security & Medicare
@@ -229,7 +224,6 @@ async function main() {
         stateFilingStatus: 'married',
         stateResidency: 'resident',
         stateAllowances: 2,
-        stateTaxesWithheld: true,
         stateTaxability: 'taxable',
 
         // NYC/Yonkers local tax (Wayne County - no local)
@@ -244,11 +238,9 @@ async function main() {
 
         // NY Disability Insurance
         disabilityTaxability: 'taxable',
-        disabilityTaxesWithheld: true,
 
         // NY Paid Family Leave
         paidFamilyLeaveTaxability: 'taxable',
-        paidFamilyLeaveTaxesWithheld: true,
 
         // Workers Comp Class Code
         workersCompClassCode: '5183', // Plumbing - NOC

@@ -190,7 +190,6 @@ model Employee {
   overrideAmount    Float?
   overridePercentage Float?
   federalTaxability String?  // "taxable" or "exempt"
-  federalTaxesWithheld Boolean @default(true)
   federalResidency  String?  // "resident" or "nonresident"
 
   // Social Security & Medicare
@@ -201,7 +200,6 @@ model Employee {
   stateFilingStatus String?  // "single", "married", "head_of_household"
   stateResidency    String?  // "resident" or "nonresident"
   stateAllowances   Int?
-  stateTaxesWithheld Boolean @default(true)
   stateTaxability   String?  // "taxable" or "exempt"
 
   // State Unemployment
@@ -211,11 +209,9 @@ model Employee {
 
   // State Disability
   disabilityTaxability String? // "taxable" or "exempt"
-  disabilityTaxesWithheld Boolean @default(true)
 
   // Paid Family Leave
   paidFamilyLeaveTaxability String? // "taxable" or "exempt"
-  paidFamilyLeaveTaxesWithheld Boolean @default(true)
 
   // NYC/Yonkers Local Tax (NY specific)
   nycResident       Boolean  @default(false) // NYC resident withholding

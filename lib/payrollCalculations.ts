@@ -20,8 +20,16 @@ export interface PayrollInput {
   // Employee tax info
   w4FilingStatus: string | null;
   w4Allowances: number | null;
-  federalTaxesWithheld: boolean;
-  stateTaxesWithheld: boolean;
+
+  // Taxability — "taxable" (default) means the tax applies; "exempt" skips it.
+  // Null/undefined is treated as "taxable" so legacy records keep withholding.
+  federalTaxability?: string | null;
+  stateTaxability?: string | null;
+  socialSecurityTaxability?: string | null;
+  medicareTaxability?: string | null;
+  unemploymentTaxability?: string | null;
+  disabilityTaxability?: string | null;
+  paidFamilyLeaveTaxability?: string | null;
 
   // NYC/Yonkers local taxes
   nycResident?: boolean;
@@ -112,6 +120,13 @@ const YONKERS_RESIDENT_RATE = 0.16475; // 16.475% surcharge on NY state tax
 const YONKERS_NONRESIDENT_RATE = 0.005; // 0.5% of wages earned in Yonkers
 
 /**
+ * "exempt" skips the tax; anything else (including null) applies it.
+ */
+function isTaxable(taxability?: string | null): boolean {
+  return taxability !== 'exempt';
+}
+
+/**
  * Calculate payroll for an hourly employee
  */
 export function calculatePayroll(input: PayrollInput): PayrollResult {
@@ -161,7 +176,7 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   let socialSecurityEmployee = 0;
   let socialSecurityEmployer = 0;
 
-  if (input.ytdGrossPay < SOCIAL_SECURITY_WAGE_BASE) {
+  if (isTaxable(input.socialSecurityTaxability) && input.ytdGrossPay < SOCIAL_SECURITY_WAGE_BASE) {
     const taxableAmount = Math.min(
       grossPay,
       SOCIAL_SECURITY_WAGE_BASE - input.ytdGrossPay
@@ -171,12 +186,13 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   }
 
   // Calculate Medicare (1.45% on all wages) - on gross pay
-  const medicareEmployee = grossPay * MEDICARE_RATE;
-  const medicareEmployer = grossPay * MEDICARE_RATE;
+  const medicareTaxable = isTaxable(input.medicareTaxability);
+  const medicareEmployee = medicareTaxable ? grossPay * MEDICARE_RATE : 0;
+  const medicareEmployer = medicareTaxable ? grossPay * MEDICARE_RATE : 0;
 
   // Calculate Additional Medicare (0.9% on wages over $200k YTD)
   let additionalMedicare = 0;
-  if (newYtdGross > ADDITIONAL_MEDICARE_THRESHOLD) {
+  if (medicareTaxable && newYtdGross > ADDITIONAL_MEDICARE_THRESHOLD) {
     if (input.ytdGrossPay >= ADDITIONAL_MEDICARE_THRESHOLD) {
       additionalMedicare = grossPay * ADDITIONAL_MEDICARE_RATE;
     } else {
@@ -187,19 +203,23 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
 
   // Calculate NY State Disability Insurance (SDI)
   // 0.5% of weekly wage, max $0.60 per week
-  const nySDI = Math.min(grossPay * NY_SDI_RATE, NY_SDI_WEEKLY_MAX);
+  const nySDI = isTaxable(input.disabilityTaxability)
+    ? Math.min(grossPay * NY_SDI_RATE, NY_SDI_WEEKLY_MAX)
+    : 0;
 
   // Calculate NY Paid Family Leave (PFL)
   // 0.432% of gross, max $411.91 annually
-  const nyPFL = Math.min(grossPay * NY_PFL_RATE, NY_PFL_ANNUAL_MAX);
+  const nyPFL = isTaxable(input.paidFamilyLeaveTaxability)
+    ? Math.min(grossPay * NY_PFL_RATE, NY_PFL_ANNUAL_MAX)
+    : 0;
 
   // Calculate Federal Income Tax (on taxable wages after pre-tax deductions)
-  const federalIncomeTax = input.federalTaxesWithheld
+  const federalIncomeTax = isTaxable(input.federalTaxability)
     ? estimateFederalTax(taxableWages, input.w4FilingStatus, input.w4Allowances)
     : 0;
 
   // Calculate NY State Income Tax (on taxable wages after pre-tax deductions)
-  const stateIncomeTax = input.stateTaxesWithheld
+  const stateIncomeTax = isTaxable(input.stateTaxability)
     ? estimateNYStateTax(taxableWages, input.w4FilingStatus, input.w4Allowances)
     : 0;
 
@@ -267,8 +287,10 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   const netPay = grossPay - totalDeductions;
 
   // Calculate employer SUI (only on first $13,000 per employee)
+  // Unemployment taxability gates both SUI (state) and FUTA (federal)
+  const unemploymentTaxable = isTaxable(input.unemploymentTaxability);
   let suiEmployer = 0;
-  if (input.ytdGrossPay < NY_SUI_WAGE_BASE) {
+  if (unemploymentTaxable && input.ytdGrossPay < NY_SUI_WAGE_BASE) {
     const suiTaxableAmount = Math.min(
       grossPay,
       NY_SUI_WAGE_BASE - input.ytdGrossPay
@@ -279,7 +301,7 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   // Calculate employer FUTA (only on first $7,000 per employee)
   let futaEmployer = 0;
   const futaRate = input.futaRate || 0.6;
-  if (input.ytdGrossPay < FUTA_WAGE_BASE) {
+  if (unemploymentTaxable && input.ytdGrossPay < FUTA_WAGE_BASE) {
     const futaTaxableAmount = Math.min(
       grossPay,
       FUTA_WAGE_BASE - input.ytdGrossPay

@@ -16,8 +16,6 @@ function makeInput(overrides: Partial<PayrollInput> = {}): PayrollInput {
     overtimeMultiplier: 1.5,
     w4FilingStatus: 'single',
     w4Allowances: 0,
-    federalTaxesWithheld: true,
-    stateTaxesWithheld: true,
     ytdGrossPay: 0,
     ytdSocialSecurity: 0,
     ytdMedicare: 0,
@@ -201,8 +199,8 @@ describe('Federal Income Tax', () => {
     expect(twoAllowances.federalIncomeTax).toBeLessThan(noAllowances.federalIncomeTax);
   });
 
-  it('does not withhold when federalTaxesWithheld is false', () => {
-    const result = calculatePayroll(makeInput({ federalTaxesWithheld: false }));
+  it('does not withhold when federalTaxability is exempt', () => {
+    const result = calculatePayroll(makeInput({ federalTaxability: 'exempt' }));
     expect(result.federalIncomeTax).toBe(0);
   });
 
@@ -243,8 +241,8 @@ describe('NY State Income Tax', () => {
     expect(married.stateIncomeTax).not.toBe(single.stateIncomeTax);
   });
 
-  it('does not withhold when stateTaxesWithheld is false', () => {
-    const result = calculatePayroll(makeInput({ stateTaxesWithheld: false }));
+  it('does not withhold when stateTaxability is exempt', () => {
+    const result = calculatePayroll(makeInput({ stateTaxability: 'exempt' }));
     expect(result.stateIncomeTax).toBe(0);
   });
 
@@ -755,8 +753,6 @@ describe('Realistic Scenario', () => {
         overtimeMultiplier: 1.5,
         w4FilingStatus: 'married',
         w4Allowances: 2,
-        federalTaxesWithheld: true,
-        stateTaxesWithheld: true,
         ytdGrossPay: 5000,
         ytdSocialSecurity: 310,
         ytdMedicare: 72.5,
