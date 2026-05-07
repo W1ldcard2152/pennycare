@@ -125,31 +125,29 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Calculate YTD totals for wage base limits
-      const ytdGrossPay = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.grossPay,
-        0
+      // Calculate YTD totals — see preview route for cutoff rationale.
+      const yearStart = new Date(Date.UTC(new Date(startDate).getUTCFullYear(), 0, 1));
+      const seedAsOf = employee.ytdSeedAsOfDate;
+      const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
+      const ytdRecords = employee.payrollRecords.filter(
+        (r) => r.payPeriodEnd > cutoff
       );
-      const ytdSocialSecurity = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.socialSecurity,
-        0
-      );
-      const ytdMedicare = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.medicare,
-        0
-      );
-      const ytdFederalTax = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.federalTax,
-        0
-      );
-      const ytdStateTax = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.stateTax,
-        0
-      );
-      const ytdNetPay = employee.payrollRecords.reduce(
-        (sum, r) => sum + r.netPay,
-        0
-      );
+      const ytdGrossPay =
+        (employee.ytdGrossPaySeed || 0) +
+        ytdRecords.reduce((sum, r) => sum + r.grossPay, 0);
+      const ytdSocialSecurity =
+        (employee.ytdSocialSecuritySeed || 0) +
+        ytdRecords.reduce((sum, r) => sum + r.socialSecurity, 0);
+      const ytdMedicare =
+        (employee.ytdMedicareSeed || 0) +
+        ytdRecords.reduce((sum, r) => sum + r.medicare, 0);
+      const ytdFederalTax =
+        (employee.ytdFederalIncomeTaxSeed || 0) +
+        ytdRecords.reduce((sum, r) => sum + r.federalTax, 0);
+      const ytdStateTax =
+        (employee.ytdStateIncomeTaxSeed || 0) +
+        ytdRecords.reduce((sum, r) => sum + r.stateTax, 0);
+      const ytdNetPay = ytdRecords.reduce((sum, r) => sum + r.netPay, 0);
 
       // Map employee deductions to calculation input format
       const deductions: EmployeeDeductionInput[] = employee.deductions.map((d) => ({

@@ -224,6 +224,20 @@ model Employee {
   // Pay frequency override (if different from company default)
   payFrequency      String?  // "weekly", "biweekly", "semimonthly", "monthly"
 
+  // YTD seed values for migration from a prior payroll service (e.g. Paychex).
+  // These represent year-to-date totals BEFORE this app processed any payroll
+  // for the employee. The calculator adds them to YTD-from-PayrollRecord so
+  // wage-base caps (SS $176,100, SUI $13k, FUTA $7k) work correctly mid-year.
+  // Set to 0 for new employees who started in this app from day one.
+  ytdSeedAsOfDate          DateTime? // Last pay period end covered by these seeds
+  ytdGrossPaySeed          Float     @default(0)
+  ytdSocialSecuritySeed    Float     @default(0)
+  ytdMedicareSeed          Float     @default(0)
+  ytdFederalIncomeTaxSeed  Float     @default(0)
+  ytdStateIncomeTaxSeed    Float     @default(0)
+  ytdPaidFamilyLeaveSeed   Float     @default(0)
+  ytdDisabilitySeed        Float     @default(0)
+
   // Relations
   timeEntries       TimeEntry[]
   deductions        EmployeeDeduction[]

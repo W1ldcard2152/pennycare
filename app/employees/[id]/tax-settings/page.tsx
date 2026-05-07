@@ -32,6 +32,16 @@ interface TaxSettings {
   // Disability & PFL
   disabilityTaxability?: string;
   paidFamilyLeaveTaxability?: string;
+
+  // YTD seed values for migration from another payroll service (e.g. Paychex)
+  ytdSeedAsOfDate?: string;
+  ytdGrossPaySeed?: number;
+  ytdSocialSecuritySeed?: number;
+  ytdMedicareSeed?: number;
+  ytdFederalIncomeTaxSeed?: number;
+  ytdStateIncomeTaxSeed?: number;
+  ytdPaidFamilyLeaveSeed?: number;
+  ytdDisabilitySeed?: number;
 }
 
 export default function TaxSettingsPage() {
@@ -79,6 +89,17 @@ export default function TaxSettingsPage() {
 
         disabilityTaxability: data.disabilityTaxability || 'taxable',
         paidFamilyLeaveTaxability: data.paidFamilyLeaveTaxability || 'taxable',
+
+        ytdSeedAsOfDate: data.ytdSeedAsOfDate
+          ? new Date(data.ytdSeedAsOfDate).toISOString().slice(0, 10)
+          : undefined,
+        ytdGrossPaySeed: data.ytdGrossPaySeed ?? 0,
+        ytdSocialSecuritySeed: data.ytdSocialSecuritySeed ?? 0,
+        ytdMedicareSeed: data.ytdMedicareSeed ?? 0,
+        ytdFederalIncomeTaxSeed: data.ytdFederalIncomeTaxSeed ?? 0,
+        ytdStateIncomeTaxSeed: data.ytdStateIncomeTaxSeed ?? 0,
+        ytdPaidFamilyLeaveSeed: data.ytdPaidFamilyLeaveSeed ?? 0,
+        ytdDisabilitySeed: data.ytdDisabilitySeed ?? 0,
       });
     } catch (error) {
       console.error('Error fetching employee:', error);
@@ -461,6 +482,132 @@ export default function TaxSettingsPage() {
                     </select>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Year-to-Date Migration */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold mb-2 text-amber-900">Year-to-Date Migration</h2>
+            <p className="text-sm text-amber-800 mb-4">
+              Enter year-to-date totals from your prior payroll service (e.g. Paychex) so wage-base caps
+              (Social Security $176,100; SUI $13,000; FUTA $7,000) calculate correctly mid-year. Use the
+              latest pay stub or Employee Earnings Record dated <strong>before</strong> your first run in
+              this app. Leave at $0 if the employee was first paid through this app.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  As of date
+                </label>
+                <input
+                  type="date"
+                  value={settings.ytdSeedAsOfDate || ''}
+                  onChange={(e) => setSettings({ ...settings, ytdSeedAsOfDate: e.target.value || undefined })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+                <p className="text-xs text-gray-600 mt-1">Last pay period end covered by these seeds</p>
+              </div>
+
+              <div className="hidden md:block" />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD Gross Earnings
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdGrossPaySeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdGrossPaySeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD Social Security Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdSocialSecuritySeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdSocialSecuritySeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD Medicare Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdMedicareSeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdMedicareSeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD Federal Income Tax Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdFederalIncomeTaxSeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdFederalIncomeTaxSeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD NY Income Tax Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdStateIncomeTaxSeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdStateIncomeTaxSeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD NY PFL Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdPaidFamilyLeaveSeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdPaidFamilyLeaveSeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  YTD NY Disability Withheld
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settings.ytdDisabilitySeed ?? 0}
+                  onChange={(e) => setSettings({ ...settings, ytdDisabilitySeed: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
               </div>
             </div>
           </div>

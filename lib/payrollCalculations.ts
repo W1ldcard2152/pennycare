@@ -93,8 +93,14 @@ export interface PayrollResult {
   socialSecurityEmployer: number;
   medicareEmployer: number;
   suiEmployer: number; // NY State Unemployment Insurance
+  nyRSFEmployer: number; // NY Re-employment Service Fund (0.075% on SUI-eligible wages)
   futaEmployer: number; // Federal Unemployment Tax
   totalEmployerCost: number;
+
+  // YTD wage tracking — used by the UI to show wage-base cap ratios.
+  // Caps: Social Security $176,100 / NY SUI $13,000 / FUTA $7,000 per employee per year.
+  ytdGrossPayBefore: number;
+  ytdGrossPayAfter: number;
 }
 
 // 2025 Tax Constants
@@ -111,7 +117,10 @@ const NY_SDI_ANNUAL_MAX = 31.20; // $31.20 per year max
 const NY_PFL_RATE = 0.00432; // 0.432% for 2026 (NY DFS rate decision)
 const NY_PFL_ANNUAL_MAX = 411.91; // 2026 max
 
-const NY_SUI_WAGE_BASE = 13000; // First $13,000 per employee in 2026
+// NY 2026 raised the SUI wage base to $17,600 (up from $12,800 in 2025) under the
+// 2025 budget bill — wage base now permanently indexed to 18% of state avg annual wage.
+const NY_SUI_WAGE_BASE = 17600;
+const NY_RSF_RATE = 0.00075; // NY Re-employment Service Fund — 0.075% of SUI-eligible wages
 const FUTA_WAGE_BASE = 7000; // First $7,000 per employee
 
 // NYC tax rates (simplified)
@@ -293,16 +302,19 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   // Net pay
   const netPay = grossPay - totalDeductions;
 
-  // Calculate employer SUI (only on first $13,000 per employee)
-  // Unemployment taxability gates both SUI (state) and FUTA (federal)
+  // Calculate employer SUI (only on first $13,000 per employee).
+  // The same eligible-wages calculation drives the NY Re-employment Service Fund (RSF).
+  // Unemployment taxability gates SUI, RSF, and FUTA.
   const unemploymentTaxable = isTaxable(input.unemploymentTaxability);
   let suiEmployer = 0;
+  let nyRSFEmployer = 0;
   if (unemploymentTaxable && input.ytdGrossPay < NY_SUI_WAGE_BASE) {
     const suiTaxableAmount = Math.min(
       grossPay,
       NY_SUI_WAGE_BASE - input.ytdGrossPay
     );
     suiEmployer = suiTaxableAmount * (input.suiRate / 100);
+    nyRSFEmployer = suiTaxableAmount * NY_RSF_RATE;
   }
 
   // Calculate employer FUTA (only on first $7,000 per employee)
@@ -321,6 +333,7 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     socialSecurityEmployer +
     medicareEmployer +
     suiEmployer +
+    nyRSFEmployer +
     futaEmployer;
 
   return {
@@ -346,8 +359,11 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     socialSecurityEmployer: roundCurrency(socialSecurityEmployer),
     medicareEmployer: roundCurrency(medicareEmployer),
     suiEmployer: roundCurrency(suiEmployer),
+    nyRSFEmployer: roundCurrency(nyRSFEmployer),
     futaEmployer: roundCurrency(futaEmployer),
     totalEmployerCost: roundCurrency(totalEmployerCost),
+    ytdGrossPayBefore: roundCurrency(input.ytdGrossPay),
+    ytdGrossPayAfter: roundCurrency(newYtdGross),
   };
 }
 

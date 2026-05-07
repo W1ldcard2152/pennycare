@@ -91,6 +91,7 @@ export default function PayrollPage() {
   const totalNet = payrollPreview.reduce((sum, p) => sum + p.netPay, 0);
   const totalDeductions = payrollPreview.reduce((sum, p) => sum + p.totalDeductions, 0);
   const totalEmployerCost = payrollPreview.reduce((sum, p) => sum + (p.details?.totalEmployerCost || 0), 0);
+  const totalCashRequired = totalGross + totalEmployerCost;
 
   return (
     <div className="px-4 sm:px-6 lg:px-8">
@@ -194,6 +195,23 @@ export default function PayrollPage() {
               icon={<UserIcon className="h-6 w-6 text-white" />}
               bgColor="bg-purple-500"
             />
+          </div>
+
+          {/* Total Employer Cash Requirement — gross pay + employer-side taxes */}
+          <div className="rounded-lg border-2 border-indigo-300 bg-indigo-50 p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wide text-indigo-900">
+                  Total Employer Cash Requirement
+                </p>
+                <p className="mt-1 text-xs text-indigo-700">
+                  Gross pay {formatCurrency(totalGross)} + employer taxes {formatCurrency(totalEmployerCost)} (FICA match, SUI, FUTA)
+                </p>
+              </div>
+              <p className="text-3xl font-bold text-indigo-900">
+                {formatCurrency(totalCashRequired)}
+              </p>
+            </div>
           </div>
 
           {/* Employee Payroll Cards */}
@@ -377,6 +395,11 @@ export default function PayrollPage() {
                             <span className="text-gray-600">Employer Social Security</span>
                             <span className="font-medium">{formatCurrency(employee.details.socialSecurityEmployer)}</span>
                           </div>
+                          <CapStatus
+                            label="SS wage base"
+                            ytd={employee.details.ytdGrossPayAfter}
+                            cap={176100}
+                          />
                           <div className="flex justify-between">
                             <span className="text-gray-600">Employer Medicare</span>
                             <span className="font-medium">{formatCurrency(employee.details.medicareEmployer)}</span>
@@ -385,10 +408,24 @@ export default function PayrollPage() {
                             <span className="text-gray-600">NY SUI (Unemployment)</span>
                             <span className="font-medium">{formatCurrency(employee.details.suiEmployer)}</span>
                           </div>
+                          <CapStatus
+                            label="NY SUI wage base"
+                            ytd={employee.details.ytdGrossPayAfter}
+                            cap={17600}
+                          />
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">NY Re-employment Service Fund</span>
+                            <span className="font-medium">{formatCurrency(employee.details.nyRSFEmployer)}</span>
+                          </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">FUTA (Federal Unemployment)</span>
                             <span className="font-medium">{formatCurrency(employee.details.futaEmployer)}</span>
                           </div>
+                          <CapStatus
+                            label="FUTA wage base"
+                            ytd={employee.details.ytdGrossPayAfter}
+                            cap={7000}
+                          />
                           <div className="flex justify-between border-t pt-2 font-semibold">
                             <span>Total Employer Cost</span>
                             <span className="text-purple-600">{formatCurrency(employee.details.totalEmployerCost)}</span>
@@ -445,6 +482,24 @@ export default function PayrollPage() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// Wage-base cap status line — shows whether YTD wages have reached a per-employee
+// withholding cap (SS $176,100, NY SUI $13,000, FUTA $7,000) so $0 amounts above
+// don't look like a bug.
+function CapStatus({ label, ytd, cap }: { label: string; ytd: number; cap: number }) {
+  const reached = ytd >= cap;
+  const display = Math.min(ytd, cap);
+  return (
+    <div className="flex justify-between pl-4 -mt-1 text-xs">
+      <span className={reached ? 'text-amber-700' : 'text-gray-500'}>
+        {reached ? 'Contribution Capped' : label}
+      </span>
+      <span className={reached ? 'text-amber-700 font-medium' : 'text-gray-500'}>
+        {formatCurrency(display)} / {formatCurrency(cap)}
+      </span>
     </div>
   );
 }

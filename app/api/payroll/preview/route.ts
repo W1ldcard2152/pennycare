@@ -97,19 +97,26 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // Calculate YTD totals for wage base limits
-        const ytdGrossPay = employee.payrollRecords.reduce(
-          (sum, r) => sum + r.grossPay,
-          0
+        // Calculate YTD totals for wage base limits.
+        // Records to include = records with payPeriodEnd strictly after the cutoff,
+        // where cutoff = max(ytdSeedAsOfDate, start-of-current-year). This prevents
+        // (a) double-counting wages already covered by the seed and (b) pulling in
+        // prior-year records since wage-base caps reset each January 1.
+        const yearStart = new Date(Date.UTC(new Date(startDate).getUTCFullYear(), 0, 1));
+        const seedAsOf = employee.ytdSeedAsOfDate;
+        const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
+        const ytdRecords = employee.payrollRecords.filter(
+          (r) => r.payPeriodEnd > cutoff
         );
-        const ytdSocialSecurity = employee.payrollRecords.reduce(
-          (sum, r) => sum + r.socialSecurity,
-          0
-        );
-        const ytdMedicare = employee.payrollRecords.reduce(
-          (sum, r) => sum + r.medicare,
-          0
-        );
+        const ytdGrossPay =
+          (employee.ytdGrossPaySeed || 0) +
+          ytdRecords.reduce((sum, r) => sum + r.grossPay, 0);
+        const ytdSocialSecurity =
+          (employee.ytdSocialSecuritySeed || 0) +
+          ytdRecords.reduce((sum, r) => sum + r.socialSecurity, 0);
+        const ytdMedicare =
+          (employee.ytdMedicareSeed || 0) +
+          ytdRecords.reduce((sum, r) => sum + r.medicare, 0);
 
         // Map employee deductions to calculation input format
         const deductions: EmployeeDeductionInput[] = employee.deductions.map((d) => ({

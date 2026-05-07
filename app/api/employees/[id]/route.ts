@@ -154,6 +154,33 @@ export async function PUT(
 
         // Paid Family Leave
         paidFamilyLeaveTaxability: data.paidFamilyLeaveTaxability || null,
+
+        // YTD seed values for migration. Only update when explicitly provided
+        // so non-tax-settings edits don't accidentally zero them out.
+        ...(data.ytdSeedAsOfDate !== undefined && {
+          ytdSeedAsOfDate: data.ytdSeedAsOfDate ? new Date(data.ytdSeedAsOfDate) : null,
+        }),
+        ...(data.ytdGrossPaySeed !== undefined && {
+          ytdGrossPaySeed: parseFloat(data.ytdGrossPaySeed) || 0,
+        }),
+        ...(data.ytdSocialSecuritySeed !== undefined && {
+          ytdSocialSecuritySeed: parseFloat(data.ytdSocialSecuritySeed) || 0,
+        }),
+        ...(data.ytdMedicareSeed !== undefined && {
+          ytdMedicareSeed: parseFloat(data.ytdMedicareSeed) || 0,
+        }),
+        ...(data.ytdFederalIncomeTaxSeed !== undefined && {
+          ytdFederalIncomeTaxSeed: parseFloat(data.ytdFederalIncomeTaxSeed) || 0,
+        }),
+        ...(data.ytdStateIncomeTaxSeed !== undefined && {
+          ytdStateIncomeTaxSeed: parseFloat(data.ytdStateIncomeTaxSeed) || 0,
+        }),
+        ...(data.ytdPaidFamilyLeaveSeed !== undefined && {
+          ytdPaidFamilyLeaveSeed: parseFloat(data.ytdPaidFamilyLeaveSeed) || 0,
+        }),
+        ...(data.ytdDisabilitySeed !== undefined && {
+          ytdDisabilitySeed: parseFloat(data.ytdDisabilitySeed) || 0,
+        }),
       },
       include: {
         paymentInfo: true,

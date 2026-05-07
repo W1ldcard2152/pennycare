@@ -592,17 +592,17 @@ describe('Employer Costs', () => {
     expect(result.suiEmployer).toBe(21);
   });
 
-  it('stops SUI when YTD exceeds wage base', () => {
+  it('stops SUI when YTD exceeds wage base ($17,600 in 2026)', () => {
     const result = calculatePayroll(
-      makeInput({ ytdGrossPay: 13000, suiRate: 2.1 })
+      makeInput({ ytdGrossPay: 17600, suiRate: 2.1 })
     );
     expect(result.suiEmployer).toBe(0);
   });
 
   it('only taxes remaining SUI-eligible wages', () => {
-    // YTD $12,500 + $1,000 gross → only $500 is SUI-taxable
+    // YTD $17,100 + $1,000 gross → only $500 is SUI-taxable
     const result = calculatePayroll(
-      makeInput({ ytdGrossPay: 12500, suiRate: 2.1 })
+      makeInput({ ytdGrossPay: 17100, suiRate: 2.1 })
     );
     expect(result.suiEmployer).toBe(roundCurrency(500 * 0.021));
   });
@@ -624,16 +624,28 @@ describe('Employer Costs', () => {
     expect(result.futaEmployer).toBe(roundCurrency(1000 * 0.006));
   });
 
-  it('totalEmployerCost sums SS + Medicare + SUI + FUTA', () => {
+  it('totalEmployerCost sums SS + Medicare + SUI + RSF + FUTA', () => {
     const result = calculatePayroll(makeInput());
     expect(result.totalEmployerCost).toBe(
       roundCurrency(
         result.socialSecurityEmployer +
           result.medicareEmployer +
           result.suiEmployer +
+          result.nyRSFEmployer +
           result.futaEmployer
       )
     );
+  });
+
+  it('NY RSF charges 0.075% on SUI-eligible wages', () => {
+    // Default makeInput has ytdGrossPay: 0, so the full $1000 is SUI-eligible.
+    const result = calculatePayroll(makeInput());
+    expect(result.nyRSFEmployer).toBe(roundCurrency(1000 * 0.00075));
+  });
+
+  it('RSF stops once SUI wage base ($17,600 in 2026) is reached', () => {
+    const result = calculatePayroll(makeInput({ ytdGrossPay: 17600 }));
+    expect(result.nyRSFEmployer).toBe(0);
   });
 });
 
