@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { PDFDocument } from 'pdf-lib';
+import { startOfDay, endOfDay, formatDate } from '@/lib/date-utils';
 import fs from 'fs';
 import path from 'path';
 
@@ -41,12 +42,18 @@ function formatEIN(ein: string): string {
   return ein;
 }
 
-// Get quarter date range
-function getQuarterDateRange(year: number, quarter: number): { start: Date; end: Date } {
-  const startMonth = (quarter - 1) * 3;
-  const start = new Date(year, startMonth, 1);
-  const end = new Date(year, startMonth + 3, 0); // Last day of quarter
-  return { start, end };
+// Get quarter date range — timezone-safe, returns UTC noon-anchored boundaries.
+function getQuarterDateRange(year: number, quarter: number): { start: Date; end: Date; startStr: string; endStr: string } {
+  const startMonth = String((quarter - 1) * 3 + 1).padStart(2, '0');
+  const endMonth = String(quarter * 3).padStart(2, '0');
+  const lastDay = new Date(Date.UTC(year, quarter * 3, 0)).getUTCDate();
+  const startStr = `${year}-${startMonth}-01`;
+  const endStr = `${year}-${endMonth}-${String(lastDay).padStart(2, '0')}`;
+  return { start: startOfDay(startStr), end: endOfDay(endStr), startStr, endStr };
+}
+
+function quarterToString(q: number): string {
+  return `Q${q}`;
 }
 
 // GET /api/tax-forms/941 - Generate Form 941 PDF
@@ -67,7 +74,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Quarter must be between 1 and 4' }, { status: 400 });
     }
 
-    const { start: dateStart, end: dateEnd } = getQuarterDateRange(year, quarter);
+    const { start: dateStart, end: dateEnd, startStr: dateStartStr, endStr: dateEndStr } = getQuarterDateRange(year, quarter);
 
     // Get company info
     const company = await prisma.company.findUnique({
@@ -158,6 +165,76 @@ export async function GET(request: NextRequest) {
     // Line 10 (no adjustments in this implementation)
     totals.totalTaxesAfterAdjustments = totals.totalTaxesBeforeAdjustments;
 
+    // Line 13 — Total deposits made for this quarter against federal_941.
+    // Sum the recorded deposits (excluding voided ones).
+    const quarterStr = quarterToString(quarter);
+    const depositRows = await prisma.taxDeposit.findMany({
+      where: {
+        companyId: companyId!,
+        taxAuthority: 'federal_941',
+        taxPeriodYear: year,
+        taxPeriodQuarter: quarterStr,
+        status: 'recorded',
+      },
+      orderBy: { depositDate: 'asc' },
+      select: {
+        id: true,
+        depositDate: true,
+        paymentMethod: true,
+        confirmationNumber: true,
+        federalIncomeTaxWithheld: true,
+        socialSecurityTax: true,
+        medicareTax: true,
+        additionalMedicareTax: true,
+      },
+    });
+    const totalDeposits = depositRows.reduce(
+      (s, d) =>
+        s +
+        d.federalIncomeTaxWithheld +
+        d.socialSecurityTax +
+        d.medicareTax +
+        d.additionalMedicareTax,
+      0
+    );
+
+    // Line 14 / 15 — balance due or overpayment
+    const balance = totals.totalTaxesAfterAdjustments - totalDeposits;
+    const balanceDue = balance > 0 ? balance : 0;
+    const overpayment = balance < 0 ? -balance : 0;
+
+    // Schedule B — daily liability for semi-weekly depositors. Group payroll
+    // records by payDate and sum the federal tax components for each day.
+    const liabilityByDay = new Map<string, number>();
+    for (const r of records) {
+      const day = formatDate(r.payDate);
+      const dayLiability =
+        r.federalTax +
+        r.socialSecurity +
+        (r.employerSocialSecurity || 0) +
+        r.medicare +
+        (r.employerMedicare || 0) +
+        (r.additionalMedicare || 0);
+      liabilityByDay.set(day, (liabilityByDay.get(day) || 0) + dayLiability);
+    }
+    const scheduleB = Array.from(liabilityByDay.entries())
+      .map(([payDate, liability]) => ({
+        payDate,
+        liability: Math.round(liability * 100) / 100,
+      }))
+      .sort((a, b) => a.payDate.localeCompare(b.payDate));
+    const scheduleBTotal = scheduleB.reduce((s, d) => s + d.liability, 0);
+
+    // Filing status — has the user marked this quarter's 941 as filed?
+    const filing = await prisma.taxFiling.findFirst({
+      where: {
+        companyId: companyId!,
+        formType: '941',
+        year,
+        quarter,
+      },
+    });
+
     // If preview mode, return the data as JSON
     if (preview) {
       return NextResponse.json({
@@ -165,8 +242,8 @@ export async function GET(request: NextRequest) {
         quarter,
         year,
         dateRange: {
-          start: dateStart.toISOString().split('T')[0],
-          end: dateEnd.toISOString().split('T')[0],
+          start: dateStartStr,
+          end: dateEndStr,
         },
         totals: {
           employeeCount: totals.employeeCount,
@@ -180,7 +257,41 @@ export async function GET(request: NextRequest) {
           additionalMedicareTax: Math.round(totals.additionalMedicareTax * 100) / 100,
           totalTaxesBeforeAdjustments: Math.round(totals.totalTaxesBeforeAdjustments * 100) / 100,
           totalTaxesAfterAdjustments: Math.round(totals.totalTaxesAfterAdjustments * 100) / 100,
+          totalDeposits: Math.round(totalDeposits * 100) / 100,
+          balanceDue: Math.round(balanceDue * 100) / 100,
+          overpayment: Math.round(overpayment * 100) / 100,
         },
+        deposits: depositRows.map((d) => ({
+          id: d.id,
+          depositDate: formatDate(d.depositDate),
+          paymentMethod: d.paymentMethod,
+          confirmationNumber: d.confirmationNumber,
+          amount: Math.round(
+            (d.federalIncomeTaxWithheld +
+              d.socialSecurityTax +
+              d.medicareTax +
+              d.additionalMedicareTax) *
+              100
+          ) / 100,
+        })),
+        scheduleB: {
+          dailyLiabilities: scheduleB,
+          total: Math.round(scheduleBTotal * 100) / 100,
+          // Sanity check — Schedule B total should equal Line 12 (totalTaxesAfterAdjustments)
+          matchesLine12: Math.abs(scheduleBTotal - totals.totalTaxesAfterAdjustments) < 0.01,
+        },
+        filing: filing
+          ? {
+              id: filing.id,
+              status: filing.status,
+              filedDate: filing.filedDate ? formatDate(filing.filedDate) : null,
+              confirmationNumber: filing.confirmationNumber,
+              filingMethod: filing.filingMethod,
+              totalLiability: filing.totalLiability,
+              totalDeposits: filing.totalDeposits,
+              balanceDue: filing.balanceDue,
+            }
+          : null,
         recordCount: records.length,
       });
     }

@@ -24,7 +24,7 @@ export const ACCOUNT_GROUPS: Record<AccountType, string[]> = {
     'Vehicles',
   ],
   liability: [
-    'Credit Card Liabilities',
+    'Payroll Liabilities',
     'Other Current Liabilities',
     'Mortgages, notes, bonds payable in less than 1 year',
     'Current Liabilities',
@@ -42,9 +42,8 @@ export const ACCOUNT_GROUPS: Record<AccountType, string[]> = {
     'Cost of Goods Sold',
     'COGS Purchases',
     'COGS other costs',
-    'Shop Supplies',
-    'Repairs',
     'Salaries and wages',
+    'Repairs',
     'Rent',
     'Taxes and Licenses',
     'Interest',
@@ -68,7 +67,7 @@ export const GROUP_CODE_RANGES: Record<string, { start: number; end: number; inc
   'Vehicles': { start: 1700, end: 1999, increment: 10 },
 
   // Liabilities
-  'Credit Card Liabilities': { start: 2100, end: 2199, increment: 10 },
+  'Payroll Liabilities': { start: 2100, end: 2199, increment: 10 },
   'Other Current Liabilities': { start: 2200, end: 2299, increment: 10 },
   'Mortgages, notes, bonds payable in less than 1 year': { start: 2300, end: 2399, increment: 10 },
   'Current Liabilities': { start: 2400, end: 2499, increment: 10 },
@@ -88,9 +87,9 @@ export const GROUP_CODE_RANGES: Record<string, { start: number; end: number; inc
   'COGS other costs': { start: 5200, end: 5999, increment: 10 },
 
   // Expenses (6000s+)
-  'Shop Supplies': { start: 6000, end: 6049, increment: 10 },
-  'Repairs': { start: 6050, end: 6099, increment: 10 },
-  'Salaries and wages': { start: 6100, end: 6199, increment: 10 },
+  // 6000-6099 = Salaries and wages (matches createPayrollJournalEntries)
+  'Salaries and wages': { start: 6000, end: 6099, increment: 10 },
+  'Repairs': { start: 6100, end: 6149, increment: 10 },
   'Rent': { start: 6200, end: 6249, increment: 10 },
   'Taxes and Licenses': { start: 6250, end: 6399, increment: 10 },
   'Interest': { start: 6400, end: 6449, increment: 10 },
@@ -137,10 +136,19 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   // LIABILITIES
   // ══════════════════════════════════════════════════════════════════════════════
 
-  // ── Credit Card Liabilities ──
-  { code: '2100', name: 'Credit Card', type: 'liability', accountGroup: 'Credit Card Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2110', name: 'Other Current Liability', type: 'liability', accountGroup: 'Credit Card Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2120', name: 'Payable Bond/Trust Fund Credit Account', type: 'liability', accountGroup: 'Credit Card Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
+  // ── Payroll Liabilities ──
+  // These codes match createPayrollJournalEntries() in lib/bookkeeping.ts.
+  // 2100 holds the employees' claim against the employer for net pay until paid.
+  // 2110-2180 hold tax and benefit withholdings until remitted to the agencies.
+  { code: '2100', name: 'Net Pay Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Net pay owed to employees after a payroll run, cleared when direct deposits are pulled' },
+  { code: '2110', name: 'Federal Tax Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Federal income tax withheld from employee paychecks, cleared by EFTPS deposits' },
+  { code: '2120', name: 'NY State Tax Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY state income tax withheld, cleared by NYS-1 / NYS-45 remittances' },
+  { code: '2130', name: 'Social Security Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Combined employee + employer SS tax, cleared by 941 deposits' },
+  { code: '2140', name: 'Medicare Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Combined employee + employer Medicare tax, cleared by 941 deposits' },
+  { code: '2150', name: 'FUTA Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Employer FUTA tax, cleared by 940 deposits' },
+  { code: '2160', name: 'NY SUI Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY State Unemployment Insurance (employer), cleared quarterly via NYS-45' },
+  { code: '2170', name: 'NY SDI Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY State Disability Insurance withheld from employees' },
+  { code: '2180', name: 'NY PFL Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY Paid Family Leave withheld from employees' },
 
   // ── Other Current Liabilities ──
   { code: '2200', name: 'Sales Tax Payable', type: 'liability', accountGroup: 'Other Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
@@ -148,17 +156,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
 
   // ── Mortgages, notes, bonds payable in less than 1 year ──
   { code: '2300', name: 'Mortgages, notes, bonds payable in less than 1 year', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in less than 1 year', taxLine: 'B/S-Liabs/Eq: Mortgages/notes < 1 yr' },
-
-  // ── Current Liabilities ──
-  { code: '2400', name: 'Payroll Liabilities', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Wages, taxes, and withholdings payable' },
-  { code: '2410', name: 'Federal Tax Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2420', name: 'NY State Tax Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2430', name: 'Social Security Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2440', name: 'Medicare Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2450', name: 'FUTA Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2460', name: 'NY SUI Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2470', name: 'NY SDI Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2480', name: 'NY PFL Payable', type: 'liability', accountGroup: 'Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
 
   // ── Mortgages, notes, bonds payable in 1 year or more ──
   { code: '2500', name: 'eBay Managed Payments Reserve Hold Funds', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
@@ -211,22 +208,19 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   // EXPENSES - OPERATING EXPENSES
   // ══════════════════════════════════════════════════════════════════════════════
 
-  // ── Shop Supplies ──
-  { code: '6000', name: 'Shop Supplies', type: 'expense', accountGroup: 'Shop Supplies', taxLine: 'Sch C: Supplies' },
+  // ── Salaries and wages ──
+  // Codes 6000/6010 are wired into createPayrollJournalEntries — do not change.
+  { code: '6000', name: 'Wages Expense', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Sch C: Wages paid', description: 'Gross wages paid to employees (debited on every payroll run)' },
+  { code: '6010', name: 'Employer Payroll Tax Expense', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Taxes and licenses', description: 'Employer-side payroll taxes — SS match, Medicare match, FUTA, SUI (debited on every payroll run)' },
 
   // ── Repairs ──
-  { code: '6050', name: 'Repairs', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
-  { code: '6060', name: 'Equipment Maintenance', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
-
-  // ── Salaries and wages ──
-  { code: '6100', name: 'Payroll Expenses-Employee Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Sch C: Wages paid' },
-  { code: '6110', name: 'Payroll Expenses/Officer Wages', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Comp. of Officers: M-3 Detail' },
+  { code: '6100', name: 'Repairs', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
+  { code: '6110', name: 'Equipment Maintenance', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
 
   // ── Rent ──
   { code: '6200', name: 'Rent Expense', type: 'expense', accountGroup: 'Rent', taxLine: 'Rents' },
 
   // ── Taxes and Licenses ──
-  { code: '6250', name: 'Payroll Expenses Employer Taxes', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
   { code: '6260', name: 'Payroll Withhold Taxes', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
   { code: '6270', name: 'Taxes - Federal', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
   { code: '6280', name: 'New York Taxes Expense', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
@@ -251,6 +245,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
   { code: '6650', name: 'Professional Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6670', name: 'Shipping & Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6690', name: 'Software', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
+  { code: '6705', name: 'Shop Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Supplies' },
   { code: '6710', name: 'Small Tools and Equipment', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6730', name: 'Tow & Hwy Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
   { code: '6740', name: 'Misc. Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },

@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const includeVoided = searchParams.get('includeVoided') === 'true';
+    const unpaidOnly = searchParams.get('unpaidOnly') === 'true';
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
     // Build where clause
@@ -24,6 +25,9 @@ export async function GET(request: NextRequest) {
     // Default: only active records. Allow includeVoided=true to see all.
     if (!includeVoided) {
       where.status = 'active';
+    }
+    if (unpaidOnly) {
+      where.isPaid = false;
     }
 
     if (employeeId) {

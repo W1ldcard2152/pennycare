@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/payrollCalculations';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/payroll/preview - Generate payroll preview
 export async function GET(request: NextRequest) {
@@ -41,15 +42,15 @@ export async function GET(request: NextRequest) {
         timeEntries: {
           where: {
             date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
+              gte: startOfDay(startDate),
+              lte: endOfDay(endDate),
             },
           },
         },
         payrollRecords: {
           where: {
             payPeriodEnd: {
-              lt: new Date(startDate),
+              lt: startOfDay(startDate),
             },
           },
           orderBy: {

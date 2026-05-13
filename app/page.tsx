@@ -62,6 +62,18 @@ interface DashboardData {
     unreconciledAccounts: UnreconciledAccount[];
     payrollMayBeNeeded: boolean;
     employeeCount: number;
+    nys1Alert: {
+      shouldFile: boolean;
+      reason: 'threshold_reached' | 'monthly_cadence' | null;
+      threshold: number;
+      unfiledWithholding: number;
+      earliestUnfiledPayDate: string | null;
+      latestUnfiledPayDate: string | null;
+      legalDeadline: string | null;
+      lastFiledDate: string | null;
+      daysSinceLastFiling: number | null;
+      daysSinceEarliestUnfiledPayroll: number | null;
+    } | null;
   };
   recentActivity: RecentActivity[];
 }
@@ -162,7 +174,8 @@ export default function Dashboard() {
   const hasAttentionItems =
     data.pendingItems.unbookedTransactions > 0 ||
     data.pendingItems.unreconciledAccounts.length > 0 ||
-    data.pendingItems.payrollMayBeNeeded;
+    data.pendingItems.payrollMayBeNeeded ||
+    !!data.pendingItems.nys1Alert?.shouldFile;
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6">
@@ -415,6 +428,52 @@ export default function Dashboard() {
                   <span className="text-blue-600 text-sm font-medium">Reconcile &rarr;</span>
                 </Link>
               )}
+
+              {/* NYS-1 Filing Reminder */}
+              {data.pendingItems.nys1Alert?.shouldFile && (() => {
+                const a = data.pendingItems.nys1Alert;
+                const isThreshold = a.reason === 'threshold_reached';
+                const colorBg = isThreshold ? 'bg-red-50' : 'bg-amber-50';
+                const colorBorder = isThreshold ? 'border-red-200' : 'border-amber-200';
+                const colorHover = isThreshold ? 'hover:bg-red-100' : 'hover:bg-amber-100';
+                const colorIcon = isThreshold ? 'text-red-500' : 'text-amber-500';
+                const colorLink = isThreshold ? 'text-red-600' : 'text-amber-600';
+                const title = isThreshold
+                  ? 'NYS-1 filing required'
+                  : 'Time for your monthly NYS-1 filing';
+                return (
+                  <Link
+                    href="/payroll/tax-liability"
+                    className={`flex items-center justify-between p-3 ${colorBg} border ${colorBorder} rounded-lg ${colorHover} transition-colors`}
+                  >
+                    <div className="flex items-center">
+                      <ExclamationTriangleIcon className={`h-6 w-6 ${colorIcon} mr-3`} />
+                      <div>
+                        <p className="font-medium text-gray-900">{title}</p>
+                        <p className="text-sm text-gray-600">
+                          ${a.unfiledWithholding.toFixed(2)} NY tax unfiled
+                          {isThreshold && a.legalDeadline && (
+                            <> — deadline{' '}
+                              <span className="font-medium">
+                                {new Date(a.legalDeadline + 'T12:00:00Z').toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                  timeZone: 'UTC',
+                                })}
+                              </span>
+                            </>
+                          )}
+                          {!isThreshold && a.daysSinceLastFiling != null && (
+                            <> — last filed {a.daysSinceLastFiling} days ago</>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`${colorLink} text-sm font-medium`}>View &rarr;</span>
+                  </Link>
+                );
+              })()}
 
               {/* Payroll Reminder */}
               {data.pendingItems.payrollMayBeNeeded && (

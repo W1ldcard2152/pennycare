@@ -61,6 +61,18 @@ interface TaxLiabilityData {
     form941DueDate: string;
     nys45DueDate: string;
   };
+  nys1Alert?: {
+    shouldFile: boolean;
+    reason: 'threshold_reached' | 'monthly_cadence' | null;
+    threshold: number;
+    unfiledWithholding: number;
+    earliestUnfiledPayDate: string | null;
+    latestUnfiledPayDate: string | null;
+    legalDeadline: string | null;
+    lastFiledDate: string | null;
+    daysSinceLastFiling: number | null;
+    daysSinceEarliestUnfiledPayroll: number | null;
+  };
   recordCount: number;
 }
 
@@ -71,6 +83,7 @@ export default function TaxLiabilityPage() {
   const [data, setData] = useState<TaxLiabilityData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showMarkFiled, setShowMarkFiled] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -256,6 +269,82 @@ export default function TaxLiabilityPage() {
                 </div>
               </div>
             </div>
+
+            {/* NYS-1 Filing Alert */}
+            {data.nys1Alert?.shouldFile && (
+              <div
+                className={`border-b p-4 print:p-3 ${
+                  data.nys1Alert.reason === 'threshold_reached' ? 'bg-red-50' : 'bg-amber-50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <ExclamationTriangleIcon
+                    className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
+                      data.nys1Alert.reason === 'threshold_reached' ? 'text-red-600' : 'text-amber-600'
+                    }`}
+                  />
+                  <div className="flex-1 text-sm">
+                    {data.nys1Alert.reason === 'threshold_reached' && (
+                      <>
+                        <p className="font-semibold text-red-900">
+                          NYS-1 filing required — unfiled NY income tax withheld
+                          ({formatCurrency(data.nys1Alert.unfiledWithholding)}) is at or above the{' '}
+                          {formatCurrency(data.nys1Alert.threshold)} threshold.
+                        </p>
+                        <p className="mt-1 text-red-800">
+                          File Form NYS-1 and remit within{' '}
+                          <span className="font-medium">5 business days</span> of each payroll once
+                          the threshold is crossed.
+                          {data.nys1Alert.latestUnfiledPayDate && data.nys1Alert.legalDeadline && (
+                            <>
+                              {' '}Latest payroll:{' '}
+                              <span className="font-medium">{formatDate(data.nys1Alert.latestUnfiledPayDate)}</span>{' '}
+                              — deadline:{' '}
+                              <span className="font-medium">{formatDate(data.nys1Alert.legalDeadline)}</span>.
+                            </>
+                          )}
+                        </p>
+                      </>
+                    )}
+                    {data.nys1Alert.reason === 'monthly_cadence' && (
+                      <>
+                        <p className="font-semibold text-amber-900">
+                          Time for your monthly NYS-1 filing.
+                        </p>
+                        <p className="mt-1 text-amber-800">
+                          Unfiled NY tax withheld:{' '}
+                          <span className="font-medium">{formatCurrency(data.nys1Alert.unfiledWithholding)}</span>.{' '}
+                          {data.nys1Alert.lastFiledDate ? (
+                            <>
+                              Last filed{' '}
+                              {data.nys1Alert.daysSinceLastFiling != null && (
+                                <span className="font-medium">{data.nys1Alert.daysSinceLastFiling} days ago</span>
+                              )}{' '}
+                              ({formatDate(data.nys1Alert.lastFiledDate)}).
+                            </>
+                          ) : (
+                            <>
+                              Earliest unfiled payroll is from{' '}
+                              {data.nys1Alert.earliestUnfiledPayDate && (
+                                <span className="font-medium">{formatDate(data.nys1Alert.earliestUnfiledPayDate)}</span>
+                              )}{' '}
+                              ({data.nys1Alert.daysSinceEarliestUnfiledPayroll ?? 0} days ago).
+                            </>
+                          )}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowMarkFiled(true)}
+                    className="rounded-md bg-white border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 print:hidden"
+                  >
+                    Mark NYS-1 filed
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Deposit Due Dates Alert */}
             <div className="border-b bg-yellow-50 p-4 print:p-3">
@@ -536,6 +625,150 @@ export default function TaxLiabilityPage() {
           }
         }
       `}</style>
+
+      {showMarkFiled && data?.nys1Alert && (
+        <MarkNys1FiledModal
+          unfiledAmount={data.nys1Alert.unfiledWithholding}
+          latestPayDate={data.nys1Alert.latestUnfiledPayDate}
+          onClose={() => setShowMarkFiled(false)}
+          onSaved={() => {
+            setShowMarkFiled(false);
+            fetchData();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MarkNys1FiledModal({
+  unfiledAmount,
+  latestPayDate,
+  onClose,
+  onSaved,
+}: {
+  unfiledAmount: number;
+  latestPayDate: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [filedDate, setFiledDate] = useState(today);
+  const [periodEndDate, setPeriodEndDate] = useState(latestPayDate || today);
+  const [amountRemitted, setAmountRemitted] = useState(unfiledAmount.toFixed(2));
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/payroll/nys1-filings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filedDate, periodEndDate, amountRemitted, notes }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to record filing');
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to record filing');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 print:hidden">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+      >
+        <h3 className="text-lg font-semibold text-gray-900">Record NYS-1 filing</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Logging a filing clears the alert until the next monthly cadence or threshold trigger.
+        </p>
+
+        {error && (
+          <div className="mt-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Date filed</label>
+            <input
+              type="date"
+              value={filedDate}
+              onChange={(e) => setFiledDate(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Period end (last payroll covered)
+            </label>
+            <input
+              type="date"
+              value={periodEndDate}
+              onChange={(e) => setPeriodEndDate(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Subsequent payrolls will count toward the next filing.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Amount remitted</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amountRemitted}
+              onChange={(e) => setAmountRemitted(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Notes <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. confirmation #, payment method"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save filing'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -65,8 +65,9 @@ const sections: NavSection[] = [
     name: 'Payroll',
     icon: BanknotesIcon,
     items: [
+      { name: 'Payroll Dashboard', href: '/payroll', icon: BanknotesIcon },
       { name: 'Employees', href: '/employees', icon: UserGroupIcon },
-      { name: 'Run Payroll', href: '/payroll', icon: CurrencyDollarIcon },
+      { name: 'Run Payroll', href: '/payroll/run', icon: CurrencyDollarIcon },
       { name: 'Time Tracking', href: '/time-tracking', icon: ClockIcon },
     ],
   },
@@ -78,6 +79,8 @@ const sections: NavSection[] = [
       { name: 'Journal Entries', href: '/bookkeeping/journal-entries', icon: PencilSquareIcon },
       { name: 'Reconciliation', href: '/bookkeeping/reconciliation', icon: CheckBadgeIcon },
       { name: 'Vendors', href: '/bookkeeping/vendors', icon: BuildingStorefrontIcon },
+      { name: 'Tax Deposits', href: '/bookkeeping/tax-deposits', icon: BuildingLibraryIcon },
+      { name: 'Tax Filings', href: '/bookkeeping/tax-filings', icon: DocumentDuplicateIcon },
     ],
   },
   {

@@ -27,8 +27,8 @@ interface Company {
   workersCompPolicy: string | null;
   workersCompCarrier: string | null;
   bankName: string | null;
-  bankRoutingNumberEncrypted: string | null;
-  bankAccountNumberEncrypted: string | null;
+  bankRoutingNumber: string | null;
+  bankAccountNumber: string | null;
   defaultPTODays: number | null;
   defaultSickDays: number | null;
   ptoAccrualEnabled: boolean;
@@ -91,8 +91,8 @@ export default function SettingsPage() {
         workersCompPolicy: data.workersCompPolicy || '',
         workersCompCarrier: data.workersCompCarrier || '',
         bankName: data.bankName || '',
-        bankRoutingNumberEncrypted: data.bankRoutingNumberEncrypted || '',
-        bankAccountNumberEncrypted: data.bankAccountNumberEncrypted || '',
+        bankRoutingNumber: data.bankRoutingNumber || '',
+        bankAccountNumber: data.bankAccountNumber || '',
         defaultPTODays: data.defaultPTODays ?? 0,
         defaultSickDays: data.defaultSickDays ?? 5,
         ptoAccrualHoursEarned: data.ptoAccrualHoursEarned ?? 1,
@@ -741,12 +741,11 @@ function PayrollSettings({
             </label>
             <input
               type="text"
-              value={company.bankRoutingNumberEncrypted || ''}
-              onChange={(e) => updateField('bankRoutingNumberEncrypted', e.target.value)}
+              value={company.bankRoutingNumber || ''}
+              onChange={(e) => updateField('bankRoutingNumber', e.target.value)}
               placeholder="9 digits"
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <p className="mt-1 text-sm text-yellow-600">Note: Encryption not yet implemented</p>
           </div>
 
           <div>
@@ -755,14 +754,135 @@ function PayrollSettings({
             </label>
             <input
               type="text"
-              value={company.bankAccountNumberEncrypted || ''}
-              onChange={(e) => updateField('bankAccountNumberEncrypted', e.target.value)}
+              value={company.bankAccountNumber || ''}
+              onChange={(e) => updateField('bankAccountNumber', e.target.value)}
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <p className="mt-1 text-sm text-yellow-600">Note: Encryption not yet implemented</p>
           </div>
+
+          <p className="text-xs text-gray-500 sm:col-span-2">
+            Routing and account numbers are AES-encrypted at rest using
+            <code className="mx-1 rounded bg-gray-100 px-1 py-0.5">ENCRYPTION_KEY</code>
+            from your environment.
+          </p>
         </div>
       </div>
+
+      <PayrollBackfillCard />
+    </div>
+  );
+}
+
+function PayrollBackfillCard() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<null | {
+    dryRun?: boolean;
+    totalRecordsScanned: number;
+    alreadyCovered: number;
+    groupsToBackfill: number;
+    journalEntriesCreated?: number;
+    results: Array<{
+      payDate: string;
+      recordCount: number;
+      created: boolean;
+      journalEntryId?: string;
+      journalEntryNumber?: number;
+      error?: string;
+    }>;
+  }>(null);
+  const [err, setErr] = useState('');
+
+  const run = async (dryRun: boolean) => {
+    if (!dryRun && !confirm(
+      'Create journal entries for all historical payroll runs that don\'t have one yet? ' +
+      'This is safe to run multiple times — it skips records already on the books.'
+    )) return;
+    setRunning(true);
+    setErr('');
+    setResult(null);
+    try {
+      const res = await fetch('/api/payroll/backfill-journal-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Backfill failed');
+      setResult(body);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Backfill failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg bg-white p-6 shadow">
+      <h3 className="mb-1 text-lg font-semibold text-gray-900">Payroll Bookkeeping Maintenance</h3>
+      <p className="mb-4 text-sm text-gray-600">
+        Backfills journal entries for any historical payroll runs that don&apos;t yet have one
+        on the books. Useful after migrating from another payroll service, or after fixing
+        the chart of accounts so future runs map to the right accounts. Safe to run
+        multiple times — it only creates entries for runs that don&apos;t already have them.
+      </p>
+
+      {err && (
+        <div className="mb-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          {err}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => run(true)}
+          disabled={running}
+          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {running ? 'Scanning…' : 'Preview (Dry Run)'}
+        </button>
+        <button
+          type="button"
+          onClick={() => run(false)}
+          disabled={running}
+          className="rounded-md bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {running ? 'Working…' : 'Run Backfill'}
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+          <p className="font-medium text-gray-900">
+            {result.dryRun ? 'Preview' : 'Result'}: {result.groupsToBackfill} payroll run{result.groupsToBackfill !== 1 ? 's' : ''} to backfill
+            {' '}({result.alreadyCovered} record{result.alreadyCovered !== 1 ? 's' : ''} already covered)
+          </p>
+          {!result.dryRun && (
+            <p className="mt-1 text-gray-700">
+              Created <span className="font-medium">{result.journalEntriesCreated}</span> journal{' '}
+              {result.journalEntriesCreated === 1 ? 'entry' : 'entries'}.
+            </p>
+          )}
+          {result.results.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs text-gray-600 max-h-40 overflow-y-auto">
+              {result.results.map((r, i) => (
+                <li key={i} className="flex justify-between">
+                  <span>
+                    {r.payDate} — {r.recordCount} record{r.recordCount !== 1 ? 's' : ''}
+                  </span>
+                  <span className={r.error ? 'text-red-600' : r.created ? 'text-green-700' : 'text-gray-500'}>
+                    {r.error
+                      ? r.error
+                      : r.created
+                        ? `JE #${r.journalEntryNumber} created`
+                        : 'would be created'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -797,42 +917,17 @@ function TaxRemindersSettings({
     }
   };
 
-  const handleMarkFiled = async (formType: string, year: number, quarter: number | null) => {
-    try {
-      const res = await fetch('/api/tax-filings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          formType,
-          year,
-          quarter,
-          status: 'filed',
-          filedDate: new Date().toISOString(),
-        }),
-      });
-      if (res.ok) {
-        fetchFilings();
-      }
-    } catch {
-      alert('Failed to update filing status');
-    }
-  };
-
-  const handleUnfile = async (id: string) => {
-    try {
-      const res = await fetch(`/api/tax-filings/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchFilings();
-      }
-    } catch {
-      alert('Failed to update filing status');
-    }
-  };
-
   const getFilingStatus = (formType: string, year: number, quarter: number | null) => {
     return filings.find(
       f => f.formType === formType && f.year === year && f.quarter === quarter
     );
+  };
+
+  // Build the link to manage a specific filing. Maps form types to their page.
+  const formManageHref = (formType: string, year: number, quarter: number | null): string => {
+    if (formType === '941') return `/tax-forms/941?year=${year}&quarter=${quarter ?? 1}`;
+    if (formType === 'nys45') return `/tax-forms/nys-45?year=${year}&quarter=${quarter ?? 1}`;
+    return '/tax-forms';
   };
 
   // Build the forms grid for the current year
@@ -885,12 +980,25 @@ function TaxRemindersSettings({
         </div>
       </div>
 
-      {/* Filing Status */}
+      {/* Filing Status — read-only summary. Marking/unmarking happens on each
+          form's page (e.g. Tax Forms → 941) so the reconciliation guard is
+          in front of every "Mark Filed" action. */}
       <div className="rounded-lg bg-white p-6 shadow">
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Filing Status ({currentYear})</h3>
-        <p className="mb-4 text-sm text-gray-600">
-          Mark forms as filed to dismiss their reminders.
-        </p>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Filing Status ({currentYear})</h3>
+            <p className="text-sm text-gray-600">
+              Mark filings filed from each form&apos;s page — the books-vs-filing
+              reconciliation check runs there. Use the link in each row to manage.
+            </p>
+          </div>
+          <a
+            href="/bookkeeping/tax-filings"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            View All Filings →
+          </a>
+        </div>
 
         {loadingFilings ? (
           <div className="text-gray-500 text-sm">Loading filing status...</div>
@@ -899,38 +1007,32 @@ function TaxRemindersSettings({
             {formRows.map((form) => (
               <div key={form.formType} className="border rounded-lg p-4">
                 <h4 className="text-sm font-semibold text-gray-900 mb-3">{form.label}</h4>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-2">
                   {form.periods.map((period) => {
                     const filing = getFilingStatus(form.formType, currentYear, period.quarter);
                     const isFiled = filing?.status === 'filed';
-
+                    const href = formManageHref(form.formType, currentYear, period.quarter);
+                    const hasFormPage = form.formType === '941' || form.formType === 'nys45';
                     return (
                       <div
                         key={`${form.formType}-${period.label}`}
-                        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                        className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm ${
                           isFiled
                             ? 'border-green-200 bg-green-50 text-green-800'
                             : 'border-gray-200 bg-gray-50 text-gray-700'
                         }`}
                       >
                         <span className="font-medium">{period.label}</span>
-                        {isFiled ? (
-                          <>
-                            <span className="text-green-600">Filed</span>
-                            <button
-                              onClick={() => handleUnfile(filing!.id)}
-                              className="text-xs text-gray-500 hover:text-red-600 underline"
-                            >
-                              Undo
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={() => handleMarkFiled(form.formType, currentYear, period.quarter)}
+                        <span className={isFiled ? 'text-green-600' : 'text-gray-500'}>
+                          {isFiled ? 'Filed' : 'Not filed'}
+                        </span>
+                        {hasFormPage && (
+                          <a
+                            href={href}
                             className="text-xs text-blue-600 hover:text-blue-800 underline"
                           >
-                            Mark Filed
-                          </button>
+                            Manage →
+                          </a>
                         )}
                       </div>
                     );

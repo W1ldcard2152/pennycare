@@ -2,6 +2,7 @@ import { prisma } from './db';
 import { startOfDay, endOfDay } from './date-utils';
 import { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS } from './default-chart-of-accounts';
 import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
+import type { Prisma } from '@prisma/client';
 
 // Re-export for backward compatibility
 export { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS };
@@ -259,6 +260,51 @@ export async function createOpeningBalanceEntry(
 // ============================================
 
 /**
+ * Look up the given account codes for a company; create any that don't exist
+ * using the definitions in DEFAULT_CHART_OF_ACCOUNTS. Throws if a code isn't
+ * in the default chart (i.e. the caller asked for an account this helper
+ * doesn't know how to create).
+ *
+ * Used by createPayrollJournalEntries so payroll-side accounts auto-materialize
+ * for any company on first payroll run, regardless of whether they seeded the
+ * default chart explicitly.
+ */
+async function ensurePayrollAccounts(
+  companyId: string,
+  codes: string[],
+): Promise<Map<string, string>> {
+  const existing = await prisma.account.findMany({
+    where: { companyId, code: { in: codes } },
+    select: { id: true, code: true },
+  });
+  const acctMap = new Map(existing.map((a) => [a.code, a.id]));
+
+  const missing = codes.filter((c) => !acctMap.has(c));
+  for (const code of missing) {
+    const def = DEFAULT_CHART_OF_ACCOUNTS.find((a) => a.code === code);
+    if (!def) {
+      throw new Error(`No default chart definition for required payroll account ${code}`);
+    }
+    const created = await prisma.account.create({
+      data: {
+        companyId,
+        code: def.code,
+        name: def.name,
+        type: def.type,
+        accountGroup: def.accountGroup,
+        description: def.description || null,
+        taxLine: def.taxLine || null,
+        isActive: true,
+      },
+      select: { id: true, code: true },
+    });
+    acctMap.set(created.code, created.id);
+    console.log(`Auto-created payroll account ${code} (${def.name}) for company ${companyId}`);
+  }
+  return acctMap;
+}
+
+/**
  * Creates journal entries from a batch of processed payroll records.
  * Called after payroll processing to automatically record the accounting impact.
  *
@@ -327,19 +373,11 @@ export async function createPayrollJournalEntries(
     }
   );
 
-  // Look up account IDs by code
+  // Look up account IDs by code; auto-create any missing payroll accounts from
+  // the default chart so payroll JE creation works even for companies that
+  // never seeded defaults or are mid-migration.
   const accountCodes = ['6000', '6010', '2100', '2110', '2120', '2130', '2140', '2150', '2160', '2170', '2180'];
-  const accounts = await prisma.account.findMany({
-    where: { companyId, code: { in: accountCodes } },
-  });
-  const acctMap = new Map(accounts.map((a) => [a.code, a.id]));
-
-  // Check all required accounts exist
-  const missing = accountCodes.filter((c) => !acctMap.has(c));
-  if (missing.length > 0) {
-    console.warn(`Missing accounts for payroll journal entry: ${missing.join(', ')}. Skipping journal entry creation.`);
-    return null;
-  }
+  const acctMap = await ensurePayrollAccounts(companyId, accountCodes);
 
   // Build journal entry lines (only include non-zero amounts)
   const lines: JournalEntryLineInput[] = [];
@@ -914,6 +952,271 @@ export async function createYearEndClosingEntry(
       expenseAccountsClosed: expenseAccounts.length,
     },
   };
+}
+
+// ============================================
+// TAX DEPOSIT HELPERS
+// ============================================
+
+/**
+ * Sum the credit balance currently sitting in the federal payroll tax liability
+ * accounts. Returns positive numbers representing what's owed (credits − debits).
+ * Posted journal entries only; voided entries are excluded.
+ *
+ * Liability accounts (credit-normal):
+ *   2110 Federal Tax Payable        — federal income tax withheld
+ *   2130 Social Security Payable    — combined employee + employer
+ *   2140 Medicare Payable           — combined employee + employer
+ *
+ * Pass `sinceDate` to scope to a specific quarter; omit to read the full
+ * outstanding balance through `asOfDate`.
+ */
+export async function getFederalPayrollLiability(
+  companyId: string,
+  asOfDate: Date,
+  sinceDate?: Date,
+): Promise<{
+  federalIncomeTaxWithheld: number;
+  socialSecurityTax: number;
+  medicareTax: number;
+  additionalMedicareTax: number;
+  total: number;
+}> {
+  const accounts = await prisma.account.findMany({
+    where: { companyId, code: { in: ['2110', '2130', '2140'] } },
+    select: { id: true, code: true },
+  });
+  const codeById = new Map(accounts.map((a) => [a.id, a.code]));
+
+  const dateFilter: Prisma.DateTimeFilter = { lte: asOfDate };
+  if (sinceDate) dateFilter.gte = sinceDate;
+
+  const lines = await prisma.journalEntryLine.findMany({
+    where: {
+      accountId: { in: accounts.map((a) => a.id) },
+      journalEntry: {
+        companyId,
+        status: 'posted',
+        date: dateFilter,
+      },
+    },
+    select: { accountId: true, debit: true, credit: true },
+  });
+
+  // Credit balance = credits − debits (liability is credit-normal)
+  const balanceByCode = new Map<string, number>([
+    ['2110', 0],
+    ['2130', 0],
+    ['2140', 0],
+  ]);
+  for (const line of lines) {
+    const code = codeById.get(line.accountId);
+    if (!code) continue;
+    balanceByCode.set(code, (balanceByCode.get(code) || 0) + line.credit - line.debit);
+  }
+
+  // Additional Medicare lives in 2140 alongside regular Medicare in our chart;
+  // we don't have a separate account, so we report it as 0 and let the user
+  // record it in the deposit form if applicable.
+  const result = {
+    federalIncomeTaxWithheld: round2(Math.max(0, balanceByCode.get('2110') || 0)),
+    socialSecurityTax: round2(Math.max(0, balanceByCode.get('2130') || 0)),
+    medicareTax: round2(Math.max(0, balanceByCode.get('2140') || 0)),
+    additionalMedicareTax: 0,
+    total: 0,
+  };
+  result.total = round2(
+    result.federalIncomeTaxWithheld + result.socialSecurityTax + result.medicareTax + result.additionalMedicareTax
+  );
+  return result;
+}
+
+/**
+ * Same as getFederalPayrollLiability but for NY State payroll tax accounts:
+ *   2120 State Tax Payable          — NY income tax withheld
+ *   2160 SUI Payable
+ *   2170 NY SDI Payable
+ *   2180 NY PFL Payable
+ */
+export async function getNYStatePayrollLiability(
+  companyId: string,
+  asOfDate: Date,
+  sinceDate?: Date,
+): Promise<{
+  stateIncomeTaxWithheld: number;
+  stateUnemploymentTax: number;
+  stateDisabilityTax: number;
+  statePaidFamilyLeaveTax: number;
+  total: number;
+}> {
+  const accounts = await prisma.account.findMany({
+    where: { companyId, code: { in: ['2120', '2160', '2170', '2180'] } },
+    select: { id: true, code: true },
+  });
+  const codeById = new Map(accounts.map((a) => [a.id, a.code]));
+
+  const dateFilter: Prisma.DateTimeFilter = { lte: asOfDate };
+  if (sinceDate) dateFilter.gte = sinceDate;
+
+  const lines = await prisma.journalEntryLine.findMany({
+    where: {
+      accountId: { in: accounts.map((a) => a.id) },
+      journalEntry: {
+        companyId,
+        status: 'posted',
+        date: dateFilter,
+      },
+    },
+    select: { accountId: true, debit: true, credit: true },
+  });
+
+  const balanceByCode = new Map<string, number>([
+    ['2120', 0],
+    ['2160', 0],
+    ['2170', 0],
+    ['2180', 0],
+  ]);
+  for (const line of lines) {
+    const code = codeById.get(line.accountId);
+    if (!code) continue;
+    balanceByCode.set(code, (balanceByCode.get(code) || 0) + line.credit - line.debit);
+  }
+
+  const result = {
+    stateIncomeTaxWithheld: round2(Math.max(0, balanceByCode.get('2120') || 0)),
+    stateUnemploymentTax: round2(Math.max(0, balanceByCode.get('2160') || 0)),
+    stateDisabilityTax: round2(Math.max(0, balanceByCode.get('2170') || 0)),
+    statePaidFamilyLeaveTax: round2(Math.max(0, balanceByCode.get('2180') || 0)),
+    total: 0,
+  };
+  result.total = round2(
+    result.stateIncomeTaxWithheld +
+      result.stateUnemploymentTax +
+      result.stateDisabilityTax +
+      result.statePaidFamilyLeaveTax
+  );
+  return result;
+}
+
+/**
+ * Build the journal entry for a tax deposit. Debits each populated liability
+ * account (skips zero amounts) and credits the chosen bank account.
+ *
+ * Federal 941 deposit:
+ *   DEBIT  2110 Federal Tax Payable      (federalIncomeTaxWithheld)
+ *   DEBIT  2130 Social Security Payable  (socialSecurityTax)
+ *   DEBIT  2140 Medicare Payable         (medicareTax + additionalMedicareTax)
+ *     CREDIT  [bank account]              (totalAmount)
+ *
+ * NY State deposit:
+ *   DEBIT  2120 State Tax Payable        (stateIncomeTaxWithheld)
+ *   DEBIT  2160 SUI Payable              (stateUnemploymentTax)
+ *   DEBIT  2170 NY SDI Payable           (stateDisabilityTax)
+ *   DEBIT  2180 NY PFL Payable           (statePaidFamilyLeaveTax)
+ *     CREDIT  [bank account]              (totalAmount)
+ *
+ * source='tax_deposit', sourceId=taxDepositId. Returns the created journal
+ * entry id so the caller can write it back onto the TaxDeposit row.
+ *
+ * Must be called inside a Prisma `$transaction` callback (`tx`).
+ */
+export async function createTaxDepositJournalEntry(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  taxDepositId: string,
+  taxDeposit: {
+    taxAuthority: string;
+    depositDate: Date;
+    formReference: string;
+    taxPeriodYear: number;
+    taxPeriodQuarter: string | null;
+    federalIncomeTaxWithheld: number;
+    socialSecurityTax: number;
+    medicareTax: number;
+    additionalMedicareTax: number;
+    stateIncomeTaxWithheld: number;
+    stateUnemploymentTax: number;
+    stateDisabilityTax: number;
+    statePaidFamilyLeaveTax: number;
+    totalAmount: number;
+  },
+  bankAccountId: string,
+): Promise<{ journalEntryId: string }> {
+  // Resolve the liability account ids by code.
+  const liabilityCodes = ['2110', '2120', '2130', '2140', '2160', '2170', '2180'];
+  const liabilityAccounts = await tx.account.findMany({
+    where: { companyId, code: { in: liabilityCodes } },
+    select: { id: true, code: true },
+  });
+  const idByCode = new Map(liabilityAccounts.map((a) => [a.code, a.id]));
+
+  const lines: { accountId: string; description: string; debit: number; credit: number }[] = [];
+
+  const debit = (code: string, label: string, amount: number) => {
+    if (amount <= 0) return;
+    const accountId = idByCode.get(code);
+    if (!accountId) {
+      throw new Error(`Liability account ${code} (${label}) not found in chart of accounts`);
+    }
+    lines.push({ accountId, description: label, debit: round2(amount), credit: 0 });
+  };
+
+  debit('2110', 'Federal income tax withheld', taxDeposit.federalIncomeTaxWithheld);
+  debit('2130', 'Social Security tax', taxDeposit.socialSecurityTax);
+  // Regular and additional Medicare both live in 2140
+  debit('2140', 'Medicare tax', taxDeposit.medicareTax + taxDeposit.additionalMedicareTax);
+  debit('2120', 'NY income tax withheld', taxDeposit.stateIncomeTaxWithheld);
+  debit('2160', 'NY unemployment tax', taxDeposit.stateUnemploymentTax);
+  debit('2170', 'NY disability tax', taxDeposit.stateDisabilityTax);
+  debit('2180', 'NY paid family leave tax', taxDeposit.statePaidFamilyLeaveTax);
+
+  if (lines.length === 0) {
+    throw new Error('Cannot create tax deposit journal entry: no liability components have a positive amount');
+  }
+
+  // Credit the bank account for the total
+  lines.push({
+    accountId: bankAccountId,
+    description: `${taxDeposit.formReference} deposit${taxDeposit.taxPeriodQuarter ? ` (${taxDeposit.taxPeriodQuarter} ${taxDeposit.taxPeriodYear})` : ` (${taxDeposit.taxPeriodYear})`}`,
+    debit: 0,
+    credit: round2(taxDeposit.totalAmount),
+  });
+
+  // Sanity-check the entry balances
+  const totalDebits = lines.reduce((s, l) => s + l.debit, 0);
+  const totalCredits = lines.reduce((s, l) => s + l.credit, 0);
+  if (Math.abs(totalDebits - totalCredits) > 0.01) {
+    throw new Error(
+      `Tax deposit journal entry doesn't balance: debits ${totalDebits.toFixed(2)} vs credits ${totalCredits.toFixed(2)}`
+    );
+  }
+
+  // Increment the company's journal entry counter
+  const company = await tx.company.update({
+    where: { id: companyId },
+    data: { nextJournalEntryNumber: { increment: 1 } },
+    select: { nextJournalEntryNumber: true },
+  });
+  const entryNumber = company.nextJournalEntryNumber - 1;
+
+  const memo = taxDeposit.taxPeriodQuarter
+    ? `${taxDeposit.taxPeriodQuarter} ${taxDeposit.taxPeriodYear} ${taxDeposit.formReference} deposit`
+    : `${taxDeposit.taxPeriodYear} ${taxDeposit.formReference} deposit`;
+
+  const entry = await tx.journalEntry.create({
+    data: {
+      companyId,
+      entryNumber,
+      date: taxDeposit.depositDate,
+      memo,
+      source: 'tax_deposit',
+      sourceId: taxDepositId,
+      lines: { create: lines },
+    },
+    select: { id: true },
+  });
+
+  return { journalEntryId: entry.id };
 }
 
 // ============================================

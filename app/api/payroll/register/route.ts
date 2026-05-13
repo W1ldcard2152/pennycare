@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/payroll/register - Get payroll register for a specific pay period
 export async function GET(request: NextRequest) {
@@ -38,10 +39,10 @@ export async function GET(request: NextRequest) {
       where: {
         companyId: companyId!,
         payPeriodStart: {
-          gte: new Date(startDate),
+          gte: startOfDay(startDate),
         },
         payPeriodEnd: {
-          lte: new Date(endDate),
+          lte: endOfDay(endDate),
         },
       },
       include: {

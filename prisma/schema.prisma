@@ -139,6 +139,8 @@ model Company {
   reconciliations   Reconciliation[]
   closedPeriods     ClosedPeriod[]
   backups           Backup[]
+  nys1Filings       Nys1Filing[]
+  taxDeposits       TaxDeposit[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -496,6 +498,23 @@ model AuditLog {
   @@index([userId])
 }
 
+// Tracks NYS-1 (NY State withholding tax) filings so the dashboard alert can
+// clear after each filing and re-fire on the next monthly cadence or threshold
+// crossing. Required when quarterly NY income tax withheld reaches $700, but
+// many small employers also choose to file monthly for predictability.
+model Nys1Filing {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  filedDate       DateTime // When the user filed (noon UTC)
+  periodEndDate   DateTime // Last pay date covered by this filing
+  amountRemitted  Float    // Total NY state + city tax remitted on this filing
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, filedDate])
+}
+
 // ============================================
 // BOOKKEEPING MODELS
 // ============================================
@@ -639,16 +658,85 @@ model TaxFiling {
   year               Int
   quarter            Int?      // 1-4 for quarterly forms, null for annual
 
-  status             String    @default("pending") // "pending", "filed", "extended"
+  status             String    @default("pending") // "pending", "filed", "extended", "amended", "voided"
   filedDate          DateTime?
   confirmationNumber String?
   notes              String?
+
+  // Reconciliation snapshot at filing time. Populated when the user marks the
+  // form as filed; lets the historical record stand even if liability/deposit
+  // figures are later recomputed.
+  totalLiability     Float?    // What the form said was owed
+  totalDeposits      Float?    // What the form said was already deposited
+  balanceDue         Float?    // Liability − deposits (negative = overpayment)
+  filingMethod       String?   // "EFTPS", "IRS e-file", "NY Online Services", "Mail", "Other"
+  attachmentPath     String?   // Saved PDF of the filed return
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   @@unique([companyId, formType, year, quarter])
   @@index([companyId])
+}
+
+// Records a payment of payroll tax to the IRS or NY State (EFTPS deposit, IRS
+// Direct Pay, NY Online Services, etc.). Creates a journal entry that debits
+// the liability accounts and credits the bank account, so the books reflect
+// the cleared liability. Form 941 reconciliation reads the sum of these
+// deposits against the calculated quarterly liability.
+//
+// Always recorded manually after the actual payment to the IRS/state — never
+// auto-created from payroll.
+model TaxDeposit {
+  id                       String    @id @default(cuid())
+  companyId                String
+  company                  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // What this deposit is for
+  taxAuthority             String    // "federal_941", "federal_940", "ny_withholding", "ny_sui", "ny_dbl_pfl"
+  formReference            String    // "Form 941", "NYS-1", "NYS-45", "Form 940", etc.
+  taxPeriodYear            Int
+  taxPeriodQuarter         String?   // "Q1", "Q2", "Q3", "Q4" — null for annual deposits
+
+  // Payment details
+  depositDate              DateTime
+  paymentMethod            String    // "EFTPS", "IRS Direct Pay", "NY Online Services", "Check", "Other"
+  confirmationNumber       String?
+
+  // Federal 941 breakdown
+  federalIncomeTaxWithheld Float     @default(0)
+  socialSecurityTax        Float     @default(0)  // Combined employee + employer
+  medicareTax              Float     @default(0)  // Combined employee + employer
+  additionalMedicareTax    Float     @default(0)
+
+  // State breakdown
+  stateIncomeTaxWithheld   Float     @default(0)
+  stateUnemploymentTax     Float     @default(0)
+  stateDisabilityTax       Float     @default(0)
+  statePaidFamilyLeaveTax  Float     @default(0)
+
+  totalAmount              Float     // Sum of the breakdown — validated on save
+
+  notes                    String?
+  attachmentPath           String?   // Confirmation PDF/screenshot
+
+  // Bookkeeping link (1:1 with the journal entry that cleared the liability)
+  journalEntryId           String?   @unique
+  journalEntry             JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  // Status & audit
+  status                   String    @default("recorded") // "recorded", "voided"
+  voidedAt                 DateTime?
+  voidedBy                 String?
+  voidReason               String?
+
+  createdAt                DateTime  @default(now())
+  createdBy                String
+  updatedAt                DateTime  @updatedAt
+
+  @@index([companyId, taxPeriodYear, taxPeriodQuarter])
+  @@index([companyId, taxAuthority])
+  @@index([companyId, depositDate])
 }
 
 // ============================================
@@ -679,6 +767,7 @@ model JournalEntry {
   lines            JournalEntryLine[]
   ebaySales        EbaySale[]
   statementImports StatementImport[]
+  taxDeposit       TaxDeposit?
 
   // Reconciliation relation (for adjusting entries)
   reconciliationAdjustments Reconciliation[]

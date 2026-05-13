@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { getAccountBalances, generateProfitAndLoss } from '@/lib/bookkeeping';
 import { formatDate } from '@/lib/date-utils';
+import { computeNys1Alert } from '@/lib/nys1';
 
 // GET /api/bookkeeping/dashboard
 // Returns all data needed for the dashboard in a single call
@@ -32,6 +33,7 @@ export async function GET() {
       recentAuditLogs,
       employeeCount,
       lastPayrollDate,
+      nys1Alert,
     ] = await Promise.all([
       // Account balances (all time, as of today)
       getAccountBalances(companyId!, undefined, todayStr),
@@ -104,6 +106,9 @@ export async function GET() {
         orderBy: { payDate: 'desc' },
         select: { payDate: true },
       }),
+
+      // NYS-1 alert (threshold reached, monthly cadence, or first filing of quarter)
+      computeNys1Alert(companyId!, now),
     ]);
 
     // Filter to key accounts for balance display
@@ -188,6 +193,8 @@ export async function GET() {
     const payrollMayBeNeeded = employeeCount > 0 &&
       (!lastPayrollDate?.payDate || lastPayrollDate.payDate < fourteenDaysAgo);
 
+    // nys1Alert is computed by computeNys1Alert above and surfaced in pendingItems.
+
     // Format month name for display
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'];
@@ -220,6 +227,7 @@ export async function GET() {
       },
       pendingItems: {
         unbookedTransactions: unbookedCount,
+        nys1Alert,
         unreconciledAccounts,
         payrollMayBeNeeded,
         employeeCount,

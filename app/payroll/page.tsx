@@ -1,559 +1,526 @@
 'use client';
 
-import { useState } from 'react';
-import { CalendarIcon, CurrencyDollarIcon, ChevronDownIcon, ChevronUpIcon, UserIcon, ClockIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
-import { formatCurrency, PayrollResult } from '@/lib/payrollCalculations';
+import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
+import {
+  BanknotesIcon,
+  ClockIcon,
+  DocumentTextIcon,
+  ClipboardDocumentListIcon,
+  CalculatorIcon,
+  UsersIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+} from '@heroicons/react/24/outline';
+import { formatCurrency } from '@/lib/payrollCalculations';
 
-interface PayrollPreview {
-  employeeId: string;
-  employeeName: string;
-  employeeNumber: string;
-  position: string;
-  payType: string;
-  hourlyRate: number | null;
-  annualSalary: number | null;
-  regularHours: number | null;
-  overtimeHours: number | null;
+interface UnpaidRecord {
+  id: string;
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  payDate: string;
   grossPay: number;
   netPay: number;
-  totalDeductions: number;
-  details: PayrollResult;
-}
-
-export default function PayrollPage() {
-  const [selectedWeek, setSelectedWeek] = useState<Date>(getStartOfWeek(new Date()));
-  const [payrollPreview, setPayrollPreview] = useState<PayrollPreview[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
-
-  const generatePreview = async () => {
-    setLoading(true);
-    try {
-      const startDate = formatDate(selectedWeek);
-      const endDate = formatDate(getEndOfWeek(selectedWeek));
-
-      const res = await fetch(`/api/payroll/preview?startDate=${startDate}&endDate=${endDate}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setPayrollPreview(data);
-      } else {
-        console.error('Unexpected response:', data);
-        alert(data.error || 'Failed to generate preview');
-      }
-    } catch (error) {
-      console.error('Error generating preview:', error);
-    } finally {
-      setLoading(false);
-    }
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    employeeNumber: string;
   };
-
-  const processPayroll = async () => {
-    if (!confirm('Are you sure you want to process payroll for this week? This action cannot be undone.')) {
-      return;
-    }
-
-    setProcessing(true);
-    try {
-      const startDate = formatDate(selectedWeek);
-      const endDate = formatDate(getEndOfWeek(selectedWeek));
-
-      const res = await fetch('/api/payroll/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate,
-          endDate,
-          payDate: formatDate(getEndOfWeek(selectedWeek)),
-        }),
-      });
-
-      if (res.ok) {
-        alert('Payroll processed successfully!');
-        setPayrollPreview([]);
-      } else {
-        const error = await res.json();
-        alert(`Error: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error processing payroll:', error);
-      alert('Failed to process payroll');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const toggleEmployeeDetails = (employeeId: string) => {
-    setExpandedEmployee(expandedEmployee === employeeId ? null : employeeId);
-  };
-
-  const totalGross = payrollPreview.reduce((sum, p) => sum + p.grossPay, 0);
-  const totalNet = payrollPreview.reduce((sum, p) => sum + p.netPay, 0);
-  const totalDeductions = payrollPreview.reduce((sum, p) => sum + p.totalDeductions, 0);
-  const totalEmployerCost = payrollPreview.reduce((sum, p) => sum + (p.details?.totalEmployerCost || 0), 0);
-  const totalCashRequired = totalGross + totalEmployerCost;
-
-  return (
-    <div className="px-4 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Payroll</h1>
-          <p className="mt-2 text-gray-600">
-            Process payroll and manage employee payments for New York State
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <a
-            href="/payroll/register"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Payroll Register
-          </a>
-          <a
-            href="/payroll/tax-liability"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Tax Liability
-          </a>
-          <a
-            href="/payroll/history"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Payroll History
-          </a>
-        </div>
-      </div>
-
-      {/* Week Selector */}
-      <div className="mb-6 rounded-lg bg-white p-6 shadow">
-        <h2 className="mb-4 text-lg font-semibold">Select Pay Period</h2>
-        <div className="flex flex-wrap items-center gap-4">
-          <button
-            onClick={() => setSelectedWeek(addWeeks(selectedWeek, -1))}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Previous Week
-          </button>
-          <div className="flex items-center space-x-2 text-lg font-semibold">
-            <CalendarIcon className="h-5 w-5" />
-            <span>
-              {formatDateDisplay(selectedWeek)} - {formatDateDisplay(getEndOfWeek(selectedWeek))}
-            </span>
-          </div>
-          <button
-            onClick={() => setSelectedWeek(addWeeks(selectedWeek, 1))}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Next Week
-          </button>
-          <button
-            onClick={() => setSelectedWeek(getStartOfWeek(new Date()))}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            Current Week
-          </button>
-        </div>
-
-        <div className="mt-4">
-          <button
-            onClick={generatePreview}
-            disabled={loading}
-            className="rounded-lg bg-green-600 px-6 py-2 text-white hover:bg-green-700 disabled:bg-gray-400"
-          >
-            {loading ? 'Generating...' : 'Generate Payroll Preview'}
-          </button>
-        </div>
-      </div>
-
-      {/* Payroll Preview */}
-      {payrollPreview.length > 0 && (
-        <div className="space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard
-              title="Gross Pay"
-              amount={totalGross}
-              icon={<CurrencyDollarIcon className="h-6 w-6 text-white" />}
-              bgColor="bg-blue-500"
-            />
-            <SummaryCard
-              title="Total Deductions"
-              amount={totalDeductions}
-              icon={<DocumentTextIcon className="h-6 w-6 text-white" />}
-              bgColor="bg-orange-500"
-            />
-            <SummaryCard
-              title="Net Pay"
-              amount={totalNet}
-              icon={<CurrencyDollarIcon className="h-6 w-6 text-white" />}
-              bgColor="bg-green-500"
-            />
-            <SummaryCard
-              title="Total Employer Cost"
-              amount={totalEmployerCost}
-              icon={<UserIcon className="h-6 w-6 text-white" />}
-              bgColor="bg-purple-500"
-            />
-          </div>
-
-          {/* Total Employer Cash Requirement — gross pay + employer-side taxes */}
-          <div className="rounded-lg border-2 border-indigo-300 bg-indigo-50 p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wide text-indigo-900">
-                  Total Employer Cash Requirement
-                </p>
-                <p className="mt-1 text-xs text-indigo-700">
-                  Gross pay {formatCurrency(totalGross)} + employer taxes {formatCurrency(totalEmployerCost)} (FICA match, SUI, FUTA)
-                </p>
-              </div>
-              <p className="text-3xl font-bold text-indigo-900">
-                {formatCurrency(totalCashRequired)}
-              </p>
-            </div>
-          </div>
-
-          {/* Employee Payroll Cards */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900">Employee Payroll Details</h3>
-
-            {payrollPreview.map((employee) => (
-              <div key={employee.employeeId} className="overflow-hidden rounded-lg bg-white shadow">
-                {/* Employee Header */}
-                <div
-                  className="flex cursor-pointer items-center justify-between bg-gray-50 px-6 py-4 hover:bg-gray-100"
-                  onClick={() => toggleEmployeeDetails(employee.employeeId)}
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-                      <UserIcon className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-900">{employee.employeeName}</h4>
-                      <p className="text-sm text-gray-500">
-                        {employee.position} | #{employee.employeeNumber} |{' '}
-                        {employee.payType === 'salary'
-                          ? `${formatCurrency(employee.annualSalary || 0)}/yr`
-                          : `${formatCurrency(employee.hourlyRate || 0)}/hr`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-6">
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Gross</p>
-                      <p className="font-semibold text-gray-900">{formatCurrency(employee.grossPay)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Net</p>
-                      <p className="font-semibold text-green-600">{formatCurrency(employee.netPay)}</p>
-                    </div>
-                    {expandedEmployee === employee.employeeId ? (
-                      <ChevronUpIcon className="h-5 w-5 text-gray-400" />
-                    ) : (
-                      <ChevronDownIcon className="h-5 w-5 text-gray-400" />
-                    )}
-                  </div>
-                </div>
-
-                {/* Expanded Details */}
-                {expandedEmployee === employee.employeeId && employee.details && (
-                  <div className="border-t border-gray-200 px-6 py-4">
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                      {/* Earnings */}
-                      <div>
-                        <h5 className="mb-3 font-semibold text-gray-900 border-b pb-2">Earnings</h5>
-                        <div className="space-y-2 text-sm">
-                          {employee.payType === 'salary' ? (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Weekly Salary ({formatCurrency((employee.annualSalary || 0) / 52)}/wk)</span>
-                              <span className="font-medium">{formatCurrency(employee.details.regularPay)}</span>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Regular Hours ({employee.regularHours} hrs)</span>
-                                <span className="font-medium">{formatCurrency(employee.details.regularPay)}</span>
-                              </div>
-                              {(employee.overtimeHours || 0) > 0 && (
-                                <div className="flex justify-between">
-                                  <span className="text-gray-600">Overtime Hours ({employee.overtimeHours} hrs)</span>
-                                  <span className="font-medium">{formatCurrency(employee.details.overtimePay)}</span>
-                                </div>
-                              )}
-                            </>
-                          )}
-                          <div className="flex justify-between border-t pt-2 font-semibold">
-                            <span>Gross Pay</span>
-                            <span>{formatCurrency(employee.details.grossPay)}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Pre-Tax Deductions */}
-                      <div>
-                        <h5 className="mb-3 font-semibold text-gray-900 border-b pb-2">Pre-Tax Deductions</h5>
-                        <div className="space-y-2 text-sm">
-                          {employee.details.preTaxDeductions.length > 0 ? (
-                            <>
-                              {employee.details.preTaxDeductions.map((d, idx) => (
-                                <div key={idx} className="flex justify-between">
-                                  <span className="text-gray-600">{d.name}</span>
-                                  <span className="font-medium text-red-600">-{formatCurrency(d.amount)}</span>
-                                </div>
-                              ))}
-                              <div className="flex justify-between border-t pt-2 font-semibold">
-                                <span>Total Pre-Tax</span>
-                                <span className="text-red-600">-{formatCurrency(employee.details.totalPreTaxDeductions)}</span>
-                              </div>
-                              <div className="flex justify-between text-blue-600">
-                                <span>Taxable Wages</span>
-                                <span className="font-medium">{formatCurrency(employee.details.taxableWages)}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <p className="text-gray-500 italic">No pre-tax deductions</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Tax Withholdings */}
-                      <div>
-                        <h5 className="mb-3 font-semibold text-gray-900 border-b pb-2">Tax Withholdings</h5>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Federal Income Tax</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.federalIncomeTax)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">NY State Income Tax</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.stateIncomeTax)}</span>
-                          </div>
-                          {employee.details.localTax > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Local Tax (NYC/Yonkers)</span>
-                              <span className="font-medium text-red-600">-{formatCurrency(employee.details.localTax)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Social Security (6.2%)</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.socialSecurityEmployee)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Medicare (1.45%)</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.medicareEmployee)}</span>
-                          </div>
-                          {employee.details.additionalMedicare > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Additional Medicare (0.9%)</span>
-                              <span className="font-medium text-red-600">-{formatCurrency(employee.details.additionalMedicare)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">NY SDI (Disability)</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.nySDI)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">NY PFL (Paid Family Leave)</span>
-                            <span className="font-medium text-red-600">-{formatCurrency(employee.details.nyPFL)}</span>
-                          </div>
-                          <div className="flex justify-between border-t pt-2 font-semibold">
-                            <span>Total Taxes</span>
-                            <span className="text-red-600">-{formatCurrency(employee.details.totalTaxWithholdings)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Post-Tax Deductions and Employer Costs */}
-                    <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                      {/* Post-Tax Deductions */}
-                      {employee.details.postTaxDeductions.length > 0 && (
-                        <div>
-                          <h5 className="mb-3 font-semibold text-gray-900 border-b pb-2">Post-Tax Deductions</h5>
-                          <div className="space-y-2 text-sm">
-                            {employee.details.postTaxDeductions.map((d, idx) => (
-                              <div key={idx} className="flex justify-between">
-                                <span className="text-gray-600">{d.name}</span>
-                                <span className="font-medium text-red-600">-{formatCurrency(d.amount)}</span>
-                              </div>
-                            ))}
-                            <div className="flex justify-between border-t pt-2 font-semibold">
-                              <span>Total Post-Tax</span>
-                              <span className="text-red-600">-{formatCurrency(employee.details.totalPostTaxDeductions)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Employer Costs */}
-                      <div>
-                        <h5 className="mb-3 font-semibold text-gray-900 border-b pb-2">Employer Costs</h5>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Employer Social Security</span>
-                            <span className="font-medium">{formatCurrency(employee.details.socialSecurityEmployer)}</span>
-                          </div>
-                          <CapStatus
-                            label="SS wage base"
-                            ytd={employee.details.ytdGrossPayAfter}
-                            cap={176100}
-                          />
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Employer Medicare</span>
-                            <span className="font-medium">{formatCurrency(employee.details.medicareEmployer)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">NY SUI (Unemployment)</span>
-                            <span className="font-medium">{formatCurrency(employee.details.suiEmployer)}</span>
-                          </div>
-                          <CapStatus
-                            label="NY SUI wage base"
-                            ytd={employee.details.ytdGrossPayAfter}
-                            cap={17600}
-                          />
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">NY Re-employment Service Fund</span>
-                            <span className="font-medium">{formatCurrency(employee.details.nyRSFEmployer)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">FUTA (Federal Unemployment)</span>
-                            <span className="font-medium">{formatCurrency(employee.details.futaEmployer)}</span>
-                          </div>
-                          <CapStatus
-                            label="FUTA wage base"
-                            ytd={employee.details.ytdGrossPayAfter}
-                            cap={7000}
-                          />
-                          <div className="flex justify-between border-t pt-2 font-semibold">
-                            <span>Total Employer Cost</span>
-                            <span className="text-purple-600">{formatCurrency(employee.details.totalEmployerCost)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Net Pay Summary */}
-                    <div className="mt-6 rounded-lg bg-green-50 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-600">Total Deductions</p>
-                          <p className="text-lg font-semibold text-red-600">-{formatCurrency(employee.details.totalDeductions)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-600">Net Pay</p>
-                          <p className="text-2xl font-bold text-green-600">{formatCurrency(employee.details.netPay)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Process Button */}
-          <div className="flex justify-end space-x-4 rounded-lg bg-white p-6 shadow">
-            <button
-              onClick={() => setPayrollPreview([])}
-              className="rounded-lg border border-gray-300 px-6 py-2 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={processPayroll}
-              disabled={processing}
-              className="rounded-lg bg-green-600 px-6 py-2 text-white hover:bg-green-700 disabled:bg-gray-400"
-            >
-              {processing ? 'Processing...' : 'Process Payroll'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {payrollPreview.length === 0 && !loading && (
-        <div className="mt-8 rounded-lg bg-white p-12 text-center shadow">
-          <ClockIcon className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-4 text-lg font-medium text-gray-900">No Payroll Preview</h3>
-          <p className="mt-2 text-gray-500">
-            Select a pay period and click &quot;Generate Payroll Preview&quot; to see employee payroll details.
-          </p>
-        </div>
-      )}
-    </div>
-  );
 }
 
-// Wage-base cap status line — shows whether YTD wages have reached a per-employee
-// withholding cap (SS $176,100, NY SUI $13,000, FUTA $7,000) so $0 amounts above
-// don't look like a bug.
-function CapStatus({ label, ytd, cap }: { label: string; ytd: number; cap: number }) {
-  const reached = ytd >= cap;
-  const display = Math.min(ytd, cap);
-  return (
-    <div className="flex justify-between pl-4 -mt-1 text-xs">
-      <span className={reached ? 'text-amber-700' : 'text-gray-500'}>
-        {reached ? 'Contribution Capped' : label}
-      </span>
-      <span className={reached ? 'text-amber-700 font-medium' : 'text-gray-500'}>
-        {formatCurrency(display)} / {formatCurrency(cap)}
-      </span>
-    </div>
-  );
+interface RecentRecord {
+  id: string;
+  payPeriodEnd: string;
+  payDate: string;
+  netPay: number;
+  isPaid: boolean;
+  paidDate: string | null;
+  employee: { firstName: string; lastName: string };
 }
 
-// Summary Card Component
-function SummaryCard({ title, amount, icon, bgColor }: { title: string; amount: number; icon: React.ReactNode; bgColor: string }) {
-  return (
-    <div className="overflow-hidden rounded-lg bg-white shadow">
-      <div className="p-5">
-        <div className="flex items-center">
-          <div className={`flex-shrink-0 rounded-md ${bgColor} p-3`}>
-            {icon}
-          </div>
-          <div className="ml-5">
-            <dt className="text-sm font-medium text-gray-500">{title}</dt>
-            <dd className="text-2xl font-semibold text-gray-900">
-              {formatCurrency(amount)}
-            </dd>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+interface Account {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
 }
 
-// Helper functions
-function getStartOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  return new Date(d.setDate(diff));
-}
-
-function getEndOfWeek(date: Date): Date {
-  const d = new Date(getStartOfWeek(date));
-  d.setDate(d.getDate() + 6);
-  return d;
-}
-
-function addWeeks(date: Date, weeks: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
-  return d;
-}
-
-function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
-function formatDateDisplay(date: Date): string {
-  return date.toLocaleDateString('en-US', {
+function formatDateDisplay(dateStr: string): string {
+  const d = new Date(dateStr.length > 10 ? dateStr : dateStr + 'T12:00:00Z');
+  return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     timeZone: 'UTC',
   });
+}
+
+export default function PayrollDashboardPage() {
+  const [unpaid, setUnpaid] = useState<UnpaidRecord[]>([]);
+  const [recent, setRecent] = useState<RecentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [unpaidRes, recentRes] = await Promise.all([
+        fetch('/api/payroll/history?unpaidOnly=true&limit=100'),
+        fetch('/api/payroll/history?limit=10'),
+      ]);
+      if (unpaidRes.ok) {
+        const body = await unpaidRes.json();
+        setUnpaid(Array.isArray(body) ? body : body.records || []);
+      }
+      if (recentRes.ok) {
+        const body = await recentRes.json();
+        setRecent(Array.isArray(body) ? body : body.records || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Group unpaid by payDate so a "Mark all paid for this run" is one click.
+  const unpaidByPayDate = unpaid.reduce<Record<string, UnpaidRecord[]>>((acc, r) => {
+    const k = r.payDate.slice(0, 10);
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(r);
+    return acc;
+  }, {});
+  const unpaidPayDates = Object.keys(unpaidByPayDate).sort();
+
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+  const selectAllForDate = (date: string) => {
+    const ids = unpaidByPayDate[date].map((r) => r.id);
+    const next = new Set(selectedIds);
+    ids.forEach((id) => next.add(id));
+    setSelectedIds(next);
+  };
+
+  const selectedRecords = unpaid.filter((r) => selectedIds.has(r.id));
+  const selectedTotal = selectedRecords.reduce((s, r) => s + r.netPay, 0);
+
+  const handleOpenMarkPaid = () => {
+    if (selectedIds.size === 0) return;
+    setMarkPaidOpen(true);
+  };
+
+  return (
+    <div className="px-4 sm:px-6 lg:px-8 space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Payroll Dashboard</h1>
+        <p className="mt-2 text-gray-600">Common payroll actions and pending items.</p>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <DashboardCard
+          href="/payroll/run"
+          icon={<BanknotesIcon className="h-6 w-6" />}
+          color="bg-green-500"
+          title="Run Payroll"
+          description="Generate this week's preview and process it"
+        />
+        <DashboardCard
+          href="#unpaid"
+          icon={<CheckCircleIcon className="h-6 w-6" />}
+          color="bg-blue-500"
+          title="Mark Payroll Paid"
+          description={unpaid.length > 0 ? `${unpaid.length} record${unpaid.length !== 1 ? 's' : ''} awaiting` : 'All caught up'}
+          onClick={() => document.getElementById('unpaid')?.scrollIntoView({ behavior: 'smooth' })}
+        />
+        <DashboardCard
+          href="/payroll/tax-liability"
+          icon={<CalculatorIcon className="h-6 w-6" />}
+          color="bg-purple-500"
+          title="Tax Liability"
+          description="Quarterly federal + NY tax summary"
+        />
+        <DashboardCard
+          href="/payroll/history"
+          icon={<ClockIcon className="h-6 w-6" />}
+          color="bg-orange-500"
+          title="Payroll History"
+          description="Past runs by date and employee"
+        />
+        <DashboardCard
+          href="/payroll/register"
+          icon={<ClipboardDocumentListIcon className="h-6 w-6" />}
+          color="bg-gray-500"
+          title="Payroll Register"
+          description="Detailed per-period breakdown"
+        />
+        <DashboardCard
+          href="/employees"
+          icon={<UsersIcon className="h-6 w-6" />}
+          color="bg-pink-500"
+          title="Employees"
+          description="Manage employees, tax settings, deductions"
+        />
+      </div>
+
+      {/* Unpaid Payrolls */}
+      <div id="unpaid" className="rounded-lg bg-white shadow">
+        <div className="border-b px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Unpaid Payroll Runs</h2>
+            <p className="text-sm text-gray-500">
+              Records that have been processed but not yet marked paid. Marking
+              paid creates a journal entry that clears Net Pay Payable (2100)
+              against the chosen bank account.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenMarkPaid}
+            disabled={selectedIds.size === 0}
+            className="rounded-md bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Mark {selectedIds.size > 0 ? `${selectedIds.size} ` : ''}Paid
+            {selectedIds.size > 0 && (
+              <span className="ml-1 opacity-80">({formatCurrency(selectedTotal)})</span>
+            )}
+          </button>
+        </div>
+        <div className="p-6">
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading…</p>
+          ) : unpaidPayDates.length === 0 ? (
+            <p className="text-sm text-gray-600">
+              <CheckCircleIcon className="inline h-5 w-5 text-green-500 mr-1" />
+              All processed payroll records have been marked paid.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {unpaidPayDates.map((date) => {
+                const rows = unpaidByPayDate[date];
+                const total = rows.reduce((s, r) => s + r.netPay, 0);
+                const allSelected = rows.every((r) => selectedIds.has(r.id));
+                return (
+                  <div key={date} className="border rounded-md">
+                    <div className="flex items-center justify-between bg-gray-50 px-4 py-2">
+                      <div className="text-sm">
+                        <span className="font-semibold text-gray-900">
+                          Pay date {formatDateDisplay(date)}
+                        </span>
+                        <span className="text-gray-500 ml-3">
+                          {rows.length} employee{rows.length !== 1 ? 's' : ''} — Net pay {formatCurrency(total)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => selectAllForDate(date)}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        {allSelected ? 'Selected' : 'Select all'}
+                      </button>
+                    </div>
+                    <table className="min-w-full text-sm">
+                      <thead className="text-xs text-gray-500 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-4 py-2 w-10"></th>
+                          <th className="px-4 py-2 text-left">Employee</th>
+                          <th className="px-4 py-2 text-left">Pay Period</th>
+                          <th className="px-4 py-2 text-right">Net Pay</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {rows.map((r) => (
+                          <tr key={r.id} className={selectedIds.has(r.id) ? 'bg-blue-50' : ''}>
+                            <td className="px-4 py-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(r.id)}
+                                onChange={() => toggleSelect(r.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                              />
+                            </td>
+                            <td className="px-4 py-2">
+                              {r.employee.firstName} {r.employee.lastName}{' '}
+                              <span className="text-gray-400 text-xs">#{r.employee.employeeNumber}</span>
+                            </td>
+                            <td className="px-4 py-2 text-gray-600">
+                              {formatDateDisplay(r.payPeriodStart)} – {formatDateDisplay(r.payPeriodEnd)}
+                            </td>
+                            <td className="px-4 py-2 text-right font-medium">{formatCurrency(r.netPay)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Payrolls */}
+      <div className="rounded-lg bg-white shadow">
+        <div className="border-b px-6 py-4">
+          <h2 className="text-lg font-semibold text-gray-900">Recent Payroll</h2>
+        </div>
+        <div className="p-6">
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading…</p>
+          ) : recent.length === 0 ? (
+            <p className="text-sm text-gray-500">No payroll history yet. Run your first payroll →</p>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="text-xs text-gray-500 uppercase tracking-wider">
+                <tr>
+                  <th className="px-2 py-2 text-left">Pay Date</th>
+                  <th className="px-2 py-2 text-left">Employee</th>
+                  <th className="px-2 py-2 text-right">Net Pay</th>
+                  <th className="px-2 py-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {recent.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-2 py-2">{formatDateDisplay(r.payDate)}</td>
+                    <td className="px-2 py-2">{r.employee.firstName} {r.employee.lastName}</td>
+                    <td className="px-2 py-2 text-right font-medium">{formatCurrency(r.netPay)}</td>
+                    <td className="px-2 py-2">
+                      {r.isPaid ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium">
+                          <CheckCircleIcon className="h-3 w-3" />
+                          Paid {r.paidDate && formatDateDisplay(r.paidDate)}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium">
+                          <ExclamationTriangleIcon className="h-3 w-3" />
+                          Unpaid
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {markPaidOpen && (
+        <MarkPaidModal
+          records={selectedRecords}
+          totalNetPay={selectedTotal}
+          onClose={() => setMarkPaidOpen(false)}
+          onSaved={() => {
+            setMarkPaidOpen(false);
+            setSelectedIds(new Set());
+            refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function DashboardCard({
+  href,
+  icon,
+  color,
+  title,
+  description,
+  onClick,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  color: string;
+  title: string;
+  description: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <div className="rounded-lg bg-white shadow hover:shadow-md transition-shadow p-5">
+      <div className="flex items-start gap-3">
+        <div className={`flex-shrink-0 rounded-md ${color} p-3 text-white`}>{icon}</div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{title}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className="text-left w-full">
+        {content}
+      </button>
+    );
+  }
+  return <Link href={href}>{content}</Link>;
+}
+
+function MarkPaidModal({
+  records,
+  totalNetPay,
+  onClose,
+  onSaved,
+}: {
+  records: UnpaidRecord[];
+  totalNetPay: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [paidDate, setPaidDate] = useState(today);
+  const [paymentMethod, setPaymentMethod] = useState<'direct_deposit' | 'check'>('direct_deposit');
+  const [checkNumber, setCheckNumber] = useState('');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/bookkeeping/accounts')
+      .then((r) => r.json())
+      .then((all: Account[]) => {
+        const banks = all.filter((a) => a.type === 'asset');
+        setAccounts(banks);
+        if (banks.length > 0) setBankAccountId(banks[0].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/payroll/mark-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payrollRecordIds: records.map((r) => r.id),
+          paidDate,
+          bankAccountId,
+          paymentMethod,
+          checkNumber: paymentMethod === 'check' ? checkNumber || null : null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to mark paid');
+      }
+      onSaved();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : 'Failed to mark paid');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900">Mark Payroll Paid</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Records the disbursement of net pay and creates a journal entry that
+          clears Net Pay Payable against the chosen bank account.
+        </p>
+
+        {err && (
+          <div className="mt-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {err}
+          </div>
+        )}
+
+        <div className="mt-4 rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-sm space-y-1">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Selected records:</span>
+            <span className="font-medium">{records.length}</span>
+          </div>
+          <div className="flex justify-between font-semibold border-t border-gray-200 pt-1">
+            <span>Total net pay:</span>
+            <span>{formatCurrency(totalNetPay)}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Paid Date</label>
+            <input
+              type="date"
+              value={paidDate}
+              onChange={(e) => setPaidDate(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Bank Account (credited)</label>
+            <select
+              value={bankAccountId}
+              onChange={(e) => setBankAccountId(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            >
+              {accounts.length === 0 && <option value="">Loading…</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as 'direct_deposit' | 'check')}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            >
+              <option value="direct_deposit">Direct Deposit</option>
+              <option value="check">Check</option>
+            </select>
+          </div>
+          {paymentMethod === 'check' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Check Number <span className="text-gray-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={checkNumber}
+                onChange={(e) => setCheckNumber(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !bankAccountId}
+            className="rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Mark Paid'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
 }

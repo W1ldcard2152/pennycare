@@ -321,11 +321,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Audit log for each employee processed
+      // Per-employee audit log for forensic detail. Uses a distinct action
+      // so the dashboard's batch-level "payroll.process" feed isn't polluted
+      // with one entry per employee.
       await logAudit({
         companyId: companyId!,
         userId: session!.userId,
-        action: 'payroll.process',
+        action: 'payroll.employee_processed',
         entityType: 'PayrollRecord',
         entityId: payrollRecord.id,
         metadata: {
@@ -358,6 +360,27 @@ export async function POST(request: NextRequest) {
         periodLabel,
       );
       // journalResult may be null if accounts aren't seeded yet — that's OK
+    }
+
+    // Batch-level audit log for the dashboard activity feed (one entry per
+    // payroll run, with the employee count rolled up).
+    if (processedRecords.length > 0) {
+      const totalGross = processedRecords.reduce((s, r) => s + r.grossPay, 0);
+      const totalNet = processedRecords.reduce((s, r) => s + r.netPay, 0);
+      await logAudit({
+        companyId: companyId!,
+        userId: session!.userId,
+        action: 'payroll.process',
+        entityType: 'PayrollRecord',
+        entityId: payrollRecordIds[0],
+        metadata: {
+          count: processedRecords.length,
+          payPeriod: `${startDate} to ${endDate}`,
+          totalGross,
+          totalNet,
+          payrollRecordIds,
+        },
+      });
     }
 
     return NextResponse.json({

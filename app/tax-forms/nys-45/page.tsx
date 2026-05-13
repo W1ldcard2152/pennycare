@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useCallback, useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeftIcon,
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
+  CheckCircleIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
@@ -39,7 +40,23 @@ interface NYS45Data {
     grossWages: number;
     uiTaxableWages: number;
     employerSUI: number;
+    totalDeposits: number;
   };
+  deposits: Array<{
+    id: string;
+    depositDate: string;
+    paymentMethod: string;
+    confirmationNumber: string | null;
+    taxAuthority: string;
+    amount: number;
+  }>;
+  filing: {
+    id: string;
+    status: string;
+    filedDate: string | null;
+    confirmationNumber: string | null;
+    filingMethod: string | null;
+  } | null;
   employees: Array<{
     lastName: string;
     firstName: string;
@@ -98,28 +115,65 @@ function NYS45Content() {
   const [data, setData] = useState<NYS45Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showFilingModal, setShowFilingModal] = useState(false);
+  const [showNoDepositsWarning, setShowNoDepositsWarning] = useState(false);
+  const [acknowledgedNoDeposits, setAcknowledgedNoDeposits] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/tax-forms/nys-45?year=${selectedYear}&quarter=${selectedQuarter}&preview=true`
+      );
+      if (!response.ok) {
+        throw new Error('Failed to load form data');
+      }
+      const result = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedYear, selectedQuarter]);
 
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(
-          `/api/tax-forms/nys-45?year=${selectedYear}&quarter=${selectedQuarter}&preview=true`
-        );
-        if (!response.ok) {
-          throw new Error('Failed to load form data');
-        }
-        const result = await response.json();
-        setData(result);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchData();
-  }, [selectedYear, selectedQuarter]);
+  }, [fetchData]);
+
+  // Guard parity with Form 941: if the quarter shows real NY tax liability but
+  // no recorded TaxDeposit rows for any NY authority, prompt before filing.
+  const handleMarkFiledClick = () => {
+    if (!data) return;
+    const hasLiability =
+      data.totals.stateTaxWithheld +
+        data.totals.nySDI +
+        data.totals.nyPFL +
+        data.totals.employerSUI >
+      0;
+    const noDeposits = data.deposits.length === 0;
+    if (hasLiability && noDeposits) {
+      setShowNoDepositsWarning(true);
+    } else {
+      setAcknowledgedNoDeposits(false);
+      setShowFilingModal(true);
+    }
+  };
+
+  const handleUnfile = async () => {
+    if (!data?.filing) return;
+    if (!confirm(
+      `Unfile Q${selectedQuarter} ${selectedYear} NYS-45? The filing record will be removed and the deadline reminder will return.`
+    )) return;
+    const res = await fetch(`/api/tax-filings/${data.filing.id}`, { method: 'DELETE' });
+    if (res.ok) {
+      fetchData();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'Failed to unfile');
+    }
+  };
 
   const handleDownload = () => {
     window.open(`/api/tax-forms/nys-45?year=${selectedYear}&quarter=${selectedQuarter}`, '_blank');
@@ -408,6 +462,60 @@ function NYS45Content() {
             </div>
           </div>
 
+          {/* Filing Status / Mark Filed */}
+          <div className="rounded-lg border bg-white shadow-sm">
+            <div className="border-b px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Filing Status</h2>
+              {data.filing?.status === 'filed' ? (
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-3 py-1 text-xs font-medium">
+                    <CheckCircleIcon className="h-4 w-4" />
+                    Filed
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUnfile}
+                    className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Unfile
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleMarkFiledClick}
+                  className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white"
+                >
+                  Mark NYS-45 Filed
+                </button>
+              )}
+            </div>
+            <div className="p-6 text-sm">
+              {data.filing?.status === 'filed' ? (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <dt className="text-gray-500">Filed Date</dt>
+                    <dd className="font-medium text-gray-900">{data.filing.filedDate ? formatDate(data.filing.filedDate) : '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Filing Method</dt>
+                    <dd className="font-medium text-gray-900">{data.filing.filingMethod || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Confirmation #</dt>
+                    <dd className="font-medium text-gray-900">{data.filing.confirmationNumber || '—'}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="text-gray-600">
+                  NYS-45 has not been recorded as filed for Q{selectedQuarter} {selectedYear}.
+                  Once you submit the form to NY DTF, click <strong>Mark NYS-45 Filed</strong> to
+                  capture the confirmation # and clear the deadline alert.
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* Note */}
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
             <div className="flex gap-3">
@@ -423,6 +531,250 @@ function NYS45Content() {
           </div>
         </div>
       )}
+
+      {showNoDepositsWarning && data && (
+        <NoDepositsWarningModalNYS45
+          year={selectedYear}
+          quarter={selectedQuarter}
+          onClose={() => setShowNoDepositsWarning(false)}
+          onMarkFiledAnyway={() => {
+            setShowNoDepositsWarning(false);
+            setAcknowledgedNoDeposits(true);
+            setShowFilingModal(true);
+          }}
+        />
+      )}
+
+      {showFilingModal && data && (
+        <MarkNYS45FiledModal
+          year={selectedYear}
+          quarter={selectedQuarter}
+          totalLiability={
+            data.totals.stateTaxWithheld +
+            data.totals.nySDI +
+            data.totals.nyPFL +
+            data.totals.employerSUI
+          }
+          totalDeposits={data.totals.totalDeposits}
+          acknowledgedNoDeposits={acknowledgedNoDeposits}
+          onClose={() => {
+            setShowFilingModal(false);
+            setAcknowledgedNoDeposits(false);
+          }}
+          onSaved={() => {
+            setShowFilingModal(false);
+            setAcknowledgedNoDeposits(false);
+            fetchData();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NoDepositsWarningModalNYS45({
+  year,
+  quarter,
+  onClose,
+  onMarkFiledAnyway,
+}: {
+  year: number;
+  quarter: number;
+  onClose: () => void;
+  onMarkFiledAnyway: () => void;
+}) {
+  const depositsHref = `/bookkeeping/tax-deposits/new?authority=ny_withholding&year=${year}&quarter=Q${quarter}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+        <div className="flex items-start gap-3">
+          <ExclamationTriangleIcon className="h-6 w-6 flex-shrink-0 text-red-600 mt-0.5" />
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">No NY deposits recorded in books</h3>
+            <p className="mt-2 text-sm text-gray-700">
+              Q{quarter} {year} has NY payroll liability but no NY tax deposits
+              (withholding, SUI, SDI, or PFL) recorded in the books for this quarter.
+            </p>
+            <p className="mt-2 text-sm text-gray-700">
+              Marking NYS-45 filed without those deposits leaves your books showing
+              the full liability outstanding while the return claims it&apos;s paid.
+              Record the deposit(s) first to keep them in sync.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <Link
+            href={depositsHref}
+            className="rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-sm font-medium text-white"
+          >
+            Record Deposits Now
+          </Link>
+          <button
+            type="button"
+            onClick={onMarkFiledAnyway}
+            className="rounded-md border border-red-300 bg-white hover:bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700"
+          >
+            Mark Filed Anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarkNYS45FiledModal({
+  year,
+  quarter,
+  totalLiability,
+  totalDeposits,
+  acknowledgedNoDeposits,
+  onClose,
+  onSaved,
+}: {
+  year: number;
+  quarter: number;
+  totalLiability: number;
+  totalDeposits: number;
+  acknowledgedNoDeposits: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [filedDate, setFiledDate] = useState(today);
+  const [filingMethod, setFilingMethod] = useState<'NY Online Services' | 'Mail' | 'Other'>('NY Online Services');
+  const [confirmationNumber, setConfirmationNumber] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const balanceDue = totalLiability - totalDeposits;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/bookkeeping/tax-filings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          formType: 'NYS-45',
+          taxPeriodYear: year,
+          taxPeriodQuarter: `Q${quarter}`,
+          filedDate,
+          filingMethod,
+          confirmationNumber: confirmationNumber || null,
+          totalLiability,
+          totalDeposits,
+          balanceDue,
+          notes: notes || null,
+          ...(acknowledgedNoDeposits && { acknowledgedNoDeposits: true }),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to save filing');
+      }
+      onSaved();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900">
+          Mark NYS-45 filed — Q{quarter} {year}
+        </h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Records the filing for audit history and clears the deadline alert.
+        </p>
+
+        {err && (
+          <div className="mt-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {err}
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Filed Date</label>
+            <input
+              type="date"
+              value={filedDate}
+              onChange={(e) => setFiledDate(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Filing Method</label>
+            <select
+              value={filingMethod}
+              onChange={(e) => setFilingMethod(e.target.value as typeof filingMethod)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            >
+              <option value="NY Online Services">NY Online Services</option>
+              <option value="Mail">Mail</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Confirmation # <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={confirmationNumber}
+              onChange={(e) => setConfirmationNumber(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700 space-y-1">
+            <div className="flex justify-between"><span>Total NY liability:</span><span>${totalLiability.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>Total NY deposits:</span><span>${totalDeposits.toFixed(2)}</span></div>
+            <div className="flex justify-between font-medium border-t border-gray-200 pt-1"><span>Balance due:</span><span>${balanceDue.toFixed(2)}</span></div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Notes <span className="text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save filing'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

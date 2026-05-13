@@ -131,6 +131,29 @@ export function formatDate(date: Date): string {
 export const toDateString = formatDate;
 
 /**
+ * Add N business days (Mon-Fri) to a business date. Skips weekends.
+ * Federal holidays are not currently considered.
+ *
+ * @param date - Starting business date (typically noon UTC)
+ * @param days - Number of business days to add (must be a positive integer)
+ * @returns New Date at noon UTC, N business days after the input
+ *
+ * @example
+ * // If date is Friday, addBusinessDays(date, 5) returns the next Friday
+ * addBusinessDays(parseBusinessDate('2026-05-08'), 5) // => 2026-05-15
+ */
+export function addBusinessDays(date: Date, days: number): Date {
+  const result = new Date(date.getTime());
+  let added = 0;
+  while (added < days) {
+    result.setUTCDate(result.getUTCDate() + 1);
+    const dow = result.getUTCDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  return result;
+}
+
+/**
  * Parse a local date (from user input like MM/DD/YYYY) into a business date.
  * The date components are interpreted as the intended calendar date.
  *

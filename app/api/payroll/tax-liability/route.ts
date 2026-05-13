@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { getForm941DueDate, getNYS45DueDate, getNextDepositDate } from '@/lib/taxDeadlines';
 import { startOfDay, endOfDay, formatDate } from '@/lib/date-utils';
+import { computeNys1Alert } from '@/lib/nys1';
 
 // GET /api/payroll/tax-liability - Get tax liability summary for a date range
 export async function GET(request: NextRequest) {
@@ -249,6 +250,10 @@ export async function GET(request: NextRequest) {
       nys45DueDate: getNYS45DueDate(dateEnd),
     };
 
+    // NYS-1 filing alert (shared with dashboard). Fires on $700 threshold,
+    // monthly cadence, or first filing of the quarter — see lib/nys1.ts.
+    const nys1Alert = await computeNys1Alert(companyId!);
+
     return NextResponse.json({
       company,
       dateRange: {
@@ -259,6 +264,7 @@ export async function GET(request: NextRequest) {
       totals,
       byPayDate: Object.values(byPayDate).sort((a, b) => a.payDate.localeCompare(b.payDate)),
       depositInfo,
+      nys1Alert,
       recordCount: records.length,
     });
   } catch (error) {

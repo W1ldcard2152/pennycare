@@ -362,6 +362,71 @@ export const ccSubmitSchema = z.object({
   transactions: z.array(ccTransactionSchema).default([]),
 });
 
+// ── Tax Deposits & Filings ────────────────────────────
+
+const TAX_AUTHORITIES = ['federal_941', 'federal_940', 'ny_withholding', 'ny_sui', 'ny_dbl_pfl'] as const;
+const PAYMENT_METHODS = ['EFTPS', 'IRS Direct Pay', 'NY Online Services', 'Check', 'Other'] as const;
+const FILING_FORM_TYPES = ['941', '940', 'NYS-45', 'W-2', 'W-3'] as const;
+const FILING_METHODS = ['EFTPS', 'IRS e-file', 'NY Online Services', 'Mail', 'Other'] as const;
+
+export const createTaxDepositSchema = z
+  .object({
+    taxAuthority: z.enum(TAX_AUTHORITIES),
+    formReference: z.string().min(1).max(100),
+    taxPeriodYear: z.number().int().min(2020).max(2100),
+    taxPeriodQuarter: z.enum(['Q1', 'Q2', 'Q3', 'Q4']).optional().nullable(),
+
+    depositDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
+    paymentMethod: z.enum(PAYMENT_METHODS),
+    confirmationNumber: z.string().max(100).optional().nullable(),
+
+    federalIncomeTaxWithheld: z.number().min(0).default(0),
+    socialSecurityTax: z.number().min(0).default(0),
+    medicareTax: z.number().min(0).default(0),
+    additionalMedicareTax: z.number().min(0).default(0),
+    stateIncomeTaxWithheld: z.number().min(0).default(0),
+    stateUnemploymentTax: z.number().min(0).default(0),
+    stateDisabilityTax: z.number().min(0).default(0),
+    statePaidFamilyLeaveTax: z.number().min(0).default(0),
+
+    totalAmount: z.number().positive(),
+
+    notes: z.string().max(2000).optional().nullable(),
+    bankAccountId: z.string().min(1, 'Bank account is required'),
+  })
+  .refine(
+    (data) => {
+      const sum =
+        data.federalIncomeTaxWithheld +
+        data.socialSecurityTax +
+        data.medicareTax +
+        data.additionalMedicareTax +
+        data.stateIncomeTaxWithheld +
+        data.stateUnemploymentTax +
+        data.stateDisabilityTax +
+        data.statePaidFamilyLeaveTax;
+      return Math.abs(sum - data.totalAmount) < 0.01;
+    },
+    { message: 'Sum of tax components must equal totalAmount' }
+  );
+
+export const createTaxFilingSchema = z.object({
+  formType: z.enum(FILING_FORM_TYPES),
+  taxPeriodYear: z.number().int().min(2020).max(2100),
+  taxPeriodQuarter: z.enum(['Q1', 'Q2', 'Q3', 'Q4']).optional().nullable(),
+  filedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
+  filingMethod: z.enum(FILING_METHODS),
+  confirmationNumber: z.string().max(100).optional().nullable(),
+  totalLiability: z.number().min(0),
+  totalDeposits: z.number().min(0),
+  balanceDue: z.number(), // Can be negative for overpayment
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export const voidTaxDepositSchema = z.object({
+  reason: z.string().min(1, 'Reason is required').max(500),
+});
+
 // ── Helper ────────────────────────────────────────────
 
 /**

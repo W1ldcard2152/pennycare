@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { encrypt, safeDecrypt } from '@/lib/encryption';
 
 // GET /api/company - Get company settings for current company
 export async function GET() {
@@ -19,7 +20,13 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(company);
+    // Return decrypted bank info under plaintext field names alongside the
+    // existing *Encrypted columns, so the settings UI can edit them directly.
+    return NextResponse.json({
+      ...company,
+      bankRoutingNumber: safeDecrypt(company.bankRoutingNumberEncrypted),
+      bankAccountNumber: safeDecrypt(company.bankAccountNumberEncrypted),
+    });
   } catch (error) {
     console.error('Error fetching company:', error);
     return NextResponse.json(
@@ -37,9 +44,34 @@ export async function PUT(request: NextRequest) {
 
     const data = await request.json();
 
+    // Pull plaintext bank fields off the payload and convert to encrypted columns.
+    // Strip the decrypted-only fields and the *Encrypted fields from the payload
+    // so Prisma doesn't try to write them directly.
+    const {
+      bankRoutingNumber,
+      bankAccountNumber,
+      bankRoutingNumberEncrypted: _ignoreRouting,
+      bankAccountNumberEncrypted: _ignoreAccount,
+      ...rest
+    } = data;
+    void _ignoreRouting;
+    void _ignoreAccount;
+
+    const updateData: Record<string, unknown> = { ...rest };
+    if (bankRoutingNumber !== undefined) {
+      updateData.bankRoutingNumberEncrypted = bankRoutingNumber
+        ? encrypt(bankRoutingNumber)
+        : null;
+    }
+    if (bankAccountNumber !== undefined) {
+      updateData.bankAccountNumberEncrypted = bankAccountNumber
+        ? encrypt(bankAccountNumber)
+        : null;
+    }
+
     const company = await prisma.company.update({
       where: { id: companyId! },
-      data,
+      data: updateData,
     });
 
     return NextResponse.json(company);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { PDFDocument } from 'pdf-lib';
+import { formatDate } from '@/lib/date-utils';
 import fs from 'fs';
 import path from 'path';
 
@@ -165,6 +166,46 @@ export async function GET(request: NextRequest) {
 
     // If preview mode, return the data as JSON
     if (preview) {
+      // Look up deposits and filing status for this quarter so the UI can
+      // surface the no-deposits guard and display the filing state.
+      const quarterStr = `Q${quarter}`;
+      const [depositRows, filing] = await Promise.all([
+        prisma.taxDeposit.findMany({
+          where: {
+            companyId: companyId!,
+            taxAuthority: { in: ['ny_withholding', 'ny_sui', 'ny_dbl_pfl'] },
+            taxPeriodYear: year,
+            taxPeriodQuarter: quarterStr,
+            status: 'recorded',
+          },
+          orderBy: { depositDate: 'asc' },
+          select: {
+            id: true,
+            depositDate: true,
+            paymentMethod: true,
+            confirmationNumber: true,
+            taxAuthority: true,
+            stateIncomeTaxWithheld: true,
+            stateUnemploymentTax: true,
+            stateDisabilityTax: true,
+            statePaidFamilyLeaveTax: true,
+          },
+        }),
+        prisma.taxFiling.findFirst({
+          where: { companyId: companyId!, formType: 'nys45', year, quarter },
+        }),
+      ]);
+
+      const totalDeposits = depositRows.reduce(
+        (s, d) =>
+          s +
+          d.stateIncomeTaxWithheld +
+          d.stateUnemploymentTax +
+          d.stateDisabilityTax +
+          d.statePaidFamilyLeaveTax,
+        0
+      );
+
       return NextResponse.json({
         company: {
           companyName: company.companyName,
@@ -193,7 +234,31 @@ export async function GET(request: NextRequest) {
           grossWages: Math.round(totals.grossWages * 100) / 100,
           uiTaxableWages: Math.round(totals.uiTaxableWages * 100) / 100,
           employerSUI: Math.round(totals.employerSUI * 100) / 100,
+          totalDeposits: Math.round(totalDeposits * 100) / 100,
         },
+        deposits: depositRows.map((d) => ({
+          id: d.id,
+          depositDate: formatDate(d.depositDate),
+          paymentMethod: d.paymentMethod,
+          confirmationNumber: d.confirmationNumber,
+          taxAuthority: d.taxAuthority,
+          amount: Math.round(
+            (d.stateIncomeTaxWithheld +
+              d.stateUnemploymentTax +
+              d.stateDisabilityTax +
+              d.statePaidFamilyLeaveTax) *
+              100
+          ) / 100,
+        })),
+        filing: filing
+          ? {
+              id: filing.id,
+              status: filing.status,
+              filedDate: filing.filedDate ? formatDate(filing.filedDate) : null,
+              confirmationNumber: filing.confirmationNumber,
+              filingMethod: filing.filingMethod,
+            }
+          : null,
         employees: Object.values(employeeWages).map(e => ({
           ...e,
           totalWages: Math.round(e.totalWages * 100) / 100,
