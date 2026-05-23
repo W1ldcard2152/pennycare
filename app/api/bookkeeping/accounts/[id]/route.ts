@@ -63,6 +63,13 @@ export async function PATCH(
 }
 
 // DELETE /api/bookkeeping/accounts/[id]
+//
+// Refuses to delete an account that's referenced from anywhere — journal
+// entry lines, transactions, transaction rules, statement imports,
+// reconciliations, or the company's eBay account-config pointers. Each
+// reference type returns a specific 409 so the user knows exactly what's
+// blocking. The advice is consistent: deactivate (isActive=false) instead
+// of deleting, which keeps history intact.
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -79,38 +86,86 @@ export async function DELETE(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // Check if account has any journal entry lines
-    const lineCount = await prisma.journalEntryLine.count({
-      where: { accountId: id },
-    });
+    const conflict = (msg: string) =>
+      NextResponse.json({ error: msg }, { status: 409 });
+
+    // Journal entry lines (modern double-entry)
+    const lineCount = await prisma.journalEntryLine.count({ where: { accountId: id } });
     if (lineCount > 0) {
-      return NextResponse.json(
-        { error: `Cannot delete account "${existing.name}" — it has ${lineCount} journal entry line(s). Deactivate it instead.` },
-        { status: 409 }
+      return conflict(
+        `Cannot delete "${existing.name}" — it has ${lineCount} journal entry line${lineCount !== 1 ? 's' : ''}. Deactivate it instead.`
       );
     }
 
-    // Also check old-style transactions
+    // Old-style transactions
     const txCount = await prisma.transaction.count({
-      where: {
-        OR: [
-          { debitAccountId: id },
-          { creditAccountId: id },
-        ],
-      },
+      where: { OR: [{ debitAccountId: id }, { creditAccountId: id }] },
     });
     if (txCount > 0) {
-      return NextResponse.json(
-        { error: `Cannot delete account "${existing.name}" — it has ${txCount} transaction(s). Deactivate it instead.` },
-        { status: 409 }
+      return conflict(
+        `Cannot delete "${existing.name}" — it has ${txCount} transaction${txCount !== 1 ? 's' : ''}. Deactivate it instead.`
+      );
+    }
+
+    // Transaction rules (categorization rules pointing at this account)
+    const ruleCount = await prisma.transactionRule.count({
+      where: { OR: [{ targetAccountId: id }, { sourceAccountId: id }] },
+    });
+    if (ruleCount > 0) {
+      return conflict(
+        `Cannot delete "${existing.name}" — it's referenced by ${ruleCount} transaction rule${ruleCount !== 1 ? 's' : ''}. Delete or repoint those rules first (Books → Transaction Rules).`
+      );
+    }
+
+    // Statement imports (pending or booked staging rows referencing the account)
+    const stmtCount = await prisma.statementImport.count({
+      where: { OR: [{ sourceAccountId: id }, { targetAccountId: id }] },
+    });
+    if (stmtCount > 0) {
+      return conflict(
+        `Cannot delete "${existing.name}" — ${stmtCount} statement-import row${stmtCount !== 1 ? 's' : ''} reference${stmtCount === 1 ? 's' : ''} it. Resolve or skip those imports first.`
+      );
+    }
+
+    // Reconciliations
+    const reconCount = await prisma.reconciliation.count({ where: { accountId: id } });
+    if (reconCount > 0) {
+      return conflict(
+        `Cannot delete "${existing.name}" — it has ${reconCount} reconciliation${reconCount !== 1 ? 's' : ''}. Deactivate it instead so the history is preserved.`
+      );
+    }
+
+    // Company config pointers (eBay flow)
+    const company = await prisma.company.findUnique({
+      where: { id: companyId! },
+      select: {
+        ebayPendingPayoutsAccountId: true,
+        ebaySalesAccountId: true,
+        ebayFeesAccountId: true,
+      },
+    });
+    const ebayUses: string[] = [];
+    if (company?.ebayPendingPayoutsAccountId === id) ebayUses.push('eBay Pending Payouts');
+    if (company?.ebaySalesAccountId === id) ebayUses.push('eBay Sales');
+    if (company?.ebayFeesAccountId === id) ebayUses.push('eBay Fees');
+    if (ebayUses.length > 0) {
+      return conflict(
+        `Cannot delete "${existing.name}" — it's configured as the ${ebayUses.join(', ')} account in Settings. Change the configuration first, then retry.`
       );
     }
 
     await prisma.account.delete({ where: { id } });
-
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Error deleting account:', err);
-    return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? `Failed to delete account: ${err.message}`
+            : 'Failed to delete account',
+      },
+      { status: 500 }
+    );
   }
 }
