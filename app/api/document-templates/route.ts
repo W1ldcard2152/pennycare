@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { getCompanyTemplatesDir, getDataDir } from '@/lib/paths';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
@@ -64,8 +65,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create company templates directory
-    const templatesDir = path.join(process.cwd(), 'public', 'document-templates', 'company', companyId!);
+    // Write company templates to the data dir (outside the read-only install location)
+    const templatesDir = getCompanyTemplatesDir(companyId!);
     if (!existsSync(templatesDir)) {
       await mkdir(templatesDir, { recursive: true });
     }
@@ -82,8 +83,8 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     await writeFile(filePath, buffer);
 
-    // Save template metadata to database
-    const relativePath = path.relative(path.join(process.cwd(), 'public'), filePath).replace(/\\/g, '/');
+    // Store path relative to the data dir (e.g. "document-templates/company/<companyId>/<filename>")
+    const relativePath = path.relative(getDataDir(), filePath).replace(/\\/g, '/');
     const template = await prisma.documentTemplate.create({
       data: {
         companyId: companyId!,

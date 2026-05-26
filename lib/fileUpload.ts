@@ -1,6 +1,7 @@
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import { getDataDir, getUploadsDir } from '@/lib/paths';
 
 export interface UploadedFile {
   fileName: string;
@@ -19,7 +20,7 @@ export async function saveEmployeeDocument(
 ): Promise<UploadedFile> {
   // Create folder name as Lastname_Firstname (sanitized)
   const folderName = `${employeeLastName}_${employeeFirstName}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const uploadsDir = path.join(process.cwd(), 'uploads', 'employees', folderName);
+  const uploadsDir = path.join(getUploadsDir(), 'employees', folderName);
 
   // Create directory if it doesn't exist
   if (!existsSync(uploadsDir)) {
@@ -50,9 +51,10 @@ export async function saveEmployeeDocument(
   const buffer = Buffer.from(bytes);
   await writeFile(filePath, buffer);
 
+  // Store path relative to the data dir so it's portable between dev and Electron modes
   return {
     fileName: file.name,
-    filePath: path.relative(process.cwd(), filePath),
+    filePath: path.relative(getDataDir(), filePath),
     fileSize: file.size,
     mimeType: file.type,
   };
@@ -68,7 +70,7 @@ function formatDateForFilename(dateString: string): string {
 }
 
 export function getDocumentPath(relativePath: string): string {
-  return path.join(process.cwd(), relativePath);
+  return path.join(getDataDir(), relativePath);
 }
 
 // Allowed document types

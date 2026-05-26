@@ -1,37 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { getDatabasePath, getBackupsDir } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
-
-// Get the database file path from DATABASE_URL
-function getDatabasePath(): string {
-  const dbUrl = process.env.DATABASE_URL || 'file:./prisma/pennycare.db';
-  let dbPath = dbUrl.replace(/^file:/, '');
-  if (dbPath.startsWith('./')) {
-    dbPath = dbPath.substring(2);
-  }
-
-  const possiblePaths = [
-    path.resolve(process.cwd(), dbPath),
-    path.resolve(process.cwd(), 'prisma', dbPath),
-    path.resolve(process.cwd(), 'dev.db'),
-  ];
-
-  for (const p of possiblePaths) {
-    const normalized = path.normalize(p);
-    if (fs.existsSync(normalized)) {
-      return normalized;
-    }
-  }
-
-  return path.normalize(possiblePaths[0]);
-}
-
-// Get the backups directory path
-function getBackupsDir(): string {
-  return path.resolve(process.cwd(), 'backups');
-}
 
 // Format filename timestamp
 function formatTimestamp(): string {

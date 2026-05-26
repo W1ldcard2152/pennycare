@@ -43,5 +43,9 @@ uploads/
 # backups
 backups/
 
+# electron
+/electron-dist
+/dist-electron
+
 # claude code
 /.claude

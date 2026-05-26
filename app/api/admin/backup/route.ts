@@ -2,44 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
+import { getDatabasePath, getBackupsDir } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
-
-// Get the database file path from DATABASE_URL
-function getDatabasePath(): string {
-  const dbUrl = process.env.DATABASE_URL || 'file:./prisma/pennycare.db';
-  // Remove the "file:" prefix and handle relative paths
-  let dbPath = dbUrl.replace(/^file:/, '');
-  // Remove leading ./ if present
-  if (dbPath.startsWith('./')) {
-    dbPath = dbPath.substring(2);
-  }
-
-  // Try multiple possible locations for the database
-  const possiblePaths = [
-    // Direct path from project root
-    path.resolve(process.cwd(), dbPath),
-    // Prisma resolves relative to the prisma folder, so check prisma/prisma/
-    path.resolve(process.cwd(), 'prisma', dbPath),
-    // Also check dev.db at project root (common alternative)
-    path.resolve(process.cwd(), 'dev.db'),
-  ];
-
-  for (const p of possiblePaths) {
-    const normalized = path.normalize(p);
-    if (fs.existsSync(normalized)) {
-      return normalized;
-    }
-  }
-
-  // Return the first option if none exist (will trigger error message)
-  return path.normalize(possiblePaths[0]);
-}
-
-// Get the backups directory path
-function getBackupsDir(): string {
-  return path.resolve(process.cwd(), 'backups');
-}
 
 // Format filename timestamp: YYYY-MM-DD-HHmmss
 function formatTimestamp(): string {

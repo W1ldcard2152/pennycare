@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { getBackupsDir } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
-
-// Get the backups directory path
-function getBackupsDir(): string {
-  return path.resolve(process.cwd(), 'backups');
-}
 
 // GET /api/admin/backup/[id]/download - Download a backup file
 export async function GET(

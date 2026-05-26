@@ -2,13 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
+import { getBackupsDir } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
-
-// Get the backups directory path
-function getBackupsDir(): string {
-  return path.resolve(process.cwd(), 'backups');
-}
 
 // DELETE /api/admin/backup/[id] - Delete a backup
 export async function DELETE(

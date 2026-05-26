@@ -200,7 +200,7 @@ export default function DocumentsPage() {
                       </div>
                       <div className="ml-4 flex gap-2">
                         <a
-                          href={`/${template.filePath}`}
+                          href={template.isSystemTemplate ? `/${template.filePath}` : `/api/document-templates/${template.id}/file`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -209,7 +209,7 @@ export default function DocumentsPage() {
                           View
                         </a>
                         <a
-                          href={`/${template.filePath}`}
+                          href={template.isSystemTemplate ? `/${template.filePath}` : `/api/document-templates/${template.id}/file`}
                           download={template.fileName}
                           className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >

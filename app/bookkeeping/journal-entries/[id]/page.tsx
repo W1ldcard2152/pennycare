@@ -338,7 +338,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   };
 
   const addEditLine = () => {
-    setEditLines([...editLines, { accountId: '', description: '', debit: '', credit: '' }]);
+    setEditLines([...editLines, { accountId: '', description: '', debit: '', credit: '', isReconciled: false }]);
   };
 
   const removeEditLine = (index: number) => {
