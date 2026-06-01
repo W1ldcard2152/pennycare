@@ -82,15 +82,25 @@ describe('getAnnualDueDate', () => {
 describe('computeFilingDeadlines', () => {
   const today = new Date(2026, 3, 1); // April 1, 2026
 
+  // Pay dates that cover every quarter / year that's expected to appear in
+  // the test window (Q4 2025 → Q2 2026 + annuals for both years). Without
+  // these, the new gating produces zero deadlines.
+  const allPeriodsPayDates = [
+    new Date(2025, 6, 15),  // Q3 2025
+    new Date(2025, 11, 15), // Q4 2025 + year 2025
+    new Date(2026, 0, 15),  // Q1 2026 + year 2026
+    new Date(2026, 4, 15),  // Q2 2026
+  ];
+
   it('generates quarterly deadlines for 941 and NYS-45', () => {
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     const formTypes = [...new Set(deadlines.map((d) => d.formType))];
     expect(formTypes).toContain('941');
     expect(formTypes).toContain('nys45');
   });
 
   it('generates annual deadlines for 940 and W-2', () => {
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     const formTypes = [...new Set(deadlines.map((d) => d.formType))];
     expect(formTypes).toContain('940');
     expect(formTypes).toContain('w2');
@@ -100,13 +110,13 @@ describe('computeFilingDeadlines', () => {
     const filedRecords: FiledRecord[] = [
       { formType: '941', year: 2026, quarter: 1, status: 'filed' },
     ];
-    const deadlines = computeFilingDeadlines(today, filedRecords);
+    const deadlines = computeFilingDeadlines(today, filedRecords, allPeriodsPayDates);
     const q1_941 = deadlines.find((d) => d.id === '941-2026-Q1');
     expect(q1_941?.isFiled).toBe(true);
   });
 
   it('marks unfiled deadlines as not filed', () => {
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     const q1_941 = deadlines.find((d) => d.id === '941-2026-Q1');
     expect(q1_941?.isFiled).toBe(false);
   });
@@ -115,13 +125,13 @@ describe('computeFilingDeadlines', () => {
     const filedRecords: FiledRecord[] = [
       { formType: '941', year: 2026, quarter: 1, status: 'pending' },
     ];
-    const deadlines = computeFilingDeadlines(today, filedRecords);
+    const deadlines = computeFilingDeadlines(today, filedRecords, allPeriodsPayDates);
     const q1_941 = deadlines.find((d) => d.id === '941-2026-Q1');
     expect(q1_941?.isFiled).toBe(false);
   });
 
   it('includes href links for each deadline', () => {
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     deadlines.forEach((d) => {
       expect(d.href).toBeDefined();
       expect(d.href!.length).toBeGreaterThan(0);
@@ -130,18 +140,53 @@ describe('computeFilingDeadlines', () => {
 
   it('assigns correct urgency based on today date', () => {
     // Q1 2026 is due April 30 — 29 days from April 1 → "upcoming"
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     const q1_941 = deadlines.find((d) => d.id === '941-2026-Q1');
     expect(q1_941?.urgency).toBe('upcoming');
   });
 
   it('only includes deadlines within the lookback/lookahead window', () => {
-    const deadlines = computeFilingDeadlines(today, []);
+    const deadlines = computeFilingDeadlines(today, [], allPeriodsPayDates);
     // All deadlines should be within 90 days back and 180 days forward
     deadlines.forEach((d) => {
       expect(d.daysUntil).toBeGreaterThanOrEqual(-90);
       expect(d.daysUntil).toBeLessThanOrEqual(180);
     });
+  });
+
+  it('returns no filing deadlines when there is no payroll history', () => {
+    // The whole point of the gate — a brand-new company with zero payroll
+    // should not see any "Q1 941 overdue" warnings, ever.
+    const deadlines = computeFilingDeadlines(today, [], []);
+    expect(deadlines).toHaveLength(0);
+  });
+
+  it('omits quarterly deadlines for quarters with no payroll activity', () => {
+    // Only Q2 2026 has payroll — Q1 2026's deadline should be absent
+    // even though it's within the lookback window.
+    const onlyQ2 = [new Date(2026, 4, 15)];
+    const deadlines = computeFilingDeadlines(today, [], onlyQ2);
+    expect(deadlines.find((d) => d.id === '941-2026-Q1')).toBeUndefined();
+    expect(deadlines.find((d) => d.id === '941-2026-Q2')).toBeDefined();
+    expect(deadlines.find((d) => d.id === 'nys45-2026-Q1')).toBeUndefined();
+    expect(deadlines.find((d) => d.id === 'nys45-2026-Q2')).toBeDefined();
+  });
+
+  it('omits annual deadlines for years with no payroll activity', () => {
+    // Only 2026 has payroll — the 2025 annual deadlines (940, W-2) should
+    // be absent even though their Jan 31 2026 due date is in window.
+    const only2026 = [new Date(2026, 0, 15)];
+    const deadlines = computeFilingDeadlines(today, [], only2026);
+    expect(deadlines.find((d) => d.id === '940-2025')).toBeUndefined();
+    expect(deadlines.find((d) => d.id === 'w2-2025')).toBeUndefined();
+  });
+
+  it('treats payroll on the first day of a quarter as activity for that quarter', () => {
+    // Boundary check: Jan 1 falls in Q1, not Q4 of the prior year.
+    const jan1 = [new Date(2026, 0, 1)];
+    const deadlines = computeFilingDeadlines(today, [], jan1);
+    expect(deadlines.find((d) => d.id === '941-2026-Q1')).toBeDefined();
+    expect(deadlines.find((d) => d.id === '941-2025-Q4')).toBeUndefined();
   });
 });
 
@@ -185,5 +230,70 @@ describe('computeDepositDeadlines', () => {
   it('returns empty array when no pay dates provided', () => {
     const deadlines = computeDepositDeadlines(today, [], 'monthly');
     expect(deadlines).toHaveLength(0);
+  });
+
+  describe('recorded-deposit matching', () => {
+    // Today: May 28, 2026 — mirrors the live-build scenario where deposits
+    // were already logged but the banner still showed them as overdue.
+    const liveToday = new Date(2026, 4, 28);
+
+    it('marks a semi-weekly deadline as filed when a deposit was made on the deadline date', () => {
+      // Wed May 13 payday → deadline Wed May 20. Deposit recorded May 20.
+      const payDates = [new Date(2026, 4, 13)];
+      const deposits = [new Date(2026, 4, 20)];
+      const deadlines = computeDepositDeadlines(liveToday, payDates, 'semiweekly', deposits);
+      expect(deadlines.length).toBeGreaterThan(0);
+      expect(deadlines.every((d) => d.isFiled)).toBe(true);
+    });
+
+    it('leaves a deadline unfiled when no deposit exists within the window', () => {
+      const payDates = [new Date(2026, 4, 13)];
+      const deadlines = computeDepositDeadlines(liveToday, payDates, 'semiweekly', []);
+      expect(deadlines.length).toBeGreaterThan(0);
+      expect(deadlines.every((d) => !d.isFiled)).toBe(true);
+    });
+
+    it('leaves a deadline unfiled when the deposit is outside the ±7 day tolerance', () => {
+      // Payday May 13 → deadline May 20. Deposit on May 5 (15 days before) — too far.
+      const payDates = [new Date(2026, 4, 13)];
+      const deposits = [new Date(2026, 4, 5)];
+      const deadlines = computeDepositDeadlines(liveToday, payDates, 'semiweekly', deposits);
+      expect(deadlines.every((d) => !d.isFiled)).toBe(true);
+    });
+
+    it('matches deposits FIFO so one deposit only satisfies one deadline', () => {
+      // Two paydays → two deadlines. Only one deposit. Earliest deadline gets it.
+      const payDates = [new Date(2026, 4, 13), new Date(2026, 4, 20)];
+      const deposits = [new Date(2026, 4, 20)]; // Could match either, but should go to earliest
+      const deadlines = computeDepositDeadlines(liveToday, payDates, 'semiweekly', deposits);
+      const sorted = [...deadlines].sort((a, b) => a.deadline.localeCompare(b.deadline));
+      expect(sorted[0].isFiled).toBe(true);
+      expect(sorted[1].isFiled).toBe(false);
+    });
+
+    it('matches multiple deposits to multiple deadlines in order', () => {
+      // Live-build scenario: three paydays, three deposits, all paid on time
+      const payDates = [
+        new Date(2026, 4, 6),   // Wed May 6 → deadline May 13
+        new Date(2026, 4, 13),  // Wed May 13 → deadline May 20
+        new Date(2026, 4, 20),  // Wed May 20 → deadline May 27
+      ];
+      const deposits = [
+        new Date(2026, 4, 13),
+        new Date(2026, 4, 20),
+        new Date(2026, 4, 27),
+      ];
+      const deadlines = computeDepositDeadlines(liveToday, payDates, 'semiweekly', deposits);
+      expect(deadlines.every((d) => d.isFiled)).toBe(true);
+    });
+
+    it('marks a monthly deadline as filed when the deposit lands near the 15th', () => {
+      // January payroll → deposit due Feb 15. Deposit on Feb 14 (1 day early).
+      const payDates = [new Date(2026, 0, 31)];
+      const deposits = [new Date(2026, 1, 14)];
+      const deadlines = computeDepositDeadlines(today, payDates, 'monthly', deposits);
+      expect(deadlines.length).toBe(1);
+      expect(deadlines[0].isFiled).toBe(true);
+    });
   });
 });

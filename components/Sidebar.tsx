@@ -192,10 +192,10 @@ export default function Sidebar() {
       <div className="flex h-48 items-center justify-center border-b px-4 py-8" style={{ borderColor: '#1e2838' }}>
         <Link href="/" className="cursor-pointer">
           <Image
-            src="/logo.jpg"
+            src="/logo.svg"
             alt="PennyCare Logo"
-            width={480}
-            height={200}
+            width={474}
+            height={441}
             className="h-40 w-auto transition-opacity hover:opacity-80"
             unoptimized
           />

@@ -26,11 +26,61 @@ interface Backup {
 interface BackupsResponse {
   backups: Backup[];
   lastBackupDate: string | null;
+  companyCreatedAt: string | null;
 }
+
+interface BackupTarget {
+  id: string;
+  name: string;
+  folderPath: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastBackupAt: string | null;
+  status: 'connected' | 'folder_missing' | 'marker_missing' | 'marker_mismatch';
+}
+
+const TARGET_STATUS_LABELS: Record<BackupTarget['status'], { dot: string; label: string; description: string }> = {
+  connected: {
+    dot: 'bg-green-500',
+    label: 'Connected',
+    description: 'Folder is accessible and the marker file matches.',
+  },
+  folder_missing: {
+    dot: 'bg-gray-400',
+    label: 'Not connected',
+    description: 'Folder is not accessible right now (drive unplugged, network share offline, etc).',
+  },
+  marker_missing: {
+    dot: 'bg-amber-500',
+    label: 'Marker missing',
+    description: 'Folder exists but the marker file was deleted. Re-register to fix.',
+  },
+  marker_mismatch: {
+    dot: 'bg-red-500',
+    label: 'Different drive',
+    description: 'A different drive is in this slot. Plug in the correct drive or re-register.',
+  },
+};
+
+// Days without a backup before the reminder escalates from amber to red.
+// Two weeks reflects "you probably have meaningful new data by now" without
+// being so short it feels naggy in normal weekly-backup workflows.
+const URGENT_THRESHOLD_DAYS = 14;
+// Don't show the reminder at all if the most recent backup is fresher than
+// this. For never-backed-up companies the reminder always shows, just amber
+// while the file is new and red once it's been around long enough.
+const SHOW_THRESHOLD_DAYS = 7;
 
 export default function BackupRestorePage() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [lastBackupDate, setLastBackupDate] = useState<string | null>(null);
+  const [companyCreatedAt, setCompanyCreatedAt] = useState<string | null>(null);
+  const [targets, setTargets] = useState<BackupTarget[]>([]);
+  const [showAddTarget, setShowAddTarget] = useState(false);
+  const [newTargetName, setNewTargetName] = useState('');
+  const [newTargetPath, setNewTargetPath] = useState('');
+  const [addingTarget, setAddingTarget] = useState(false);
+  const [targetError, setTargetError] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -47,6 +97,7 @@ export default function BackupRestorePage() {
 
   useEffect(() => {
     fetchBackups();
+    fetchTargets();
   }, []);
 
   const fetchBackups = async () => {
@@ -56,10 +107,107 @@ export default function BackupRestorePage() {
       const data: BackupsResponse = await res.json();
       setBackups(data.backups);
       setLastBackupDate(data.lastBackupDate);
+      setCompanyCreatedAt(data.companyCreatedAt);
     } catch {
       setError('Failed to load backups');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTargets = async () => {
+    try {
+      const res = await fetch('/api/admin/backup/targets');
+      if (!res.ok) return;
+      const data = await res.json();
+      setTargets(data.targets || []);
+    } catch {
+      // Non-critical — surface in the UI only via empty list
+    }
+  };
+
+  // Open the native folder picker (Electron) or accept a manually-typed
+  // path (dev/browser fallback). Either way the result lands in
+  // `newTargetPath` and we leave the rest of the registration to the
+  // form's submit handler.
+  const pickFolderForTarget = async () => {
+    setTargetError('');
+    if (typeof window !== 'undefined' && window.pennycare?.isElectron) {
+      try {
+        const result = await window.pennycare.pickFolder();
+        if (result) setNewTargetPath(result);
+      } catch (err) {
+        setTargetError(`Folder picker failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      // In dev (running in a browser, no Electron), the user types the
+      // path manually. The input is already visible — just focus it.
+      const input = document.getElementById('target-path-input') as HTMLInputElement | null;
+      input?.focus();
+    }
+  };
+
+  const registerTarget = async () => {
+    setTargetError('');
+    if (!newTargetName.trim() || !newTargetPath.trim()) {
+      setTargetError('Both a name and a folder are required.');
+      return;
+    }
+    setAddingTarget(true);
+    try {
+      const res = await fetch('/api/admin/backup/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newTargetName.trim(), folderPath: newTargetPath.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTargetError(data.error || 'Failed to register backup target');
+        return;
+      }
+      setShowAddTarget(false);
+      setNewTargetName('');
+      setNewTargetPath('');
+      fetchTargets();
+    } catch (err) {
+      setTargetError(err instanceof Error ? err.message : 'Failed to register backup target');
+    } finally {
+      setAddingTarget(false);
+    }
+  };
+
+  const removeTarget = async (target: BackupTarget) => {
+    if (!confirm(`Remove "${target.name}"? Existing backup files in this folder won't be deleted.`)) return;
+    try {
+      const res = await fetch(`/api/admin/backup/targets/${target.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to remove backup target');
+        return;
+      }
+      fetchTargets();
+    } catch {
+      alert('Failed to remove backup target');
+    }
+  };
+
+  const renameTarget = async (target: BackupTarget) => {
+    const name = prompt('New name for this backup target:', target.name);
+    if (!name || name.trim() === target.name) return;
+    try {
+      const res = await fetch(`/api/admin/backup/targets/${target.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to rename backup target');
+        return;
+      }
+      fetchTargets();
+    } catch {
+      alert('Failed to rename backup target');
     }
   };
 
@@ -78,9 +226,22 @@ export default function BackupRestorePage() {
         throw new Error(data.error || 'Failed to create backup');
       }
       const data = await res.json();
-      setSuccess(`Backup created: ${data.filename} (${formatFileSize(data.fileSize)})`);
+      // Report per-target results inline with the success message so the
+      // user can see exactly where the backup landed.
+      const targetResults = Array.isArray(data.targets) ? data.targets : [];
+      const copied = targetResults.filter((t: { status: string }) => t.status === 'copied');
+      const skipped = targetResults.filter((t: { status: string }) => t.status !== 'copied');
+      let msg = `Backup created: ${data.filename} (${formatFileSize(data.fileSize)})`;
+      if (copied.length > 0) {
+        msg += ` — copied to ${copied.length} external target${copied.length === 1 ? '' : 's'}`;
+      }
+      if (skipped.length > 0) {
+        msg += ` (${skipped.length} target${skipped.length === 1 ? '' : 's'} unavailable — see below)`;
+      }
+      setSuccess(msg);
       setDescription('');
       fetchBackups();
+      fetchTargets();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create backup');
     } finally {
@@ -215,7 +376,23 @@ export default function BackupRestorePage() {
   };
 
   const daysSinceBackup = getDaysSinceLastBackup();
-  const showBackupReminder = daysSinceBackup === null || daysSinceBackup >= 7;
+
+  // "Days at risk" — how long this company file has gone without a backup.
+  // For backed-up files: time since the last backup. For never-backed-up
+  // files: time since the company was created. Lets us show a gentle nudge
+  // on day 1 of a new file and escalate to a red alert if it stays
+  // un-backed-up for too long.
+  const daysAtRisk: number | null = (() => {
+    if (daysSinceBackup !== null) return daysSinceBackup;
+    if (!companyCreatedAt) return null;
+    const created = new Date(companyCreatedAt);
+    return Math.floor((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24));
+  })();
+
+  // Always show for never-backed-up companies (good habit on day 1).
+  // For backed-up files, only show once the last backup is at least a week old.
+  const showBackupReminder = daysSinceBackup === null || daysSinceBackup >= SHOW_THRESHOLD_DAYS;
+  const isUrgent = daysAtRisk !== null && daysAtRisk >= URGENT_THRESHOLD_DAYS;
 
   if (loading) {
     return (
@@ -266,19 +443,26 @@ export default function BackupRestorePage() {
           </div>
         )}
 
-        {/* Backup Reminder */}
+        {/* Backup Reminder — amber for the gentle nudge, red once the file has
+            gone too long without a backup (URGENT_THRESHOLD_DAYS). */}
         {showBackupReminder && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-            <ExclamationTriangleIcon className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className={`${isUrgent ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'} border rounded-lg p-4 flex items-start gap-3`}>
+            <ExclamationTriangleIcon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isUrgent ? 'text-red-500' : 'text-amber-500'}`} />
             <div>
               {daysSinceBackup === null ? (
-                <p className="text-amber-700 font-medium">No backups found. Create your first backup now.</p>
+                <p className={`font-medium ${isUrgent ? 'text-red-700' : 'text-amber-700'}`}>
+                  {isUrgent
+                    ? `This company file has existed for ${daysAtRisk} days with no backups. Create one now to protect against data loss.`
+                    : 'No backups found. Create your first backup now — even a fresh file is worth protecting against a crash.'}
+                </p>
               ) : (
-                <p className="text-amber-700 font-medium">
-                  Last backup was {daysSinceBackup} day{daysSinceBackup !== 1 ? 's' : ''} ago. Consider creating a backup.
+                <p className={`font-medium ${isUrgent ? 'text-red-700' : 'text-amber-700'}`}>
+                  {isUrgent
+                    ? `Last backup was ${daysSinceBackup} days ago. Back up now — data this old is at real risk.`
+                    : `Last backup was ${daysSinceBackup} day${daysSinceBackup !== 1 ? 's' : ''} ago. Consider creating a backup.`}
                 </p>
               )}
-              <p className="text-amber-600 text-sm mt-1">
+              <p className={`text-sm mt-1 ${isUrgent ? 'text-red-600' : 'text-amber-600'}`}>
                 Regular backups protect against data loss. We recommend backing up at least once a week.
               </p>
             </div>
@@ -325,6 +509,166 @@ export default function BackupRestorePage() {
               )}
             </button>
           </div>
+        </div>
+
+        {/* Backup Targets — external folders (USB, OneDrive, etc.) that get
+            a copy of every backup. The %APPDATA% backup always happens
+            regardless of what's listed here. */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="p-6 border-b border-gray-200 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">External Backup Targets</h2>
+              <p className="text-gray-600 text-sm mt-1">
+                Pick folders that should receive a copy of every backup. A USB drive or a OneDrive sync folder both work — the app writes to whichever targets are reachable at backup time. The local backup in <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">%APPDATA%/PennyCare/backups</code> always happens too.
+              </p>
+              <p className="text-gray-500 text-xs mt-2">
+                <strong>Best practice:</strong> register two USB drives, keep one onsite plugged in, store the other offsite, and swap them weekly. That gets you an onsite copy never more than a day old and an offsite copy never more than a week old.
+              </p>
+            </div>
+            {!showAddTarget && (
+              <button
+                onClick={() => { setShowAddTarget(true); setTargetError(''); }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              >
+                Add Target
+              </button>
+            )}
+          </div>
+
+          {showAddTarget && (
+            <div className="p-6 bg-gray-50 border-b border-gray-200">
+              {targetError && (
+                <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                  {targetError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={newTargetName}
+                    onChange={(e) => setNewTargetName(e.target.value)}
+                    placeholder="e.g., Office USB, OneDrive"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Folder</label>
+                  <div className="flex gap-2">
+                    <input
+                      id="target-path-input"
+                      type="text"
+                      value={newTargetPath}
+                      onChange={(e) => setNewTargetPath(e.target.value)}
+                      placeholder={typeof window !== 'undefined' && window.pennycare?.isElectron ? 'Click Browse to pick a folder' : 'e.g., D:\\PennyCareBackups'}
+                      readOnly={typeof window !== 'undefined' && !!window.pennycare?.isElectron}
+                      className={`flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 ${typeof window !== 'undefined' && window.pennycare?.isElectron ? 'bg-gray-100 cursor-default' : ''}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={pickFolderForTarget}
+                      className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-medium text-gray-700"
+                    >
+                      Browse&hellip;
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddTarget(false); setNewTargetName(''); setNewTargetPath(''); setTargetError(''); }}
+                  className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={registerTarget}
+                  disabled={addingTarget}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  {addingTarget ? 'Registering…' : 'Register Target'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {targets.length === 0 ? (
+            // First-run nudge for the non-technical user: reassure that
+            // their data IS being backed up to this computer, then
+            // explain WHY an external target is worth the extra step.
+            // No urgent visuals — this is informational, not a warning.
+            <div className="p-8 bg-blue-50 border-t border-blue-100">
+              <div className="max-w-2xl mx-auto text-center">
+                <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3">
+                  <CircleStackIcon className="w-6 h-6 text-blue-600" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-900 mb-2">
+                  Your data is being backed up to this computer
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">
+                  Every backup is saved automatically to this PC&apos;s app data folder. That protects against accidental deletes and most software issues.
+                </p>
+                <p className="text-sm text-gray-700 mb-4">
+                  For extra protection against hard-drive failure, fire, or theft, plug in a USB drive and add it here as a backup target. Each backup will be copied there automatically — no extra steps. A second USB stored offsite (a safe deposit box, your home if the computer is at work, etc.) is even better.
+                </p>
+                <button
+                  onClick={() => { setShowAddTarget(true); setTargetError(''); }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Add my first backup target
+                </button>
+              </div>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-200">
+              {targets.map((target) => {
+                const meta = TARGET_STATUS_LABELS[target.status];
+                const lastBackup = target.lastBackupAt ? new Date(target.lastBackupAt) : null;
+                const daysSince = lastBackup
+                  ? Math.floor((Date.now() - lastBackup.getTime()) / (1000 * 60 * 60 * 24))
+                  : null;
+                return (
+                  <li key={target.id} className="p-6 flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-2.5 h-2.5 rounded-full mt-1.5 ${meta.dot}`} title={meta.description} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-gray-900">{target.name}</p>
+                          <span className="text-xs text-gray-500">{meta.label}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 font-mono break-all mt-0.5">{target.folderPath}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {lastBackup
+                            ? `Last backup ${daysSince === 0 ? 'today' : `${daysSince} day${daysSince === 1 ? '' : 's'} ago`} (${lastBackup.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })})`
+                            : 'No backup has landed here yet.'}
+                        </p>
+                        {target.status !== 'connected' && (
+                          <p className="text-xs text-amber-700 mt-1">{meta.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => renameTarget(target)}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        onClick={() => removeTarget(target)}
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
         {/* Backup History */}

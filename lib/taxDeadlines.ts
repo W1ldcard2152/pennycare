@@ -65,11 +65,45 @@ export function getAnnualDueDate(year: number): Date {
   return new Date(year + 1, 0, 31);
 }
 
-export function computeFilingDeadlines(today: Date, filedRecords: FiledRecord[]): TaxDeadline[] {
+function quarterOf(date: Date): number {
+  return Math.floor(date.getMonth() / 3) + 1;
+}
+
+function quarterKey(year: number, quarter: number): string {
+  return `${year}-Q${quarter}`;
+}
+
+/**
+ * Compute payroll filing deadlines (941, NYS-45, 940, W-2) for the given
+ * window. Each quarterly deadline is included only if payroll was actually
+ * run in that quarter; each annual deadline only if payroll was run that
+ * year. Without these gates, a brand-new company gets phantom "overdue"
+ * warnings on day one — filing obligations only exist once you've paid
+ * someone in the period.
+ *
+ * If the same period later sees its first payroll, the deadline will appear
+ * automatically on the next reminders fetch.
+ */
+export function computeFilingDeadlines(
+  today: Date,
+  filedRecords: FiledRecord[],
+  payDates: Date[],
+): TaxDeadline[] {
   const deadlines: TaxDeadline[] = [];
   const lookbackMs = 90 * 24 * 60 * 60 * 1000;
   const lookaheadMs = 180 * 24 * 60 * 60 * 1000;
   const currentYear = today.getFullYear();
+
+  // Build sets of periods with payroll activity. The pure-function shape
+  // means the caller has to supply this — see /api/reminders for the
+  // database side.
+  const quartersWithPayroll = new Set<string>();
+  const yearsWithPayroll = new Set<number>();
+  for (const payDate of payDates) {
+    const y = payDate.getFullYear();
+    quartersWithPayroll.add(quarterKey(y, quarterOf(payDate)));
+    yearsWithPayroll.add(y);
+  }
 
   // Generate quarterly deadlines for current year and previous year
   const quarterlyForms = [
@@ -80,6 +114,9 @@ export function computeFilingDeadlines(today: Date, filedRecords: FiledRecord[])
   for (const form of quarterlyForms) {
     for (const year of [currentYear - 1, currentYear, currentYear + 1]) {
       for (let quarter = 1; quarter <= 4; quarter++) {
+        // Skip quarters with no payroll activity
+        if (!quartersWithPayroll.has(quarterKey(year, quarter))) continue;
+
         const dueDate = getQuarterlyDueDate(year, quarter);
         const daysUntil = diffDays(dueDate, today);
 
@@ -113,6 +150,9 @@ export function computeFilingDeadlines(today: Date, filedRecords: FiledRecord[])
 
   for (const form of annualForms) {
     for (const year of [currentYear - 1, currentYear]) {
+      // Skip years with no payroll activity
+      if (!yearsWithPayroll.has(year)) continue;
+
       const dueDate = getAnnualDueDate(year);
       const daysUntil = diffDays(dueDate, today);
 
@@ -139,10 +179,46 @@ export function computeFilingDeadlines(today: Date, filedRecords: FiledRecord[])
   return deadlines;
 }
 
+// Recorded federal-941 deposits that satisfy deposit deadlines. We match by
+// date proximity rather than a strict foreign key because there's no per-payday
+// link on the TaxDeposit table — only quarter-level period info.
+const DEPOSIT_MATCH_TOLERANCE_DAYS = 7;
+
+/**
+ * Pair each computed deadline with the earliest unmatched recorded deposit
+ * whose date is within `DEPOSIT_MATCH_TOLERANCE_DAYS` of the deadline. FIFO
+ * order ensures one deposit can't satisfy multiple deadlines and that the
+ * earliest deposit goes to the earliest deadline.
+ *
+ * The deadlines array is mutated in place — `isFiled` is set true for matched
+ * deadlines so the existing `!includeFiled` filter in /api/reminders strips
+ * them out of the user-visible banner.
+ */
+function markDepositsAsFiled(deadlines: TaxDeadline[], recordedDepositDates: Date[]): void {
+  if (recordedDepositDates.length === 0) return;
+
+  const sortedDeadlines = [...deadlines].sort((a, b) => a.deadline.localeCompare(b.deadline));
+  const sortedDeposits = [...recordedDepositDates]
+    .map((d) => ({ date: d, used: false }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  for (const deadline of sortedDeadlines) {
+    const deadlineDate = new Date(deadline.deadline + 'T12:00:00Z');
+    const match = sortedDeposits.find(
+      (d) => !d.used && Math.abs(diffDays(d.date, deadlineDate)) <= DEPOSIT_MATCH_TOLERANCE_DAYS,
+    );
+    if (match) {
+      match.used = true;
+      deadline.isFiled = true;
+    }
+  }
+}
+
 export function computeDepositDeadlines(
   today: Date,
   payDates: Date[],
-  depositSchedule: 'monthly' | 'semiweekly'
+  depositSchedule: 'monthly' | 'semiweekly',
+  recordedDepositDates: Date[] = [],
 ): TaxDeadline[] {
   const deadlines: TaxDeadline[] = [];
 
@@ -177,7 +253,8 @@ export function computeDepositDeadlines(
         deadline: toISODate(dueDate),
         urgency: classifyUrgency(dueDate, today),
         daysUntil,
-        isFiled: false, // Deposits don't have filing status
+        // isFiled is set by markDepositsAsFiled() below — default false here
+        isFiled: false,
         href: '/payroll/tax-liability',
       });
     }
@@ -211,11 +288,17 @@ export function computeDepositDeadlines(
         deadline: toISODate(dueDate),
         urgency: classifyUrgency(dueDate, today),
         daysUntil,
+        // isFiled is set by markDepositsAsFiled() below — default false here
         isFiled: false,
         href: '/payroll/tax-liability',
       });
     }
   }
+
+  // Mark deadlines as filed where a recorded deposit matches by date
+  // proximity. Done after generation so it works for both monthly and
+  // semi-weekly schedules and so an empty deposit list is a no-op.
+  markDepositsAsFiled(deadlines, recordedDepositDates);
 
   return deadlines;
 }

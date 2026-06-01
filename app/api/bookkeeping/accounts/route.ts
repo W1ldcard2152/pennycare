@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createAccountSchema, validateRequest } from '@/lib/validation';
+import { isReservedCode } from '@/lib/account-catalog';
 
 // GET /api/bookkeeping/accounts - List all accounts with balances
 export async function GET(request: NextRequest) {
@@ -73,6 +74,14 @@ export async function POST(request: NextRequest) {
     }
 
     const { code, name, type, accountGroup, description, taxLine } = validation.data;
+
+    // Block manual creation in reserved ranges (e.g. payroll 2100–2199) —
+    // those accounts must come from the seed flow so codes line up with
+    // hardcoded references in the payroll → journal-entry bridge.
+    const reserved = isReservedCode(code);
+    if (reserved.reserved) {
+      return NextResponse.json({ error: reserved.message }, { status: 400 });
+    }
 
     // Check for duplicate code
     const existing = await prisma.account.findUnique({

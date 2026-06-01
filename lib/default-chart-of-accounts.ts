@@ -1,5 +1,9 @@
-// Default Chart of Accounts - matches tax accountant's structure
-// Hierarchy: Type -> Group -> Account
+// Account taxonomy: types, group names, code ranges, and behavior helpers.
+//
+// The actual catalog of default accounts (with tiers and dependencies) lives
+// in lib/account-catalog.ts. This file holds the surrounding metadata that
+// the rest of the app uses to render group dropdowns, suggest codes, and
+// branch on account behavior.
 
 export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'credit_card';
 
@@ -100,170 +104,15 @@ export const GROUP_CODE_RANGES: Record<string, { start: number; end: number; inc
   'Credit Cards': { start: 2050, end: 2099, increment: 10 },
 };
 
-/**
- * Default chart of accounts matching tax accountant's structure.
- * Each account includes type, group, name, code, and tax line mapping.
- */
-export const DEFAULT_CHART_OF_ACCOUNTS: DefaultAccount[] = [
-  // ══════════════════════════════════════════════════════════════════════════════
-  // ASSETS
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  // ── Cash ──
-  { code: '1000', name: 'Cash', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
-  { code: '1010', name: 'Checking Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
-  { code: '1020', name: 'eBay Managed Payments Checking Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
-  { code: '1030', name: 'Savings Account', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash' },
-  { code: '1040', name: 'Petty Cash', type: 'asset', accountGroup: 'Cash', taxLine: 'B/S-Assets: Cash', description: 'Petty cash on hand' },
-
-  // ── Current Assets ──
-  { code: '1100', name: 'Parts Inventory', type: 'asset', accountGroup: 'Current Assets', taxLine: 'B/S-Assets: Other current assets' },
-  { code: '1110', name: 'Core/Car Inventory', type: 'asset', accountGroup: 'Current Assets', taxLine: 'B/S-Assets: Other current assets' },
-  { code: '1120', name: 'eBay Pending Payouts', type: 'asset', accountGroup: 'Current Assets', description: 'Funds held by eBay pending daily payout to bank', taxLine: 'B/S-Assets: Other current assets' },
-  { code: '1130', name: 'CC Payments Pending', type: 'asset', accountGroup: 'Current Assets', description: 'Credit card payments pending bank clearing', taxLine: 'B/S-Assets: Other current assets' },
-
-  // ── Buildings and other depreciable assets ──
-  { code: '1500', name: 'Furniture and Equipment', type: 'asset', accountGroup: 'Buildings and other depreciable assets', taxLine: 'B/S-Assets: Buildings/oth. depr. assets' },
-  { code: '1510', name: 'Equipment', type: 'asset', accountGroup: 'Buildings and other depreciable assets', taxLine: 'B/S-Assets: Buildings/oth. depr. assets' },
-
-  // ── Less accumulated depreciation ──
-  { code: '1600', name: 'Accumulated Depreciation', type: 'asset', accountGroup: 'Less accumulated depreciation', taxLine: 'B/S-Assets: Less accum. depreciation' },
-
-  // ── Vehicles ──
-  { code: '1700', name: 'Work Vehicles', type: 'asset', accountGroup: 'Vehicles', taxLine: 'B/S-Assets: Vehicles' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // LIABILITIES
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  // ── Payroll Liabilities ──
-  // These codes match createPayrollJournalEntries() in lib/bookkeeping.ts.
-  // 2100 holds the employees' claim against the employer for net pay until paid.
-  // 2110-2180 hold tax and benefit withholdings until remitted to the agencies.
-  { code: '2100', name: 'Net Pay Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Net pay owed to employees after a payroll run, cleared when direct deposits are pulled' },
-  { code: '2110', name: 'Federal Tax Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Federal income tax withheld from employee paychecks, cleared by EFTPS deposits' },
-  { code: '2120', name: 'NY State Tax Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY state income tax withheld, cleared by NYS-1 / NYS-45 remittances' },
-  { code: '2130', name: 'Social Security Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Combined employee + employer SS tax, cleared by 941 deposits' },
-  { code: '2140', name: 'Medicare Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Combined employee + employer Medicare tax, cleared by 941 deposits' },
-  { code: '2150', name: 'FUTA Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'Employer FUTA tax, cleared by 940 deposits' },
-  { code: '2160', name: 'NY SUI Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY State Unemployment Insurance (employer), cleared quarterly via NYS-45' },
-  { code: '2170', name: 'NY SDI Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY State Disability Insurance withheld from employees' },
-  { code: '2180', name: 'NY PFL Payable', type: 'liability', accountGroup: 'Payroll Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities', description: 'NY Paid Family Leave withheld from employees' },
-
-  // ── Other Current Liabilities ──
-  { code: '2200', name: 'Sales Tax Payable', type: 'liability', accountGroup: 'Other Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2210', name: 'Notes Payable', type: 'liability', accountGroup: 'Other Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-
-  // ── Mortgages, notes, bonds payable in less than 1 year ──
-  { code: '2300', name: 'Mortgages, notes, bonds payable in less than 1 year', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in less than 1 year', taxLine: 'B/S-Liabs/Eq: Mortgages/notes < 1 yr' },
-
-  // ── Mortgages, notes, bonds payable in 1 year or more ──
-  { code: '2500', name: 'eBay Managed Payments Reserve Hold Funds', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
-  { code: '2510', name: 'Lrap Funds Held', type: 'liability', accountGroup: 'Mortgages, notes, bonds payable in 1 year or more', taxLine: 'B/S-Liabs/Eq: Mortgages/notes >= 1 yr' },
-
-  // ── Non-Current Liabilities ──
-  { code: '2600', name: 'NYS DMV Liens', type: 'liability', accountGroup: 'Non-Current Liabilities', taxLine: 'B/S-Liabs/Eq: Other liabilities' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // EQUITY
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  { code: '3000', name: 'Shareholder Distributions', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Shareholder distributions', description: 'Owner\'s draw' },
-  { code: '3010', name: 'Additional paid in capital', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Add\'l paid-in capital' },
-  { code: '3020', name: 'Retained Earnings', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Retained earnings' },
-  { code: '3030', name: 'Adjustments to shareholders\' equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Adj to shareholders equity' },
-  { code: '3060', name: 'Net Inc/(Net Loss)', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Net income / loss' },
-  { code: '3900', name: 'Opening Balance Equity', type: 'equity', accountGroup: 'Equity', taxLine: 'B/S-Liabs/Eq: Capital stock' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // REVENUE
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  // ── Revenues ──
-  { code: '4000', name: 'Credit Card Rewards Income', type: 'revenue', accountGroup: 'Revenues', taxLine: 'Gross receipts or sales' },
-  { code: '4010', name: 'eBay Sales', type: 'revenue', accountGroup: 'Revenues', taxLine: 'Gross receipts or sales' },
-  { code: '4020', name: 'Scrap Recycler Income', type: 'revenue', accountGroup: 'Revenues', taxLine: 'Gross receipts or sales' },
-  { code: '4030', name: 'Gross receipts or sales', type: 'revenue', accountGroup: 'Revenues', taxLine: 'Gross receipts or sales' },
-
-  // ── Other Income ──
-  { code: '4500', name: 'Interest', type: 'revenue', accountGroup: 'Other Income', taxLine: 'Other income' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // EXPENSES - COST OF GOODS SOLD
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  // ── Cost of Goods Sold ──
-  { code: '5000', name: 'Cost of Goods Sold', type: 'expense', accountGroup: 'Cost of Goods Sold', taxLine: 'COGS: Cost of labor' },
-  { code: '5010', name: 'Misc. Cost of Goods Sold', type: 'expense', accountGroup: 'Cost of Goods Sold', taxLine: 'COGS: Other costs' },
-
-  // ── COGS Purchases ──
-  { code: '5050', name: 'Parts for Install: Vehicles', type: 'expense', accountGroup: 'COGS Purchases', taxLine: 'COGS: Purchases' },
-  { code: '5060', name: 'COGS Purchases (FORM)', type: 'expense', accountGroup: 'COGS Purchases', taxLine: 'COGS: Purchases' },
-
-  // ── COGS other costs ──
-  { code: '5200', name: 'eBay Listing and selling costs', type: 'expense', accountGroup: 'COGS other costs', taxLine: 'COGS: Other costs' },
-  { code: '5210', name: 'Freight and Shipping Costs', type: 'expense', accountGroup: 'COGS other costs', taxLine: 'COGS: Other costs' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // EXPENSES - OPERATING EXPENSES
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  // ── Salaries and wages ──
-  // Codes 6000/6010 are wired into createPayrollJournalEntries — do not change.
-  { code: '6000', name: 'Wages Expense', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Sch C: Wages paid', description: 'Gross wages paid to employees (debited on every payroll run)' },
-  { code: '6010', name: 'Employer Payroll Tax Expense', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Taxes and licenses', description: 'Employer-side payroll taxes — SS match, Medicare match, FUTA, SUI (debited on every payroll run)' },
-
-  // ── Repairs ──
-  { code: '6100', name: 'Repairs', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
-  { code: '6110', name: 'Equipment Maintenance', type: 'expense', accountGroup: 'Repairs', taxLine: 'Sch C: Repairs and maintenance' },
-
-  // ── Rent ──
-  { code: '6200', name: 'Rent Expense', type: 'expense', accountGroup: 'Rent', taxLine: 'Rents' },
-
-  // ── Taxes and Licenses ──
-  { code: '6260', name: 'Payroll Withhold Taxes', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
-  { code: '6270', name: 'Taxes - Federal', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
-  { code: '6280', name: 'New York Taxes Expense', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
-  { code: '6290', name: 'State Income taxes', type: 'expense', accountGroup: 'Taxes and Licenses', taxLine: 'Taxes and licenses' },
-
-  // ── Interest ──
-  { code: '6400', name: 'Interest Expense', type: 'expense', accountGroup: 'Interest', taxLine: 'Sch C: Interest expense' },
-
-  // ── Depreciation expense ──
-  { code: '6450', name: 'Depreciation expense', type: 'expense', accountGroup: 'Depreciation expense', taxLine: 'Depreciation' },
-
-  // ── Other deductions ──
-  { code: '6500', name: 'Auto Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6530', name: 'Bank Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6540', name: 'Cash Over or Short', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6550', name: 'Credit Card Finance Charges', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6560', name: 'Credit Card Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6570', name: 'Dues and Subscriptions', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6590', name: 'eBay Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions', description: 'Final Value Fees and other platform fees' },
-  { code: '6610', name: 'Insurance Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Insurance' },
-  { code: '6630', name: 'Office Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Office expense' },
-  { code: '6650', name: 'Professional Fees', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6670', name: 'Shipping & Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6690', name: 'Software', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6705', name: 'Shop Supplies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Supplies' },
-  { code: '6710', name: 'Small Tools and Equipment', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6730', name: 'Tow & Hwy Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6740', name: 'Misc. Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6760', name: 'DMV Expense', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions' },
-  { code: '6770', name: 'Computer and Internet Expenses', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Utilities' },
-  { code: '6780', name: 'Utilities', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Sch C: Utilities' },
-  { code: '6790', name: 'Meals and entertainment-subject to 50%', type: 'expense', accountGroup: 'Other deductions', taxLine: 'M&E (100% LIMIT)' },
-  { code: '6800', name: 'Other deductions', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions', description: 'Catch-all for other business expenses' },
-  { code: '6810', name: 'Reconciliation Discrepancies', type: 'expense', accountGroup: 'Other deductions', taxLine: 'Other deductions', description: 'Adjustments for reconciliation differences' },
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // CREDIT CARDS (as a separate type for tracking CC balances)
-  // ══════════════════════════════════════════════════════════════════════════════
-
-  { code: '2050', name: 'Capital One Credit Card', type: 'credit_card', accountGroup: 'Credit Cards', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2060', name: 'Chase Credit Card', type: 'credit_card', accountGroup: 'Credit Cards', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-  { code: '2070', name: 'PayPal Credit', type: 'credit_card', accountGroup: 'Credit Cards', taxLine: 'B/S-Liabs/Eq: Other current liabilities' },
-];
+// DEFAULT_CHART_OF_ACCOUNTS now lives in lib/account-catalog.ts as
+// ACCOUNT_CATALOG. The re-export below is a backward-compatible alias:
+// consumers that want "the list of accounts to consider creating" get the
+// catalog. CatalogAccount has every field DefaultAccount has plus tier/group,
+// so it's structurally assignable to DefaultAccount[]. Phoenix's
+// industry-specific accounts (parts inventory, eBay accounts, vehicles)
+// have been removed from this list; existing companies keep theirs.
+// Industry packs are a future feature.
+export { ACCOUNT_CATALOG as DEFAULT_CHART_OF_ACCOUNTS } from './account-catalog';
 
 /**
  * Get groups for a specific account type

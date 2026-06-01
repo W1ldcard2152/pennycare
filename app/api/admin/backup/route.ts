@@ -2,23 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
-import { getDatabasePath, getBackupsDir } from '@/lib/paths';
+import { getBackupsDir } from '@/lib/paths';
+import { performBackup } from '@/lib/backupRunner';
 import fs from 'fs';
 import path from 'path';
 
-// Format filename timestamp: YYYY-MM-DD-HHmmss
-function formatTimestamp(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day}-${hours}${minutes}${seconds}`;
-}
-
-// POST /api/admin/backup - Create a new backup
+// POST /api/admin/backup — user-initiated backup (clicks "Create Backup")
 export async function POST(request: NextRequest) {
   try {
     const { error, companyId, session } = await requireCompanyAccess('admin');
@@ -27,72 +16,29 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const description = body.description || null;
 
-    const dbPath = getDatabasePath();
-    const backupsDir = getBackupsDir();
-
-    console.log('Database path:', dbPath);
-    console.log('Backups directory:', backupsDir);
-
-    // Verify the database file exists
-    if (!fs.existsSync(dbPath)) {
-      console.error('Database file not found at:', dbPath);
-      return NextResponse.json(
-        { error: `Database file not found at: ${dbPath}` },
-        { status: 500 }
-      );
-    }
-
-    // Create backups directory if it doesn't exist
-    if (!fs.existsSync(backupsDir)) {
-      fs.mkdirSync(backupsDir, { recursive: true });
-    }
-
-    // Generate filename
-    const timestamp = formatTimestamp();
-    const filename = `pennycare-backup-${timestamp}.db`;
-    const backupPath = path.join(backupsDir, filename);
-
-    // Optional: Flush WAL before copy for extra safety
-    try {
-      await prisma.$executeRaw`PRAGMA wal_checkpoint(TRUNCATE)`;
-    } catch {
-      // Not critical if this fails - continue with backup
-    }
-
-    // Copy the database file
-    fs.copyFileSync(dbPath, backupPath);
-
-    // Get file size
-    const stats = fs.statSync(backupPath);
-    const fileSize = stats.size;
-
-    // Create backup record
-    const backup = await prisma.backup.create({
-      data: {
-        companyId: companyId!,
-        filename,
-        fileSize,
-        description,
-        createdBy: session!.userId,
-      },
+    const result = await performBackup({
+      companyId: companyId!,
+      createdBy: session!.userId,
+      description,
+      source: 'manual',
     });
 
-    // Log audit
     await logAudit({
       companyId: companyId!,
       userId: session!.userId,
       action: 'backup.create',
       entityType: 'Backup',
-      entityId: backup.id,
-      metadata: { filename, fileSize, description },
+      entityId: result.id,
+      metadata: {
+        filename: result.filename,
+        fileSize: result.fileSize,
+        description,
+        source: 'manual',
+        targets: result.targets.map((t) => ({ name: t.name, status: t.status })),
+      },
     });
 
-    return NextResponse.json({
-      id: backup.id,
-      filename: backup.filename,
-      fileSize: backup.fileSize,
-      createdAt: backup.createdAt.toISOString(),
-    });
+    return NextResponse.json(result);
   } catch (err) {
     console.error('Error creating backup:', err);
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -107,6 +53,14 @@ export async function GET() {
     if (error) return error;
 
     const backupsDir = getBackupsDir();
+
+    // Get the company's creation date so the UI can tier reminder urgency.
+    // For never-backed-up companies, "days without a backup" is measured
+    // from when the company file was first created.
+    const company = await prisma.company.findUnique({
+      where: { id: companyId! },
+      select: { createdAt: true },
+    });
 
     // Get all backup records
     const backups = await prisma.backup.findMany({
@@ -132,7 +86,12 @@ export async function GET() {
         fileSize: backup.fileSize,
         description: backup.description,
         createdBy: backup.createdBy,
-        createdByName: userMap.get(backup.createdBy) || 'Unknown',
+        // 'system' is a synthetic createdBy for auto-backups — surface
+        // it explicitly instead of "Unknown" so the user understands
+        // why some backups have no author.
+        createdByName: backup.createdBy === 'system'
+          ? 'Automatic'
+          : (userMap.get(backup.createdBy) || 'Unknown'),
         createdAt: backup.createdAt.toISOString(),
         exists,
       };
@@ -144,6 +103,7 @@ export async function GET() {
     return NextResponse.json({
       backups: backupsWithStatus,
       lastBackupDate: lastBackup?.toISOString() || null,
+      companyCreatedAt: company?.createdAt.toISOString() || null,
     });
   } catch (err) {
     console.error('Error listing backups:', err);

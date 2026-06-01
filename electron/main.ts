@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, Menu } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu } from 'electron';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -7,7 +7,9 @@ import net from 'net';
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
+let serverPort: number | null = null;
 let logStream: fs.WriteStream | null = null;
+let quitInProgress = false;
 
 const DATA_DIR = app.getPath('userData');
 const DB_PATH = path.join(DATA_DIR, 'pennycare.db');
@@ -58,13 +60,23 @@ function ensureDataDir(): void {
   if (!fs.existsSync(ENV_PATH)) {
     const jwtSecret = crypto.randomBytes(64).toString('hex');
     const encryptionKey = crypto.randomBytes(32).toString('hex');
+    const internalBackupSecret = crypto.randomBytes(32).toString('hex');
     const envContent = [
       `JWT_SECRET=${jwtSecret}`,
       `ENCRYPTION_KEY=${encryptionKey}`,
+      `INTERNAL_BACKUP_SECRET=${internalBackupSecret}`,
       `DATABASE_URL=${toDatabaseUrl(DB_PATH)}`,
       '',
     ].join('\n');
     fs.writeFileSync(ENV_PATH, envContent, 'utf-8');
+  } else {
+    // Existing installs predate INTERNAL_BACKUP_SECRET — add it if missing
+    // so auto-backup works without forcing the user to delete .env.
+    const existing = fs.readFileSync(ENV_PATH, 'utf-8');
+    if (!existing.includes('INTERNAL_BACKUP_SECRET=')) {
+      const newSecret = crypto.randomBytes(32).toString('hex');
+      fs.appendFileSync(ENV_PATH, `INTERNAL_BACKUP_SECRET=${newSecret}\n`, 'utf-8');
+    }
   }
 }
 
@@ -251,6 +263,11 @@ function waitForServer(port: number, timeout = 30000): Promise<void> {
 }
 
 function createWindow(port: number): void {
+  // electron-dist/preload.js is compiled from electron/preload.ts by the
+  // electron:build pipeline. The path resolution mirrors the production
+  // bundle layout — main.js and preload.js sit in the same directory.
+  const preloadPath = path.join(__dirname, 'preload.js');
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -262,6 +279,7 @@ function createWindow(port: number): void {
       nodeIntegration: false,
       contextIsolation: true,
       devTools: true,
+      preload: preloadPath,
     },
     show: false,
   });
@@ -270,6 +288,12 @@ function createWindow(port: number): void {
 
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.show();
+    // Fire-and-forget startup backup. The endpoint will short-circuit if
+    // a backup happened in the last 24h, so reopening the app multiple
+    // times a day doesn't generate noise.
+    runAutoBackup('auto_on_open').catch((err) => {
+      log(`[auto-backup] on-open promise rejected: ${err}`);
+    });
   });
 
   // Hide the menu bar but keep the default app menu so F12 / Ctrl+Shift+I
@@ -282,12 +306,74 @@ function createWindow(port: number): void {
   });
 }
 
+// IPC handler: open a native folder picker. Renderer calls
+// `window.pennycare.pickFolder()` (defined in preload.ts), which invokes
+// this. Returns the chosen folder path, or null if the user canceled.
+ipcMain.handle('pennycare:pick-folder', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Backup Folder',
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Use This Folder',
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+// Trigger an auto-backup by calling the localhost-only auto endpoint.
+// The Next.js server validates the X-Internal-Secret header against the
+// same value we wrote into the .env file, so the call only works from
+// this main process. Returns true on success, false on error.
+async function runAutoBackup(source: 'auto_on_open' | 'auto_on_quit'): Promise<boolean> {
+  if (serverPort === null) {
+    log('[auto-backup] server port unknown, skipping');
+    return false;
+  }
+  const envVars = loadEnvFile();
+  const secret = envVars.INTERNAL_BACKUP_SECRET;
+  if (!secret) {
+    log('[auto-backup] INTERNAL_BACKUP_SECRET missing from env, skipping');
+    return false;
+  }
+  try {
+    const url = `http://127.0.0.1:${serverPort}/api/admin/backup/auto`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': secret,
+      },
+      body: JSON.stringify({ source }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      skipped?: boolean;
+      reason?: string;
+      filename?: string;
+      error?: string;
+    };
+    if (!res.ok) {
+      log(`[auto-backup] ${source} failed (${res.status}): ${JSON.stringify(data)}`);
+      return false;
+    }
+    if (data.skipped) {
+      log(`[auto-backup] ${source} skipped: ${data.reason}`);
+    } else {
+      log(`[auto-backup] ${source} succeeded: ${data.filename}`);
+    }
+    return true;
+  } catch (err) {
+    log(`[auto-backup] ${source} threw: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
 app.on('ready', async () => {
   try {
     openLog();
     ensureDataDir();
     syncDatabase();
     const port = await findFreePort();
+    serverPort = port;
     await startServer(port);
     createWindow(port);
 
@@ -313,17 +399,46 @@ app.on('will-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
-  }
+  // Don't kill the server here — let before-quit handle it after the
+  // auto-backup runs. Just trigger the quit cycle.
   app.quit();
 });
 
-app.on('before-quit', () => {
+// Quit cycle:
+//   1st pass — preventDefault, run on-quit auto-backup against the still-live
+//              server, then kill the server and exit cleanly.
+//   2nd pass (after app.exit) — the process has already terminated.
+//
+// We avoid `app.quit()` for the actual exit because that retriggers
+// before-quit. `app.exit(0)` skips the cycle.
+app.on('before-quit', async (event) => {
+  if (quitInProgress) return;
+  quitInProgress = true;
+  event.preventDefault();
+
+  // Best-effort backup before tearing down. Bounded so a hung backup
+  // (USB drive disconnected mid-write, slow network share) can't trap the
+  // user in a window that won't close. 60s covers typical backups even on
+  // slow USB 2.0; if it fires mid-copy the atomic-write pattern in
+  // performBackup() ensures we never leave a corrupt .db on disk —
+  // worst case we leave a .tmp file that gets cleaned up next backup.
+  const QUIT_BACKUP_TIMEOUT_MS = 60000;
+  try {
+    await Promise.race([
+      runAutoBackup('auto_on_quit'),
+      new Promise<boolean>((resolve) => setTimeout(() => {
+        log(`[auto-backup] on-quit timed out at ${QUIT_BACKUP_TIMEOUT_MS / 1000}s, proceeding with exit`);
+        resolve(false);
+      }, QUIT_BACKUP_TIMEOUT_MS)),
+    ]);
+  } catch (err) {
+    log(`[auto-backup] on-quit failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
   }
   logStream?.end();
+  app.exit(0);
 });

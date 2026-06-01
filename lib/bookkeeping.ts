@@ -2,40 +2,128 @@ import { prisma } from './db';
 import { startOfDay, endOfDay } from './date-utils';
 import { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS } from './default-chart-of-accounts';
 import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
-import type { Prisma } from '@prisma/client';
+import { ACCOUNT_CATALOG, getAccountsForTier, getCatalogAccount, resolveDependencies } from './account-catalog';
+import type { Tier } from './account-catalog';
+import type { Account, Prisma } from '@prisma/client';
 
 // Re-export for backward compatibility
 export { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS };
 export type { AccountType, DefaultAccount };
 
 // ============================================
+// SYSTEM ACCOUNT LOOKUP
+// ============================================
+//
+// Some operations (year-end closing, opening balances) need to find specific
+// equity accounts regardless of what codes a given company uses. Codes vary
+// between companies — Phoenix has Retained Earnings at 3020, the new catalog
+// puts it at 3020 too, but a company that hand-built its chart could put it
+// anywhere. Looking up by (accountGroup, name) is robust to that.
+//
+// Centralizing the lookup here means the day we decide to add a `systemRole`
+// column on Account, every caller updates from one place.
+
+type SystemAccountRole = 'retained_earnings' | 'opening_balance_equity';
+
+const SYSTEM_ACCOUNT_LOOKUP: Record<SystemAccountRole, { accountGroup: string; name: string }> = {
+  retained_earnings: { accountGroup: 'Equity', name: 'Retained Earnings' },
+  opening_balance_equity: { accountGroup: 'Equity', name: 'Opening Balance Equity' },
+};
+
+export async function findSystemAccount(
+  companyId: string,
+  role: SystemAccountRole,
+): Promise<Account | null> {
+  const lookup = SYSTEM_ACCOUNT_LOOKUP[role];
+  return prisma.account.findFirst({
+    where: { companyId, accountGroup: lookup.accountGroup, name: lookup.name },
+  });
+}
+
+// ============================================
 // CHART OF ACCOUNTS SEEDING
 // ============================================
 
-export async function seedChartOfAccounts(companyId: string): Promise<number> {
-  let created = 0;
-  for (const acct of DEFAULT_CHART_OF_ACCOUNTS) {
-    const existing = await prisma.account.findUnique({
-      where: { companyId_code: { companyId, code: acct.code } },
-    });
-    if (!existing) {
-      await prisma.account.create({
-        data: {
-          companyId,
-          code: acct.code,
-          name: acct.name,
-          type: acct.type,
-          accountGroup: acct.accountGroup || null,
-          description: acct.description || null,
-          taxLine: acct.taxLine || null,
-          isActive: true,
-        },
-      });
-      created++;
+export interface SeedConfig {
+  tier?: Tier;
+  additionalCodes?: string[];
+}
+
+export interface SeedResult {
+  created: number;
+  skipped: number;
+  accounts: Array<{ code: string; name: string; type: string }>;
+}
+
+/**
+ * Seed accounts from the catalog for a given tier, optionally adding extra
+ * codes the user picked individually. Dependencies are resolved (e.g.
+ * picking any payroll account pulls in the full payroll group). Codes that
+ * already exist for this company are skipped — the operation is idempotent
+ * and safe to call multiple times.
+ */
+export async function seedChartOfAccounts(
+  companyId: string,
+  config?: SeedConfig,
+): Promise<SeedResult> {
+  const tier: Tier = config?.tier ?? 'basic';
+  const additionalCodes = config?.additionalCodes ?? [];
+
+  // Start with every catalog account at or below the requested tier...
+  const tierAccounts = getAccountsForTier(tier);
+  const tierCodes = new Set(tierAccounts.map((a) => a.code));
+
+  // ...layer in any extra codes the user opted into individually...
+  for (const code of additionalCodes) {
+    if (getCatalogAccount(code)) {
+      tierCodes.add(code);
     }
   }
-  return created;
+
+  // ...resolve dependencies so functional groups (payroll, CC) come in
+  // whole when any member is selected.
+  const resolution = resolveDependencies(Array.from(tierCodes));
+  const targetCodes = new Set(resolution.allCodes);
+
+  // Skip codes that already exist for this company
+  const existing = await prisma.account.findMany({
+    where: { companyId, code: { in: Array.from(targetCodes) } },
+    select: { code: true },
+  });
+  const existingCodes = new Set(existing.map((a) => a.code));
+
+  const toCreate = Array.from(targetCodes).filter((code) => !existingCodes.has(code));
+  const created: SeedResult['accounts'] = [];
+
+  for (const code of toCreate) {
+    const def = getCatalogAccount(code);
+    if (!def) continue; // Shouldn't happen — resolution stays within the catalog
+
+    const account = await prisma.account.create({
+      data: {
+        companyId,
+        code: def.code,
+        name: def.name,
+        type: def.type,
+        accountGroup: def.accountGroup,
+        description: def.description || null,
+        taxLine: def.taxLine || null,
+        isActive: true,
+      },
+    });
+    created.push({ code: account.code, name: account.name, type: account.type });
+  }
+
+  return {
+    created: created.length,
+    skipped: existingCodes.size,
+    accounts: created,
+  };
 }
+
+// Keep ACCOUNT_CATALOG accessible via this module for callers that already
+// reach for chart-of-accounts plumbing here.
+export { ACCOUNT_CATALOG };
 
 // ============================================
 // JOURNAL ENTRY HELPERS
@@ -73,11 +161,17 @@ export function validateJournalEntry(lines: JournalEntryLineInput[]): {
     return { valid: false, totalDebits: 0, totalCredits: 0, error: 'A journal entry must have at least 2 lines' };
   }
 
-  const totalDebits = lines.reduce((sum, l) => sum + (l.debit || 0), 0);
-  const totalCredits = lines.reduce((sum, l) => sum + (l.credit || 0), 0);
+  // Sum in integer cents so floating-point can't introduce drift. This also
+  // means we enforce penny-exact balance: any difference, even $0.01, fails.
+  // The previous `> 0.01` tolerance let single-penny payroll-aggregation drift
+  // slip through (see JE #340/#341 incident), bypassing the self-heal branch
+  // in createPayrollJournalEntries.
+  const debitCents = lines.reduce((sum, l) => sum + Math.round((l.debit || 0) * 100), 0);
+  const creditCents = lines.reduce((sum, l) => sum + Math.round((l.credit || 0) * 100), 0);
+  const totalDebits = debitCents / 100;
+  const totalCredits = creditCents / 100;
 
-  // Allow for floating-point rounding (within 1 cent)
-  if (Math.abs(totalDebits - totalCredits) > 0.01) {
+  if (debitCents !== creditCents) {
     return {
       valid: false,
       totalDebits,
@@ -195,13 +289,12 @@ export async function createOpeningBalanceEntry(
     throw new Error('Account does not belong to this company');
   }
 
-  // Find the Opening Balance Equity account (code 3900)
-  const openingBalanceEquity = await prisma.account.findUnique({
-    where: { companyId_code: { companyId, code: '3900' } },
-  });
+  // Find the Opening Balance Equity account by name+group, not code — code
+  // numbering can vary between companies, name + accountGroup is stable.
+  const openingBalanceEquity = await findSystemAccount(companyId, 'opening_balance_equity');
 
   if (!openingBalanceEquity) {
-    throw new Error('Opening Balance Equity account (3900) not found. Please seed the chart of accounts first.');
+    throw new Error('Opening Balance Equity account not found. Please seed the chart of accounts first.');
   }
 
   // Determine debit/credit based on account type and sign of amount
@@ -871,13 +964,13 @@ export async function createYearEndClosingEntry(
   const totalExpenses = expenseAccounts.reduce((sum, b) => sum + b.balance, 0);
   const netIncome = round2(totalRevenue - totalExpenses);
 
-  // Find Retained Earnings account (code 3200)
-  const retainedEarnings = await prisma.account.findUnique({
-    where: { companyId_code: { companyId, code: '3200' } },
-  });
+  // Find Retained Earnings by name+group rather than a hardcoded code —
+  // companies have it at different codes (Phoenix at 3020, the catalog at
+  // 3020 too, but a hand-built chart could put it anywhere in Equity).
+  const retainedEarnings = await findSystemAccount(companyId, 'retained_earnings');
 
   if (!retainedEarnings) {
-    throw new Error('Retained Earnings account (3200) not found. Please seed the chart of accounts first.');
+    throw new Error('Retained Earnings account not found in the Equity group. Please add it to the chart of accounts first.');
   }
 
   // Build journal entry lines

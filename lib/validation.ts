@@ -156,6 +156,13 @@ export const updateAccountSchema = z.object({
 });
 // Note: Custom groups are allowed - users can type any group name or select from predefined ones
 
+// Body for POST /api/bookkeeping/accounts/seed — the tier/onboarding endpoint.
+// Tier defaults to 'basic' so an empty body still does something sensible.
+export const seedAccountsSchema = z.object({
+  tier: z.enum(['basic', 'business', 'business_payroll']).optional().default('basic'),
+  additionalCodes: z.array(z.string()).optional().default([]),
+});
+
 const journalEntryLineSchema = z.object({
   accountId: z.string().min(1, 'Account is required'),
   description: z.string().optional().nullable(),

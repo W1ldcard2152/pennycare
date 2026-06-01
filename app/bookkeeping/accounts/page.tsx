@@ -12,6 +12,28 @@ import {
   getGroupDisplayOrder,
 } from '@/lib/account-codes';
 import type { AccountType } from '@/lib/account-codes';
+import { AccountOnboarding } from './AccountOnboarding';
+
+// Mirrors RESERVED_RANGES in lib/account-catalog.ts. Kept inline so the form
+// can validate without an extra round-trip; server enforces the same rule.
+const RESERVED_RANGES = [
+  {
+    start: '2100',
+    end: '2199',
+    message: 'Codes 2100–2199 are reserved for payroll tax liability accounts. Use "Add Payroll Accounts" to add these.',
+  },
+];
+
+function checkReservedCode(code: string): string | null {
+  for (const range of RESERVED_RANGES) {
+    if (code >= range.start && code <= range.end) return range.message;
+  }
+  return null;
+}
+
+// Codes that belong to the payroll functional group — used to detect whether
+// the "Add Payroll Accounts" button should be visible.
+const PAYROLL_CODES = ['6000', '6010', '2100', '2110', '2120', '2130', '2140', '2150', '2160', '2170', '2180'];
 
 interface Account {
   id: string;
@@ -84,20 +106,49 @@ export default function AccountsPage() {
     }
   };
 
-  const seedAccounts = async () => {
-    setActionMessage('Seeding accounts...');
-    try {
-      const res = await fetch('/api/bookkeeping/accounts/seed', { method: 'POST' });
-      const data = await res.json();
-      setActionMessage(data.message || 'Accounts seeded');
-      fetchAccounts();
-    } catch { setActionMessage('Failed to seed accounts'); }
+  const [showAddCatalog, setShowAddCatalog] = useState(false);
+  const [addingPayroll, setAddingPayroll] = useState(false);
+
+  const handleOnboardingComplete = (created: number) => {
+    setActionMessage(`Created ${created} account${created === 1 ? '' : 's'}`);
+    setShowAddCatalog(false);
+    fetchAccounts();
     setTimeout(() => setActionMessage(''), 3000);
+  };
+
+  const addPayrollAccounts = async () => {
+    if (!confirm('Add the 11 payroll & tax liability accounts (Wages, Payroll Tax Expense, and all 9 payroll tax payables)?')) return;
+    setAddingPayroll(true);
+    setActionMessage('Adding payroll accounts...');
+    try {
+      const res = await fetch('/api/bookkeeping/accounts/seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: 'basic', additionalCodes: PAYROLL_CODES }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionMessage(data.error || 'Failed to add payroll accounts');
+      } else {
+        setActionMessage(data.message || 'Payroll accounts added');
+        fetchAccounts();
+      }
+    } catch {
+      setActionMessage('Failed to add payroll accounts');
+    } finally {
+      setAddingPayroll(false);
+      setTimeout(() => setActionMessage(''), 3000);
+    }
   };
 
   const createAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    const reservedMsg = checkReservedCode(formData.code);
+    if (reservedMsg) {
+      setFormError(reservedMsg);
+      return;
+    }
     try {
       const res = await fetch('/api/bookkeeping/accounts', {
         method: 'POST',
@@ -401,10 +452,24 @@ export default function AccountsPage() {
             </p>
           </div>
           <div className="flex gap-3">
-            {accounts.length === 0 && (
-              <button onClick={seedAccounts} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
-                Load Default Accounts
-              </button>
+            {accounts.length > 0 && (
+              <>
+                {!PAYROLL_CODES.every((c) => accounts.some((a) => a.code === c)) && (
+                  <button
+                    onClick={addPayrollAccounts}
+                    disabled={addingPayroll}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Add Payroll Accounts
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowAddCatalog(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Add from Catalog
+                </button>
+              </>
             )}
             <button
               onClick={() => window.print()}
@@ -463,6 +528,9 @@ export default function AccountsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Account Code</label>
                   <input type="text" required value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400" placeholder="e.g., 6300" />
+                  {checkReservedCode(formData.code) && (
+                    <p className="text-xs text-red-600 mt-1">{checkReservedCode(formData.code)}</p>
+                  )}
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
@@ -719,14 +787,27 @@ export default function AccountsPage() {
           <span className="text-xs text-gray-400">Click column headers to sort. Click again to reverse.</span>
         </div>
 
-        {/* Seed button if no accounts */}
+        {/* Onboarding when the company has no accounts yet */}
         {accounts.length === 0 && (
-          <div className="text-center py-16 bg-gray-50 rounded-lg no-print">
-            <p className="text-gray-600 mb-4 text-lg">No accounts yet</p>
-            <p className="text-gray-500 mb-6">Load the default chart of accounts to get started, or create accounts manually.</p>
-            <button onClick={seedAccounts} className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors text-lg">
-              Load Default Chart of Accounts
-            </button>
+          <div className="no-print">
+            <AccountOnboarding
+              mode="setup"
+              onComplete={handleOnboardingComplete}
+            />
+          </div>
+        )}
+
+        {/* Add-from-catalog modal (post-setup) */}
+        {showAddCatalog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print overflow-y-auto py-8">
+            <div className="bg-transparent max-w-4xl w-full mx-4">
+              <AccountOnboarding
+                mode="add"
+                existingCodes={accounts.map((a) => a.code)}
+                onComplete={handleOnboardingComplete}
+                onCancel={() => setShowAddCatalog(false)}
+              />
+            </div>
           </div>
         )}
 

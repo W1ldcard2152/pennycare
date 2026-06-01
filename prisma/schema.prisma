@@ -1059,6 +1059,26 @@ model Backup {
   @@index([companyId])
 }
 
+// Registered external backup destinations (USB drives, OneDrive folders, etc.)
+// Intentionally NOT scoped to a company — backups copy the whole database file,
+// so the set of targets is an app-level setting shared across all companies.
+//
+// Identification is via a marker file (`.pennycare-backup-target.json`) written
+// to the folder root containing the `markerId`. At backup time the app scans
+// each registered folder, verifies the marker still matches, and writes a copy
+// if (and only if) verification passes. This survives Windows drive-letter
+// reassignment because we look up by folder path AND marker content.
+model BackupTarget {
+  id           String   @id @default(cuid())
+  name         String                   // Friendly name: "Office USB", "OneDrive"
+  folderPath   String                   // Absolute path the user picked
+  markerId     String   @unique         // UUID also written into the marker file
+  createdAt    DateTime @default(now())
+  createdBy    String?                  // userId who registered the target
+  lastSeenAt   DateTime?                // Last time the marker was verified
+  lastBackupAt DateTime?                // Last successful backup write
+}
+
 // ============================================
 // FEEDBACK
 // ============================================

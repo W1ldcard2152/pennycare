@@ -49,7 +49,10 @@ export async function GET() {
         where: { companyId: companyId!, status: 'pending' },
       }),
 
-      // Get accounts that can be reconciled (bank + credit card)
+      // Get accounts that can be reconciled (bank + credit card).
+      // createdAt anchors the reconciliation-stale check so freshly-seeded
+      // accounts get a 30-day grace period instead of immediately firing
+      // "needs reconciliation" warnings on day 1 of the company file.
       prisma.account.findMany({
         where: {
           companyId: companyId!,
@@ -59,7 +62,7 @@ export async function GET() {
             { type: 'credit_card' },
           ],
         },
-        select: { id: true, code: true, name: true, type: true, accountGroup: true },
+        select: { id: true, code: true, name: true, type: true, accountGroup: true, createdAt: true },
       }),
 
       // Recent completed reconciliations
@@ -136,12 +139,17 @@ export async function GET() {
     const unreconciledAccounts = reconcilableAccounts
       .map((acct) => {
         const lastReconciled = lastReconciledByAccount.get(acct.id);
+        // "Stale since" = last time the account had a reconciliation OR
+        // the day it was added to the chart. The 30-day clock runs from
+        // whichever is more recent. This gives newly-created accounts a
+        // 30-day grace period before they start nagging.
+        const staleSince = lastReconciled ?? acct.createdAt;
         return {
           accountId: acct.id,
           accountCode: acct.code,
           accountName: acct.name,
           lastReconciledDate: lastReconciled ? formatDate(lastReconciled) : null,
-          needsReconciliation: !lastReconciled || lastReconciled < thirtyDaysAgo,
+          needsReconciliation: staleSince < thirtyDaysAgo,
         };
       })
       .filter((a) => a.needsReconciliation);
