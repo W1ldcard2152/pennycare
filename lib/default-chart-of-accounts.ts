@@ -108,10 +108,10 @@ export const GROUP_CODE_RANGES: Record<string, { start: number; end: number; inc
 // ACCOUNT_CATALOG. The re-export below is a backward-compatible alias:
 // consumers that want "the list of accounts to consider creating" get the
 // catalog. CatalogAccount has every field DefaultAccount has plus tier/group,
-// so it's structurally assignable to DefaultAccount[]. Phoenix's
-// industry-specific accounts (parts inventory, eBay accounts, vehicles)
-// have been removed from this list; existing companies keep theirs.
-// Industry packs are a future feature.
+// so it's structurally assignable to DefaultAccount[]. The original
+// automotive-shop industry-specific accounts (parts inventory, eBay
+// accounts, vehicles) have been removed from this list; existing
+// companies keep theirs. Industry packs are a future feature.
 export { ACCOUNT_CATALOG as DEFAULT_CHART_OF_ACCOUNTS } from './account-catalog';
 
 /**

@@ -1,4 +1,4 @@
-# Pennycare
+# CV Books
 
 Business management application for payroll and bookkeeping, designed specifically for auto repair and dismantling businesses.
 
@@ -107,19 +107,19 @@ The database is a single SQLite file at `prisma/prisma/pennycare.db`. **Back it 
 Recommended backup routine:
 
 - **Daily**: Copy `prisma/prisma/pennycare.db` to a USB drive or second disk
-- **Weekly**: Keep a dated copy (e.g., `pennycare-backup-2026-02-07.db`)
+- **Weekly**: Keep a dated copy (e.g., `cvbooks-backup-2026-02-07.db`)
 - **Before any update**: Always back up before running `npm install`, `prisma db push`, or updating code
 
 To back up (Windows):
 
 ```cmd
-copy prisma\prisma\pennycare.db backups\pennycare-%date:~-4,4%-%date:~-7,2%-%date:~-10,2%.db
+copy prisma\prisma\pennycare.db backups\cvbooks-%date:~-4,4%-%date:~-7,2%-%date:~-10,2%.db
 ```
 
 To restore from a backup, stop the server and replace the database file:
 
 ```cmd
-copy backups\pennycare-2026-02-07.db prisma\prisma\pennycare.db
+copy backups\cvbooks-2026-02-07.db prisma\prisma\pennycare.db
 ```
 
 **Important**: The ENCRYPTION_KEY used when data was entered must match the key used when reading it. If you change the ENCRYPTION_KEY, previously encrypted SSNs and bank account numbers will be unreadable. Keep a secure record of your ENCRYPTION_KEY separate from the database.
@@ -172,7 +172,7 @@ npx prisma generate      # Generate Prisma Client
 ## Project Structure
 
 ```
-pennycare/
+cvbooks/
 ├── app/                  # Next.js app directory
 │   ├── api/             # API routes
 │   ├── employees/       # Employee management pages

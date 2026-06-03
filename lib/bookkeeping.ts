@@ -16,9 +16,9 @@ export type { AccountType, DefaultAccount };
 //
 // Some operations (year-end closing, opening balances) need to find specific
 // equity accounts regardless of what codes a given company uses. Codes vary
-// between companies — Phoenix has Retained Earnings at 3020, the new catalog
-// puts it at 3020 too, but a company that hand-built its chart could put it
-// anywhere. Looking up by (accountGroup, name) is robust to that.
+// between companies — a hand-built chart can put Retained Earnings at any
+// code in the equity range, and the catalog uses 3020 by convention but
+// nothing enforces it. Looking up by (accountGroup, name) is robust to that.
 //
 // Centralizing the lookup here means the day we decide to add a `systemRole`
 // column on Account, every caller updates from one place.
@@ -965,8 +965,8 @@ export async function createYearEndClosingEntry(
   const netIncome = round2(totalRevenue - totalExpenses);
 
   // Find Retained Earnings by name+group rather than a hardcoded code —
-  // companies have it at different codes (Phoenix at 3020, the catalog at
-  // 3020 too, but a hand-built chart could put it anywhere in Equity).
+  // companies can have it at different codes; the catalog uses 3020 by
+  // convention but a hand-built chart could put it anywhere in Equity.
   const retainedEarnings = await findSystemAccount(companyId, 'retained_earnings');
 
   if (!retainedEarnings) {

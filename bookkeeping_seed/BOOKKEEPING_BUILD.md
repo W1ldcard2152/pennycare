@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-PennyCare is a business management app for Phoenix Automotive LLC, an auto repair and dismantling business. The payroll module is fully built. This document describes the **bookkeeping/accounting module** to be added.
+PennyCare is a business management app for small businesses, published by Certaverus Systems LLC. The payroll module is fully built. This document describes the **bookkeeping/accounting module** to be added.
 
 **Accounting method**: Cash basis  
 **Tech stack**: Next.js 16, TypeScript, Tailwind CSS, Prisma ORM, SQLite, Zod validation  

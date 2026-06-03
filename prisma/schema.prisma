@@ -117,6 +117,11 @@ model Company {
   sickAccrualHoursWorked Float? @default(30) // Per hours worked (NY: 1 hour per 30 hours)
   sickAnnualCapHours Float? @default(40) // Annual cap (NY: 40 hours for 5-99 employees)
 
+  // eBay Sales Import — opt-in per company. Defaults off so demo/non-eBay
+  // installs don't see the sidebar link for a feature they have no use for.
+  // When enabled, the sidebar shows the eBay Sales import page.
+  ebayImportEnabled Boolean @default(false)
+
   // eBay Account Mappings (configurable per company)
   ebayPendingPayoutsAccountId String?  // Asset account for eBay funds pending payout (default: 1120)
   ebaySalesAccountId          String?  // Revenue account for eBay sales (default: 4010)
@@ -1049,14 +1054,24 @@ model Backup {
   companyId   String
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  filename    String   // e.g., "pennycare-backup-2025-01-15-143022.db"
+  filename    String   // e.g., "cvbooks-backup-2025-01-15-143022.db"
   fileSize    Int      // bytes
   description String?  // optional user note (e.g., "Before year-end closing")
   createdBy   String   // userId
 
+  // Retention tier — one of: "rolling", "weekly", "monthly".
+  // Determines pruning behavior and filename suffix.
+  //   rolling  — every 4h cadence; keep last 5, prune older
+  //   weekly   — promoted when >7 days since last weekly; keep last 12
+  //   monthly  — promoted on first backup of a new calendar month;
+  //              named "cvbooks-EOM-YYYY-MM-monthname.db" (represents
+  //              the END of the prior month); kept forever
+  retentionTier String @default("rolling")
+
   createdAt   DateTime @default(now())
 
   @@index([companyId])
+  @@index([retentionTier, createdAt])
 }
 
 // Registered external backup destinations (USB drives, OneDrive folders, etc.)

@@ -1,6 +1,6 @@
 """
 Statement Extractor — Parses pasted bank/credit card statement text into CSV
-using xAI's Grok API, then saves the result for PennyCare import.
+using xAI's Grok API, then saves the result for CV Books import.
 
 Install dependencies:
     pip install requests python-dotenv
@@ -122,7 +122,7 @@ def validate_csv(text: str) -> tuple[bool, str]:
 class StatementExtractorApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("PennyCare — Statement Extractor")
+        self.root.title("CV Books — Statement Extractor")
         self.root.geometry("900x780")
         self.root.minsize(750, 650)
 
@@ -317,7 +317,7 @@ class StatementExtractorApp:
         messagebox.showinfo(
             "Saved",
             f"CSV saved to:\n{out_path}\n\n"
-            "Upload this file in PennyCare under\n"
+            "Upload this file in CV Books under\n"
             "Bookkeeping > Upload Statements.",
         )
 

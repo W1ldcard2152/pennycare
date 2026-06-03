@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     // Create automatic backup of current database before restore
     const timestamp = formatTimestamp();
-    const autoBackupFilename = `pennycare-pre-restore-${timestamp}.db`;
+    const autoBackupFilename = `cvbooks-pre-restore-${timestamp}.db`;
     const autoBackupPath = path.join(backupsDir, autoBackupFilename);
 
     if (fs.existsSync(dbPath)) {

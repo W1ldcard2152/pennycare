@@ -66,9 +66,9 @@ export const TIER_INFO: Record<Tier, {
 // (GROUP_CODE_RANGES in lib/default-chart-of-accounts.ts) so that a freshly
 // seeded company and a long-running company land on the same codes for the
 // same logical accounts — keeping any future code-by-number lookups working
-// for both. Industry-specific accounts (Phoenix's parts inventory, eBay
-// accounts, vehicles, etc.) are intentionally not in this catalog; industry
-// packs are a future feature.
+// for both. Industry-specific accounts (auto-parts inventory, eBay
+// integration, work vehicles, etc.) are intentionally not in this catalog;
+// industry packs are a future feature.
 export const ACCOUNT_CATALOG: CatalogAccount[] = [
   // ============================================================
   // BASIC TIER (~18 accounts)

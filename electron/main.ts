@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, shell } from 'electron';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -10,6 +10,12 @@ let serverProcess: ChildProcess | null = null;
 let serverPort: number | null = null;
 let logStream: fs.WriteStream | null = null;
 let quitInProgress = false;
+let periodicBackupTimer: NodeJS.Timeout | null = null;
+
+// Frequency of the in-session auto-backup timer. Aligns with the 4h cooldown
+// on the auto endpoint so a fresh manual backup naturally suppresses the
+// next periodic tick.
+const PERIODIC_BACKUP_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 const DATA_DIR = app.getPath('userData');
 const DB_PATH = path.join(DATA_DIR, 'pennycare.db');
@@ -31,7 +37,7 @@ function openLog(): void {
       fs.renameSync(LOG_PATH, `${LOG_PATH}.old`);
     }
     logStream = fs.createWriteStream(LOG_PATH, { flags: 'a' });
-    log(`\n========== PennyCare launch ${new Date().toISOString()} ==========`);
+    log(`\n========== CV Books launch ${new Date().toISOString()} ==========`);
     log(`DATA_DIR=${DATA_DIR}`);
     log(`DB_PATH=${DB_PATH}`);
     log(`appPath=${app.getAppPath()}`);
@@ -172,7 +178,7 @@ async function startServer(port: number): Promise<void> {
 
   if (!fs.existsSync(serverPath)) {
     dialog.showErrorBox(
-      'PennyCare Error',
+      'CV Books Error',
       `Server file not found at:\n${serverPath}\n\nThe application may not have been built correctly.`
     );
     app.quit();
@@ -231,7 +237,7 @@ async function startServer(port: number): Promise<void> {
 
   serverProcess.on('error', (err) => {
     logErr(`[server] spawn error: ${err.message}`);
-    dialog.showErrorBox('PennyCare Error', `Failed to start server: ${err.message}`);
+    dialog.showErrorBox('CV Books Error', `Failed to start server: ${err.message}`);
     app.quit();
   });
 
@@ -273,7 +279,7 @@ function createWindow(port: number): void {
     height: 900,
     minWidth: 1024,
     minHeight: 680,
-    title: 'PennyCare',
+    title: 'CV Books - Bookkeeping & Payroll',
     icon: path.join(app.getAppPath(), 'electron', 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
@@ -286,14 +292,39 @@ function createWindow(port: number): void {
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
+  // Offline-first contract enforcement: the app window only ever loads
+  // content from our own localhost server. External links (IRS, NY Tax,
+  // SSA, etc.) are handed off to the user's default browser via
+  // shell.openExternal so they open OUTSIDE the app — never inside it.
+  // This way "the app makes no network calls" stays true in the strong
+  // sense, and the user always sees a clear handoff when leaving CV Books.
+  const localServerOrigin = `http://127.0.0.1:${port}`;
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(localServerOrigin)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // target="_blank" links and window.open() calls — refuse to open a
+    // new Electron window for any external URL; pass it to the OS browser.
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.show();
     // Fire-and-forget startup backup. The endpoint will short-circuit if
-    // a backup happened in the last 24h, so reopening the app multiple
+    // a backup happened in the last 4h, so reopening the app multiple
     // times a day doesn't generate noise.
     runAutoBackup('auto_on_open').catch((err) => {
       log(`[auto-backup] on-open promise rejected: ${err}`);
     });
+    // Start the 4-hourly in-session timer so long open sessions still
+    // get periodic backups even without an open/close cycle.
+    startPeriodicBackupTimer();
   });
 
   // Hide the menu bar but keep the default app menu so F12 / Ctrl+Shift+I
@@ -320,11 +351,31 @@ ipcMain.handle('pennycare:pick-folder', async () => {
   return result.filePaths[0];
 });
 
+// Start the in-session periodic backup timer. Fires every 4 hours; the
+// auto endpoint's cooldown ensures we don't pile on right after a manual
+// backup. Stopped during quit so the timer doesn't fire mid-shutdown.
+function startPeriodicBackupTimer(): void {
+  if (periodicBackupTimer) return; // Idempotent
+  periodicBackupTimer = setInterval(() => {
+    runAutoBackup('auto_scheduled').catch((err) => {
+      log(`[auto-backup] scheduled promise rejected: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, PERIODIC_BACKUP_INTERVAL_MS);
+  log(`[auto-backup] periodic timer started (every ${PERIODIC_BACKUP_INTERVAL_MS / 1000 / 60 / 60}h)`);
+}
+
+function stopPeriodicBackupTimer(): void {
+  if (periodicBackupTimer) {
+    clearInterval(periodicBackupTimer);
+    periodicBackupTimer = null;
+  }
+}
+
 // Trigger an auto-backup by calling the localhost-only auto endpoint.
 // The Next.js server validates the X-Internal-Secret header against the
 // same value we wrote into the .env file, so the call only works from
 // this main process. Returns true on success, false on error.
-async function runAutoBackup(source: 'auto_on_open' | 'auto_on_quit'): Promise<boolean> {
+async function runAutoBackup(source: 'auto_on_open' | 'auto_on_quit' | 'auto_scheduled'): Promise<boolean> {
   if (serverPort === null) {
     log('[auto-backup] server port unknown, skipping');
     return false;
@@ -387,7 +438,7 @@ app.on('ready', async () => {
   } catch (err) {
     logErr(`[fatal] ${err instanceof Error ? err.stack || err.message : String(err)}`);
     dialog.showErrorBox(
-      'PennyCare Error',
+      'CV Books Error',
       `Failed to start: ${err instanceof Error ? err.message : String(err)}\n\nSee log at:\n${LOG_PATH}`
     );
     app.quit();
@@ -415,6 +466,9 @@ app.on('before-quit', async (event) => {
   if (quitInProgress) return;
   quitInProgress = true;
   event.preventDefault();
+
+  // Stop the periodic timer so it can't fire mid-shutdown.
+  stopPeriodicBackupTimer();
 
   // Best-effort backup before tearing down. Bounded so a hung backup
   // (USB drive disconnected mid-write, slow network share) can't trap the

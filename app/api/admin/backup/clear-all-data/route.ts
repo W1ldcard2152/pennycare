@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     // Create automatic backup before clearing data
     const timestamp = formatTimestamp();
-    const autoBackupFilename = `pennycare-pre-clear-${timestamp}.db`;
+    const autoBackupFilename = `cvbooks-pre-clear-${timestamp}.db`;
     const autoBackupPath = path.join(backupsDir, autoBackupFilename);
 
     // Flush WAL before copy

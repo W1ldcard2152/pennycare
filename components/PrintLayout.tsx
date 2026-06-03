@@ -20,7 +20,7 @@ interface PrintLayoutProps {
  * <PrintLayout
  *   title="Profit & Loss"
  *   subtitle="January 1, 2025 — February 28, 2025"
- *   companyName="Phoenix Automotive LLC"
+ *   companyName="Your Company Name LLC"
  * >
  *   {report content}
  * </PrintLayout>

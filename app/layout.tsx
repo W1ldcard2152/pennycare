@@ -3,8 +3,8 @@ import "./globals.css";
 import AppLayout from "@/components/AppLayout";
 
 export const metadata: Metadata = {
-  title: "PennyCare - Payroll Management",
-  description: "Payroll and business management for auto repair shops",
+  title: "CV Books - Bookkeeping & Payroll",
+  description: "Bookkeeping and payroll management for small businesses",
 };
 
 export default function RootLayout({

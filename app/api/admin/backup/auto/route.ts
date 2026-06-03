@@ -45,17 +45,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid source' }, { status: 400 });
     }
 
-    // On-open backups should only run if there isn't already a recent one
-    // — otherwise reopening the app a few times a day would generate noise.
-    // On-quit always runs because the user's most recent changes are
-    // exactly what we want to capture.
-    if (source === 'auto_on_open') {
+    // Cooldown-gated sources (on_open and the periodic scheduled tick)
+    // skip if a backup happened in the last 4 hours, so reopening the app
+    // or hitting the 4h timer right after a manual backup doesn't pile
+    // duplicates on each other. On-quit ignores the cooldown — that
+    // backup is the one we care most about (most recent edits) and the
+    // user is leaving the app, so a redundant write is harmless.
+    if (source === 'auto_on_open' || source === 'auto_scheduled') {
       const lastBackup = await prisma.backup.findFirst({
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       });
-      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-      if (lastBackup && Date.now() - lastBackup.createdAt.getTime() < ONE_DAY_MS) {
+      const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+      if (lastBackup && Date.now() - lastBackup.createdAt.getTime() < FOUR_HOURS_MS) {
         return NextResponse.json({
           skipped: true,
           reason: 'recent_backup_exists',

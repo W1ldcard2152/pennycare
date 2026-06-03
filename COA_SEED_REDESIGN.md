@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the current single-list `seedChartOfAccounts()` with a tiered onboarding experience. The current seed dumps ~40 Phoenix Automotive–specific accounts into the database with one button click. The new system lets the user choose a starting tier (Basic, Business, or Business with Payroll), then optionally customize by adding or removing individual accounts, with dependency enforcement and a preview/confirmation step before anything is written.
+Replace the current single-list `seedChartOfAccounts()` with a tiered onboarding experience. The current seed dumps ~40 auto-shop–specific accounts into the database with one button click. The new system lets the user choose a starting tier (Basic, Business, or Business with Payroll), then optionally customize by adding or removing individual accounts, with dependency enforcement and a preview/confirmation step before anything is written.
 
 Industry-specific account packs (automotive, restaurant, retail, etc.) are a future feature. For now, three tiers cover the range from personal/non-profit bookkeeping to a small business with employees. Users can always add custom accounts after setup.
 

@@ -1,8 +1,8 @@
 {
-  "name": "pennycare",
+  "name": "cvbooks",
   "version": "1.0.0",
   "description": "Payroll and bookkeeping management for small businesses",
-  "author": "Phoenix Automotive LLC",
+  "author": "Certaverus Systems LLC",
   "license": "ISC",
   "main": "electron-dist/main.js",
   "scripts": {
@@ -13,10 +13,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "npx tsx prisma/seed.ts",
+    "electron:icon": "node electron/generate-icon.mjs",
     "electron:compile": "tsc -p electron/tsconfig.json",
     "electron:postbuild": "tsx electron/postbuild.ts",
-    "electron:dev": "npm run build && npm run electron:compile && npm run electron:postbuild && electron .",
-    "electron:build": "npm run build && npm run electron:compile && npm run electron:postbuild && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win"
+    "electron:dev": "npm run build && npm run electron:icon && npm run electron:compile && npm run electron:postbuild && electron .",
+    "electron:build": "npm run build && npm run electron:icon && npm run electron:compile && npm run electron:postbuild && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win"
   },
   "keywords": [],
   "dependencies": {
@@ -54,16 +55,20 @@
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.4",
+    "png-to-ico": "^3.0.1",
     "postcss": "^8.5.6",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
   "build": {
-    "appId": "com.pennycare.app",
-    "productName": "PennyCare",
+    "appId": "com.cvbooks.app",
+    "productName": "CV Books",
     "asar": false,
+    "afterPack": "electron/after-pack.cjs",
     "directories": {
       "output": "dist-electron"
     },
@@ -109,7 +114,7 @@
       "installerHeaderIcon": "electron/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PennyCare"
+      "shortcutName": "CV Books"
     }
   }
 }

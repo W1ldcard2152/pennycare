@@ -40,6 +40,7 @@ interface Company {
   sickAnnualCapHours: number | null;
   federalDepositSchedule: string;
   reminderLeadDays: number;
+  ebayImportEnabled: boolean;
 }
 
 interface TaxFilingRecord {
@@ -103,6 +104,7 @@ export default function SettingsPage() {
         sickAnnualCapHours: data.sickAnnualCapHours ?? 40,
         federalDepositSchedule: data.federalDepositSchedule || 'monthly',
         reminderLeadDays: data.reminderLeadDays ?? 7,
+        ebayImportEnabled: data.ebayImportEnabled ?? false,
       };
       setCompany(normalizedData);
     } catch (error) {
@@ -414,6 +416,24 @@ function CompanySettings({
             <p className="mt-1 text-sm text-gray-500">Format: MM-DD</p>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-lg bg-white p-6 shadow">
+        <h3 className="mb-4 text-lg font-semibold text-gray-900">Optional Features</h3>
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={company.ebayImportEnabled}
+            onChange={(e) => updateField('ebayImportEnabled', e.target.checked)}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span>
+            <span className="block text-sm font-medium text-gray-700">eBay Sales Importer</span>
+            <span className="block text-sm text-gray-500">
+              Adds the eBay Sales page under the Import section in the sidebar. Enable this if you sell on eBay and want to import sales activity from CSV.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
   );

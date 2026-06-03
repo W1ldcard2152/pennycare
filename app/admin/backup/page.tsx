@@ -12,6 +12,8 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 
+type RetentionTier = 'rolling' | 'weekly' | 'monthly';
+
 interface Backup {
   id: string;
   filename: string;
@@ -20,7 +22,40 @@ interface Backup {
   createdBy: string;
   createdByName: string;
   createdAt: string;
+  retentionTier: RetentionTier;
   exists: boolean;
+}
+
+const TIER_BADGE_STYLE: Record<RetentionTier, string> = {
+  rolling: 'bg-gray-100 text-gray-700',
+  weekly: 'bg-blue-100 text-blue-700',
+  monthly: 'bg-emerald-100 text-emerald-700',
+};
+
+const TIER_BADGE_LABEL: Record<RetentionTier, string> = {
+  rolling: 'Rolling',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+};
+
+const TIER_DESCRIPTION: Record<RetentionTier, string> = {
+  rolling: 'Standard backup — keeps the last 5, prunes older ones automatically.',
+  weekly: 'Weekly checkpoint — keeps the last 12 (~3 months of weekly archive).',
+  monthly: 'End-of-month snapshot — kept forever and never overwritten on USB targets. Useful for accountant audits and year-over-year reviews.',
+};
+
+// For a monthly backup made on Feb 1, return "End of January 2026".
+// Pure presentation — derives the represented month from the backup's
+// createdAt rather than parsing the filename.
+function monthlyLabel(createdAt: string): string {
+  const created = new Date(createdAt);
+  const prev = new Date(created);
+  prev.setDate(0);
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  return `End of ${monthNames[prev.getMonth()]} ${prev.getFullYear()}`;
 }
 
 interface BackupsResponse {
@@ -519,7 +554,7 @@ export default function BackupRestorePage() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900">External Backup Targets</h2>
               <p className="text-gray-600 text-sm mt-1">
-                Pick folders that should receive a copy of every backup. A USB drive or a OneDrive sync folder both work — the app writes to whichever targets are reachable at backup time. The local backup in <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">%APPDATA%/PennyCare/backups</code> always happens too.
+                Pick folders that should receive a copy of every backup. A USB drive or a OneDrive sync folder both work — the app writes to whichever targets are reachable at backup time. A local backup on this PC always happens too.
               </p>
               <p className="text-gray-500 text-xs mt-2">
                 <strong>Best practice:</strong> register two USB drives, keep one onsite plugged in, store the other offsite, and swap them weekly. That gets you an onsite copy never more than a day old and an offsite copy never more than a week old.
@@ -561,7 +596,7 @@ export default function BackupRestorePage() {
                       type="text"
                       value={newTargetPath}
                       onChange={(e) => setNewTargetPath(e.target.value)}
-                      placeholder={typeof window !== 'undefined' && window.pennycare?.isElectron ? 'Click Browse to pick a folder' : 'e.g., D:\\PennyCareBackups'}
+                      placeholder={typeof window !== 'undefined' && window.pennycare?.isElectron ? 'Click Browse to pick a folder' : 'e.g., D:\\CVBooksBackups'}
                       readOnly={typeof window !== 'undefined' && !!window.pennycare?.isElectron}
                       className={`flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 ${typeof window !== 'undefined' && window.pennycare?.isElectron ? 'bg-gray-100 cursor-default' : ''}`}
                     />
@@ -678,6 +713,17 @@ export default function BackupRestorePage() {
             <p className="text-gray-600 text-sm mt-1">
               {backups.length} backup{backups.length !== 1 ? 's' : ''} found
             </p>
+            <div className="mt-3 text-xs text-gray-500 space-y-0.5">
+              <div><span className={`inline-block w-2 h-2 rounded-full bg-gray-400 mr-2 align-middle`} />
+                <strong>Rolling</strong> — last 5 kept; older ones prune automatically.
+              </div>
+              <div><span className={`inline-block w-2 h-2 rounded-full bg-blue-500 mr-2 align-middle`} />
+                <strong>Weekly</strong> — promoted every 7 days; last 12 kept.
+              </div>
+              <div><span className={`inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2 align-middle`} />
+                <strong>Monthly</strong> — end-of-month snapshots, kept forever. On external USB targets, monthly files are add-only (never overwritten).
+              </div>
+            </div>
           </div>
           {backups.length === 0 ? (
             <div className="p-12 text-center text-gray-500">
@@ -692,6 +738,9 @@ export default function BackupRestorePage() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date / Time
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tier
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Filename
@@ -715,6 +764,19 @@ export default function BackupRestorePage() {
                     <tr key={backup.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {formatDate(backup.createdAt)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${TIER_BADGE_STYLE[backup.retentionTier]}`}
+                          title={TIER_DESCRIPTION[backup.retentionTier]}
+                        >
+                          {TIER_BADGE_LABEL[backup.retentionTier]}
+                        </span>
+                        {backup.retentionTier === 'monthly' && (
+                          <div className="text-xs text-emerald-700 mt-0.5">
+                            {monthlyLabel(backup.createdAt)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
                         {backup.filename}

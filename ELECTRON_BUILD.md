@@ -391,7 +391,7 @@ Add/update these fields:
   "name": "pennycare",
   "version": "1.0.0",
   "description": "Payroll and bookkeeping management for small businesses",
-  "author": "Phoenix Automotive LLC",
+  "author": "Certaverus Systems LLC",
   "license": "ISC",
   "main": "electron-dist/main.js",  // Electron entry point (compiled)
 

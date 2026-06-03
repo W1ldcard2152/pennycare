@@ -93,6 +93,7 @@ export async function GET() {
           ? 'Automatic'
           : (userMap.get(backup.createdBy) || 'Unknown'),
         createdAt: backup.createdAt.toISOString(),
+        retentionTier: backup.retentionTier,
         exists,
       };
     });

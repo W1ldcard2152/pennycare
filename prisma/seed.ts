@@ -10,7 +10,7 @@ async function main() {
   const passwordHash = await bcrypt.hash('password123', 12);
   const user = await prisma.user.create({
     data: {
-      email: 'admin@pennycare.dev',
+      email: 'admin@cvbooks.dev',
       passwordHash,
       firstName: 'Admin',
       lastName: 'User',
@@ -194,7 +194,7 @@ async function main() {
   });
 
   console.log('Seed complete!');
-  console.log(`  User: admin@pennycare.dev / password123`);
+  console.log(`  User: admin@cvbooks.dev / password123`);
   console.log(`  Company: ${company.companyName} (ID: ${company.id})`);
   console.log(`  Employee 1: ${emp1.firstName} ${emp1.lastName} - ${emp1.position} ($${emp1.hourlyRate}/hr)`);
   console.log(`  Employee 2: ${emp2.firstName} ${emp2.lastName} - ${emp2.position} ($${emp2.annualSalary}/yr)`);

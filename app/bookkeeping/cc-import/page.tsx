@@ -1195,7 +1195,7 @@ export default function CCImportPage() {
                     >
                       <option value="capital_one">Capital One</option>
                       <option value="chase">Chase</option>
-                      <option value="paypal_credit">PayPal Credit</option>
+                      <option value="paypal_credit">Synchrony Bank (PayPal Credit)</option>
                       <option value="esl_bank">ESL Bank</option>
                     </select>
                   </div>
@@ -1336,7 +1336,7 @@ export default function CCImportPage() {
                   )}
                   {format === 'paypal_credit' && (
                     <>
-                      <p>PayPal: <code className="bg-blue-100 px-1 rounded">01/08/25 01/08/25 P9283... EBAY $126.74</code></p>
+                      <p>Synchrony / PayPal Credit: <code className="bg-blue-100 px-1 rounded">01/08/25 01/08/25 P9283... EBAY $126.74</code></p>
                       <p>Two dates, transaction ID, then description and amount</p>
                     </>
                   )}

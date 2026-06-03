@@ -1,7 +1,16 @@
 import type { NextConfig } from "next";
+import pkg from "./package.json";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // Expose the package version to client code at build time. Used by the
+  // sidebar footer to show users which version they're running — important
+  // for offline-first apps where updates are delivered as full installers
+  // rather than via auto-update, so the user (and support) can quickly
+  // identify "what's installed."
+  env: {
+    NEXT_PUBLIC_APP_VERSION: pkg.version,
+  },
   // Keep Prisma out of Turbopack's bundling — without this, server chunks try
   // to require '@prisma/client-<hash>' at runtime and crash, because the real
   // package on disk is '@prisma/client'.
