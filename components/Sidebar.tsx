@@ -34,6 +34,7 @@ import {
   ChevronRightIcon,
   LockClosedIcon,
   ChatBubbleLeftRightIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 
 interface NavItem {
@@ -101,6 +102,7 @@ const sections: NavSection[] = [
       { name: 'Year-End Closing', href: '/admin/year-end', icon: LockClosedIcon },
       { name: 'Audit Trail', href: '/admin/audit', icon: MagnifyingGlassIcon },
       { name: 'Backup / Restore', href: '/admin/backup', icon: CircleStackIcon },
+      { name: 'Data Integrity', href: '/admin/integrity', icon: ShieldCheckIcon },
       { name: 'Feedback', href: '/admin/feedback', icon: ChatBubbleLeftRightIcon },
     ],
   },

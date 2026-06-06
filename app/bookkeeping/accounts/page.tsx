@@ -67,6 +67,7 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
+  const [searchText, setSearchText] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [formData, setFormData] = useState({
@@ -342,7 +343,13 @@ export default function AccountsPage() {
     );
   };
 
-  const filtered = showInactive ? accounts : accounts.filter((a) => a.isActive);
+  const activeFiltered = showInactive ? accounts : accounts.filter((a) => a.isActive);
+  const searchQuery = searchText.trim().toLowerCase();
+  const filtered = searchQuery
+    ? activeFiltered.filter((a) =>
+        `${a.code} ${a.name} ${a.description ?? ''}`.toLowerCase().includes(searchQuery),
+      )
+    : activeFiltered;
 
   // Apply hierarchical sort within each group
   const compareAccounts = (a: Account, b: Account): number => {
@@ -778,12 +785,32 @@ export default function AccountsPage() {
           </div>
         )}
 
-        {/* Show Inactive Toggle + Sort hint */}
-        <div className="mb-4 flex justify-between items-center no-print">
-          <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" checked={showInactive} onChange={() => setShowInactive(!showInactive)} className="rounded" />
-            Show inactive accounts ({accounts.filter((a) => !a.isActive).length})
-          </label>
+        {/* Search + Show Inactive Toggle + Sort hint */}
+        <div className="mb-4 flex flex-wrap justify-between items-center gap-3 no-print">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Search by code, name, or description..."
+                className="border rounded px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 w-72"
+              />
+              {searchText && (
+                <button
+                  onClick={() => setSearchText('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                  aria-label="Clear search"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input type="checkbox" checked={showInactive} onChange={() => setShowInactive(!showInactive)} className="rounded" />
+              Show inactive accounts ({accounts.filter((a) => !a.isActive).length})
+            </label>
+          </div>
           <span className="text-xs text-gray-400">Click column headers to sort. Click again to reverse.</span>
         </div>
 

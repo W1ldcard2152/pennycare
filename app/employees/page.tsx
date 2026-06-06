@@ -146,45 +146,61 @@ export default function EmployeesPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredEmployees.map((employee) => (
-                  <tr
-                    key={employee.id}
-                    className="hover:bg-gray-50 cursor-pointer"
-                    onClick={() => (window.location.href = `/employees/${employee.id}`)}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">
-                        {employee.firstName} {employee.lastName}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {employee.employeeNumber}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {employee.position}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      <span className="capitalize">{employee.employmentType.replace('-', ' ')}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      <span className="capitalize">{employee.payType}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {employee.email || employee.phone || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          employee.isActive
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {employee.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {filteredEmployees.map((employee) => {
+                  // Each cell wraps its content in a Link to the employee
+                  // detail page. The row's hover style still works, and
+                  // ctrl/middle/shift-click + right-click each hit a real
+                  // <a href> so the tab system can route the gesture.
+                  const href = `/employees/${employee.id}`;
+                  const cellLink = 'block px-6 py-4 whitespace-nowrap';
+                  return (
+                    <tr key={employee.id} className="hover:bg-gray-50">
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} font-medium text-gray-900`}>
+                          {employee.firstName} {employee.lastName}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} text-sm text-gray-600`}>
+                          {employee.employeeNumber}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} text-sm text-gray-600`}>
+                          {employee.position}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} text-sm text-gray-600`}>
+                          <span className="capitalize">{employee.employmentType.replace('-', ' ')}</span>
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} text-sm text-gray-600`}>
+                          <span className="capitalize">{employee.payType}</span>
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={`${cellLink} text-sm text-gray-600`}>
+                          {employee.email || employee.phone || '-'}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={href} className={cellLink}>
+                          <span
+                            className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              employee.isActive
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}
+                          >
+                            {employee.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -186,6 +186,29 @@ export const updateJournalEntrySchema = z.object({
   lines: z.array(journalEntryLineSchema).min(2, 'At least 2 lines are required'),
 });
 
+export const bulkReclassifyPreflightSchema = z.object({
+  entryIds: z.array(z.string().min(1)).min(1, 'At least one entry is required'),
+});
+
+const reclassifyRuleSchema = z.object({
+  sourceAccountId: z.string().min(1, 'From account is required'),
+  targetAccountId: z.string().min(1, 'To account is required'),
+}).refine((r) => r.sourceAccountId !== r.targetAccountId, {
+  message: 'From and To must be different accounts',
+});
+
+export const bulkReclassifyApplySchema = z.object({
+  entryIds: z.array(z.string().min(1)).min(1, 'At least one entry is required'),
+  rules: z.array(reclassifyRuleSchema).min(1, 'At least one remap rule is required'),
+}).refine(
+  (data) => {
+    // No two rules may share the same source account — that would be ambiguous.
+    const sources = data.rules.map((r) => r.sourceAccountId);
+    return new Set(sources).size === sources.length;
+  },
+  { message: 'Each From account can only appear in one rule' },
+);
+
 export const createVendorSchema = z.object({
   name: z.string().min(1, 'Vendor name is required'),
   email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),

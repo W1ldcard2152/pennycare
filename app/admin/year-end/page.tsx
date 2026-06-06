@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LockClosedIcon,
   LockOpenIcon,
@@ -67,6 +67,8 @@ export default function YearEndPage() {
   const [reopenReason, setReopenReason] = useState('');
   const [reopenLoading, setReopenLoading] = useState(false);
 
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -109,6 +111,9 @@ export default function YearEndPage() {
 
       const data = await res.json();
       setPreviewData(data);
+      requestAnimationFrame(() => {
+        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to preview year-end');
     } finally {
@@ -364,7 +369,7 @@ export default function YearEndPage() {
 
       {/* Preview Panel */}
       {previewData && (
-        <div className="mt-6 bg-white rounded-lg shadow p-6">
+        <div ref={previewRef} className="mt-6 bg-white rounded-lg shadow p-6 scroll-mt-4">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <CheckCircleIcon className="h-5 w-5 text-blue-600" />
             Preview: Fiscal Year {previewData.fiscalYear} Closing

@@ -10,8 +10,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Don't show layout on login/register pages
   const isAuthPage = pathname === '/login' || pathname === '/register';
+  // The Electron chrome shell (tab strip) lives at /electron-chrome and
+  // must render without the sidebar/TopBar — it IS the window chrome.
+  const isChromeShell = pathname === '/electron-chrome';
 
-  if (isAuthPage) {
+  if (isAuthPage || isChromeShell) {
     return <>{children}</>;
   }
 

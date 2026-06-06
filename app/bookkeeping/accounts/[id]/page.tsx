@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, use } from 'react';
 import Link from 'next/link';
+import BulkReclassifyModal from './BulkReclassifyModal';
 
 interface Account {
   id: string;
@@ -143,8 +144,16 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   const [obSaving, setObSaving] = useState(false);
   const [obError, setObError] = useState('');
 
+  // Bulk reclassify selection
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkResultMessage, setBulkResultMessage] = useState<string | null>(null);
+
   useEffect(() => {
     fetchData();
+    // Reset selection when filters change — the visible row set is different
+    // and rows that scroll out aren't necessarily intended to stay selected.
+    setSelectedEntryIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, startDate, endDate, page]);
 
@@ -271,6 +280,39 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
     setPage(1);
   };
 
+  const toggleSelect = (entryId: string) => {
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  };
+
+  const handleBulkComplete = ({
+    updated,
+    unchanged,
+    skipped,
+    totalLinesChanged,
+  }: {
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    totalLinesChanged: number;
+  }) => {
+    setBulkModalOpen(false);
+    setSelectedEntryIds(new Set());
+    const parts: string[] = [];
+    parts.push(
+      `Reclassified ${updated} ${updated === 1 ? 'entry' : 'entries'} (${totalLinesChanged} ${totalLinesChanged === 1 ? 'line' : 'lines'})`,
+    );
+    if (unchanged > 0) parts.push(`${unchanged} unchanged`);
+    if (skipped > 0) parts.push(`${skipped} skipped`);
+    setBulkResultMessage(parts.join(', ') + '.');
+    fetchData();
+    setTimeout(() => setBulkResultMessage(null), 6000);
+  };
+
   // Client-side search filtering (preserves running balance from server)
   // Must be before early returns to satisfy Rules of Hooks
   const transactions = data?.transactions ?? [];
@@ -286,6 +328,28 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
       formatCurrency(tx.credit).includes(q)
     );
   }, [transactions, searchText]);
+
+  // Select-all targets only the currently-visible rows
+  const visibleEntryIds = useMemo(
+    () => filteredTransactions.map((tx) => tx.entryId),
+    [filteredTransactions]
+  );
+  const allVisibleSelected =
+    visibleEntryIds.length > 0 && visibleEntryIds.every((id) => selectedEntryIds.has(id));
+  const someVisibleSelected =
+    visibleEntryIds.some((id) => selectedEntryIds.has(id)) && !allVisibleSelected;
+
+  const toggleSelectAllVisible = () => {
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleEntryIds) next.delete(id);
+      } else {
+        for (const id of visibleEntryIds) next.add(id);
+      }
+      return next;
+    });
+  };
 
   if (loading && !data) {
     return (
@@ -590,11 +654,54 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
+          {/* Selection action bar */}
+          {selectedEntryIds.size > 0 && (
+            <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+              <p className="text-sm text-blue-900">
+                <span className="font-semibold">{selectedEntryIds.size}</span>{' '}
+                {selectedEntryIds.size === 1 ? 'entry' : 'entries'} selected
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedEntryIds(new Set())}
+                  className="text-sm text-blue-700 hover:text-blue-900 px-3 py-1.5"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={() => setBulkModalOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium"
+                >
+                  Reclassify
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Bulk result banner */}
+          {bulkResultMessage && (
+            <div className="px-6 py-3 bg-green-50 border-b border-green-200 text-sm text-green-800">
+              {bulkResultMessage}
+            </div>
+          )}
+
           {/* Transaction Table */}
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-3 text-left w-10">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someVisibleSelected;
+                      }}
+                      onChange={toggleSelectAllVisible}
+                      disabled={visibleEntryIds.length === 0}
+                      aria-label="Select all visible entries"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entry #</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Memo</th>
@@ -607,13 +714,21 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
               <tbody className="divide-y divide-gray-200">
                 {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                       {searchText ? 'No matching transactions found.' : 'No transactions found for this account.'}
                     </td>
                   </tr>
                 ) : (
                   filteredTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-gray-50">
+                    <tr key={tx.id} className={`hover:bg-gray-50 ${selectedEntryIds.has(tx.entryId) ? 'bg-blue-50' : ''}`}>
+                      <td className="px-4 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedEntryIds.has(tx.entryId)}
+                          onChange={() => toggleSelect(tx.entryId)}
+                          aria-label={`Select entry ${tx.entryNumber}`}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
                         {formatDate(tx.date)}
                       </td>
@@ -652,7 +767,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
               {filteredTransactions.length > 0 && (
                 <tfoot className="bg-gray-50 border-t">
                   <tr>
-                    <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-gray-700">
+                    <td colSpan={5} className="px-4 py-3 text-sm font-semibold text-gray-700">
                       {searchText ? 'Filtered Totals' : 'Page Totals'}
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900">
@@ -710,6 +825,15 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
           </Link>
         </div>
       </div>
+
+      {bulkModalOpen && (
+        <BulkReclassifyModal
+          sourceAccountId={accountId}
+          selectedIds={Array.from(selectedEntryIds)}
+          onClose={() => setBulkModalOpen(false)}
+          onComplete={handleBulkComplete}
+        />
+      )}
     </div>
   );
 }

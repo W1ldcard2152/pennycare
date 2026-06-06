@@ -28,27 +28,22 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Get the earliest journal entry date to determine available years
-    const earliestEntry = await prisma.journalEntry.findFirst({
+    // Find years that actually have posted journal entries — enumerating every
+    // year between the earliest entry and now would surface fiscal years with
+    // no activity (e.g. a gap year, or a backdated opening-balance entry that
+    // pulls the earliest date back a decade).
+    const entryDates = await prisma.journalEntry.findMany({
       where: { companyId: companyId!, status: 'posted' },
-      orderBy: { date: 'asc' },
       select: { date: true },
     });
 
     const currentYear = new Date().getUTCFullYear();
     const closedYears = new Set(closedPeriods.map((p) => p.fiscalYear));
+    const yearsWithActivity = new Set(entryDates.map((e) => e.date.getUTCFullYear()));
 
-    // Build list of available years (from earliest entry year to previous year)
-    const availableYears: number[] = [];
-    if (earliestEntry) {
-      const startYear = earliestEntry.date.getUTCFullYear();
-      // Only allow closing up to the previous calendar year (can't close current year until it's over)
-      for (let year = currentYear - 1; year >= startYear; year--) {
-        if (!closedYears.has(year)) {
-          availableYears.push(year);
-        }
-      }
-    }
+    const availableYears = Array.from(yearsWithActivity)
+      .filter((year) => year < currentYear && !closedYears.has(year))
+      .sort((a, b) => b - a);
 
     return NextResponse.json({
       closedPeriods,

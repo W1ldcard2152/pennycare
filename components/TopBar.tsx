@@ -2,7 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { MagnifyingGlassIcon, BellIcon, UserCircleIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import {
+  MagnifyingGlassIcon,
+  BellIcon,
+  UserCircleIcon,
+  ArrowRightOnRectangleIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowPathIcon,
+} from '@heroicons/react/24/outline';
 import CompanySelector from './CompanySelector';
 import FeedbackButton from './FeedbackButton';
 
@@ -54,8 +62,40 @@ export default function TopBar() {
   return (
     <div className="sticky top-0 z-10 flex h-16 flex-shrink-0 border-b border-gray-200 bg-white shadow-sm">
       <div className="flex flex-1 justify-between px-4 sm:px-6 lg:px-8">
-        {/* Search Bar */}
-        <div className="flex flex-1 items-center">
+        {/* Navigation + Search */}
+        <div className="flex flex-1 items-center space-x-2">
+          {/* Browser-style navigation. Uses window.history directly so it
+              behaves identically to a browser back button — Next.js App
+              Router pushes history entries on every navigation, so this
+              works for client-side and full-page nav alike. */}
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            title="Back"
+            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <span className="sr-only">Back</span>
+            <ArrowLeftIcon className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => window.history.forward()}
+            title="Forward"
+            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <span className="sr-only">Forward</span>
+            <ArrowRightIcon className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            title="Reload"
+            className="mr-2 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <span className="sr-only">Reload</span>
+            <ArrowPathIcon className="h-5 w-5" />
+          </button>
+
           <form onSubmit={handleSearch} className="w-full max-w-lg">
             <div className="relative">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">

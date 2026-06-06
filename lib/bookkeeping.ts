@@ -1,4 +1,5 @@
 import { prisma } from './db';
+import { logAudit } from './audit';
 import { startOfDay, endOfDay } from './date-utils';
 import { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS } from './default-chart-of-accounts';
 import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
@@ -180,13 +181,21 @@ export function validateJournalEntry(lines: JournalEntryLineInput[]): {
     };
   }
 
-  // Each line must have either a debit or credit (not both, not neither)
+  // Each line must have either a debit or credit (not both, not neither).
+  // Negative amounts are rejected — they used to slip past `> 0` checks and
+  // produce lines that render as blank cells in the UI (see year-end closing
+  // bug for accounts with abnormal balance signs).
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if ((line.debit || 0) > 0 && (line.credit || 0) > 0) {
+    const debit = line.debit || 0;
+    const credit = line.credit || 0;
+    if (debit < 0 || credit < 0) {
+      return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Debit and credit amounts must be non-negative` };
+    }
+    if (debit > 0 && credit > 0) {
       return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Cannot have both debit and credit on the same line` };
     }
-    if ((line.debit || 0) === 0 && (line.credit || 0) === 0) {
+    if (debit === 0 && credit === 0) {
       return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Must have either a debit or credit amount` };
     }
   }
@@ -525,11 +534,22 @@ export async function createPayrollJournalEntries(
   // Validate the entry balances
   const validation = validateJournalEntry(lines);
   if (!validation.valid) {
-    // Rounding can sometimes cause a tiny imbalance — adjust the net pay line
+    // Sum-of-rounded vs round-of-sum drift across the per-employee tax/deduction
+    // aggregations can produce a $0.01 imbalance. Absorb it into the wage
+    // expense debit (6010 employer payroll taxes preferred, 6000 gross wages
+    // as fallback) rather than the 2100 Net Pay Payable credit. The original
+    // self-heal targeted 2100, but that left a $0.01-per-payroll residual in
+    // the clearing account when the actual bank disbursement (sum of
+    // per-employee rounded net pay) cleared 2100 — the residual grew every
+    // payroll. Absorbing into wage expense costs $0.01 of P&L per payroll
+    // and leaves no clearing-account residue.
     const diff = validation.totalDebits - validation.totalCredits;
-    const netPayLine = lines.find((l) => l.accountId === acctMap.get('2100'));
-    if (netPayLine && Math.abs(diff) <= 0.02) {
-      netPayLine.credit = round2(netPayLine.credit + diff);
+    const wageLine =
+      lines.find((l) => l.accountId === acctMap.get('6010') && l.debit > 0) ||
+      lines.find((l) => l.accountId === acctMap.get('6000') && l.debit > 0);
+    if (wageLine && Math.abs(diff) <= 0.02) {
+      // diff = debits - credits. To balance, reduce a debit by diff.
+      wageLine.debit = round2(wageLine.debit - diff);
     } else {
       console.error(`Payroll journal entry doesn't balance: ${validation.error}`);
       return null;
@@ -555,6 +575,166 @@ export async function createPayrollJournalEntries(
     console.error('Failed to create payroll journal entry:', error);
     return null;
   }
+}
+
+// ============================================
+// PAYROLL JE INTEGRITY REPAIR
+// ============================================
+
+export interface PayrollJournalRepairResult {
+  entryId: string;
+  entryNumber: number;
+  date: string;
+  diffCents: number;
+  status: 'patched' | 'skipped_closed_period' | 'skipped_too_large' | 'skipped_no_wage_line';
+  patchedLineId?: string;
+  patchedAccountCode?: string;
+  oldDebit?: number;
+  newDebit?: number;
+}
+
+export interface PayrollJournalRepairSummary {
+  scanned: number;
+  patched: number;
+  skipped: number;
+  results: PayrollJournalRepairResult[];
+}
+
+/**
+ * Scan posted payroll journal entries for sub-penny drift caused by
+ * sum-of-rounded vs round-of-sum aggregation. Patch each drifted entry by
+ * absorbing the diff into the wage expense debit (6010 preferred, 6000
+ * fallback), mirroring what the in-flight self-heal does at creation time.
+ *
+ * Idempotent: re-running after a successful repair is a no-op (balanced
+ * entries are skipped on the integer-cents check).
+ *
+ * Refuses to patch:
+ *  - Entries in closed fiscal periods (reopen the period to fix).
+ *  - Entries with |diff| > MAX_DRIFT_CENTS (data corruption, not drift —
+ *    investigate manually rather than mask a real bug).
+ *  - Entries with no wage expense debit line (structural mismatch).
+ *
+ * @param companyId - Scope to one company.
+ * @param userId - User to attribute the audit log entries to. Pass 'system'
+ *   for CLI/script-run repairs.
+ */
+export async function repairUnbalancedPayrollJournals(
+  companyId: string,
+  userId: string,
+): Promise<PayrollJournalRepairSummary> {
+  // Cap on the drift we'll silently auto-patch. The known mechanism produces
+  // at most $0.01 per entry; allowing up to 5¢ gives headroom for compounded
+  // drift across multiple aggregations without crossing into "this is a real
+  // imbalance, look at it" territory.
+  const MAX_DRIFT_CENTS = 5;
+
+  const entries = await prisma.journalEntry.findMany({
+    where: { companyId, status: 'posted', source: 'payroll' },
+    include: {
+      lines: { include: { account: { select: { code: true, name: true } } } },
+    },
+    orderBy: { entryNumber: 'asc' },
+  });
+
+  const results: PayrollJournalRepairResult[] = [];
+  let patched = 0;
+  let skipped = 0;
+
+  for (const entry of entries) {
+    const debitCents = entry.lines.reduce((s, l) => s + Math.round(l.debit * 100), 0);
+    const creditCents = entry.lines.reduce((s, l) => s + Math.round(l.credit * 100), 0);
+    const diffCents = debitCents - creditCents;
+
+    if (diffCents === 0) continue; // already balanced
+
+    const baseResult = {
+      entryId: entry.id,
+      entryNumber: entry.entryNumber,
+      date: entry.date.toISOString().slice(0, 10),
+      diffCents,
+    };
+
+    if (Math.abs(diffCents) > MAX_DRIFT_CENTS) {
+      results.push({ ...baseResult, status: 'skipped_too_large' });
+      skipped++;
+      continue;
+    }
+
+    // Closed-period guard. We don't reopen-then-fix automatically; that's a
+    // policy decision the user has to make. Surface in the result so the UI
+    // can list these explicitly.
+    const { isClosed } = await checkClosedPeriod(companyId, entry.date);
+    if (isClosed) {
+      results.push({ ...baseResult, status: 'skipped_closed_period' });
+      skipped++;
+      continue;
+    }
+
+    // Prefer 6010 (employer payroll taxes debit); fall back to 6000 (gross
+    // wages debit) if 6010 isn't present on this entry.
+    const targetLine =
+      entry.lines.find((l) => l.account.code === '6010' && l.debit > 0) ||
+      entry.lines.find((l) => l.account.code === '6000' && l.debit > 0);
+
+    if (!targetLine) {
+      results.push({ ...baseResult, status: 'skipped_no_wage_line' });
+      skipped++;
+      continue;
+    }
+
+    const oldDebit = targetLine.debit;
+    // diff = debits - credits. To balance, reduce the chosen debit by diff.
+    const newDebit = Math.round((oldDebit * 100 - diffCents)) / 100;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.journalEntryLine.update({
+        where: { id: targetLine.id },
+        data: { debit: newDebit },
+      });
+      await tx.journalEntry.update({
+        where: { id: entry.id },
+        data: { updatedAt: new Date() },
+      });
+    });
+
+    await logAudit({
+      companyId,
+      userId,
+      action: 'journal_entry.rebalance_correction',
+      entityType: 'JournalEntry',
+      entityId: entry.id,
+      changes: {
+        [`line_${targetLine.id}.debit`]: { old: oldDebit, new: newDebit },
+      },
+      metadata: {
+        entryNumber: entry.entryNumber,
+        memo: entry.memo,
+        source: entry.source,
+        accountCode: targetLine.account.code,
+        accountName: targetLine.account.name,
+        diffCents,
+        reason:
+          'Payroll JE was off by a sub-penny amount due to sum-of-rounded vs ' +
+          'round-of-sum drift across per-employee tax/deduction aggregations. ' +
+          'Absorbed into wage expense debit to keep clearing account 2100 ' +
+          'clean against actual bank disbursement.',
+        repairFunction: 'repairUnbalancedPayrollJournals',
+      },
+    });
+
+    results.push({
+      ...baseResult,
+      status: 'patched',
+      patchedLineId: targetLine.id,
+      patchedAccountCode: targetLine.account.code,
+      oldDebit,
+      newDebit,
+    });
+    patched++;
+  }
+
+  return { scanned: entries.length, patched, skipped, results };
 }
 
 // ============================================
@@ -976,23 +1156,31 @@ export async function createYearEndClosingEntry(
   // Build journal entry lines
   const lines: JournalEntryLineInput[] = [];
 
-  // DEBIT all revenue accounts (revenue has credit-normal balance, so we debit to zero)
+  // Revenue is credit-normal: a positive balance is debited to zero, a negative
+  // balance (abnormal debit-balance — e.g. refunds exceeding sales) is credited
+  // to zero. Without this branch, `debit: -X` ends up stored on the line, slips
+  // past validation, and renders as a blank cell in the UI.
   for (const rev of revenueAccounts) {
+    const amount = round2(Math.abs(rev.balance));
+    const debitSide = rev.balance > 0;
     lines.push({
       accountId: rev.accountId,
       description: `Close ${rev.name} to Retained Earnings`,
-      debit: round2(rev.balance),
-      credit: 0,
+      debit: debitSide ? amount : 0,
+      credit: debitSide ? 0 : amount,
     });
   }
 
-  // CREDIT all expense accounts (expense has debit-normal balance, so we credit to zero)
+  // Expense is debit-normal: positive balance credited to zero, negative
+  // balance (abnormal credit-balance) debited to zero.
   for (const exp of expenseAccounts) {
+    const amount = round2(Math.abs(exp.balance));
+    const creditSide = exp.balance > 0;
     lines.push({
       accountId: exp.accountId,
       description: `Close ${exp.name} to Retained Earnings`,
-      debit: 0,
-      credit: round2(exp.balance),
+      debit: creditSide ? 0 : amount,
+      credit: creditSide ? amount : 0,
     });
   }
 
