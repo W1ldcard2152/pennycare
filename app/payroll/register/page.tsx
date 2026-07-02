@@ -506,22 +506,29 @@ export default function PayrollRegisterPage() {
 }
 
 // Helper functions
+//
+// Anchor week boundaries to noon UTC of the user's LOCAL calendar day and do all
+// weekday math in UTC, so toISOString()/UTC rendering never shift the period by a
+// day depending on the time of day the app is launched. See app/payroll/run/page.tsx.
+function toBusinessNoon(date: Date): Date {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0));
+}
+
 function getStartOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  return new Date(d.setDate(diff));
+  const d = toBusinessNoon(date);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d;
 }
 
 function getEndOfWeek(date: Date): Date {
-  const d = new Date(getStartOfWeek(date));
-  d.setDate(d.getDate() + 6);
+  const d = getStartOfWeek(date);
+  d.setUTCDate(d.getUTCDate() + 6);
   return d;
 }
 
 function addWeeks(date: Date, weeks: number): Date {
   const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
+  d.setUTCDate(d.getUTCDate() + weeks * 7);
   return d;
 }
 

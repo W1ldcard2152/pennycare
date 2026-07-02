@@ -507,22 +507,33 @@ function SummaryCard({ title, amount, icon, bgColor }: { title: string; amount: 
 }
 
 // Helper functions
+//
+// Business dates carry no time-of-day. We anchor every week boundary to noon
+// UTC of the user's LOCAL calendar day, then do all weekday math in UTC. This
+// keeps toISOString() (formatDate) and timeZone:'UTC' rendering agreeing on the
+// same calendar day regardless of what time of day the app is launched.
+// Mixing local getDay()/setDate() with UTC serialization used to shift the pay
+// period by a day when the app was opened in the evening (past 8pm ET, local
+// time crosses into the next UTC day).
+function toBusinessNoon(date: Date): Date {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0));
+}
+
 function getStartOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  return new Date(d.setDate(diff));
+  const d = toBusinessNoon(date);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d;
 }
 
 function getEndOfWeek(date: Date): Date {
-  const d = new Date(getStartOfWeek(date));
-  d.setDate(d.getDate() + 6);
+  const d = getStartOfWeek(date);
+  d.setUTCDate(d.getUTCDate() + 6);
   return d;
 }
 
 function addWeeks(date: Date, weeks: number): Date {
   const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
+  d.setUTCDate(d.getUTCDate() + weeks * 7);
   return d;
 }
 
