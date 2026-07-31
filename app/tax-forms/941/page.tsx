@@ -52,6 +52,41 @@ interface Form941Data {
     confirmationNumber: string | null;
     amount: number;
   }>;
+  lines: {
+    line1EmployeeCount: number;
+    line2Wages: number;
+    line3FederalTaxWithheld: number;
+    line5aSocialSecurityWages: number;
+    line5aTax: number;
+    line5cMedicareWages: number;
+    line5cTax: number;
+    line5dAdditionalMedicareWages: number;
+    line5dTax: number;
+    line5eTotal: number;
+    line6TotalBeforeAdjustments: number;
+    line7FractionsOfCents: number;
+    line10TotalAfterAdjustments: number;
+    line11NonrefundableCredits: number;
+    line12TotalAfterCredits: number;
+    line13TotalDeposits: number;
+    line14BalanceDue: number;
+    line15Overpayment: number;
+  };
+  socialSecurityWageBase: number;
+  wageBaseIsExact: boolean;
+  warnings: Array<{ code: string; message: string }>;
+  booked: { socialSecurity: number; medicare: number; additionalMedicare: number; total: number };
+  line16: {
+    schedule: 'monthly' | 'semiweekly' | null;
+    selection: 'monthly' | 'semiweekly' | 'unknown';
+    requiresScheduleB: boolean;
+    reportMonthlyLiabilities: boolean;
+    under2500Eligible: boolean;
+  };
+  monthlyLiabilities: Array<{ month: number; monthName: string; liability: number }>;
+  monthlyTotal: number;
+  line1ReferenceDate: string;
+  employeesPaidInQuarter: number;
   scheduleB: {
     dailyLiabilities: Array<{ payDate: string; liability: number }>;
     total: number;
@@ -77,9 +112,16 @@ const quarters = [
   { value: 4, label: 'Q4 (Oct-Dec)', dueDate: 'January 31' },
 ];
 
-function getCurrentQuarter(): number {
-  const month = new Date().getMonth();
-  return Math.floor(month / 3) + 1;
+/**
+ * The quarter you are most likely filing is the one that just ended, not the
+ * one you are standing in — Form 941 is due the month after quarter close.
+ */
+function getDefaultPeriod(): { year: number; quarter: number } {
+  const now = new Date();
+  const prior = Math.floor(now.getMonth() / 3);
+  return prior === 0
+    ? { year: now.getFullYear() - 1, quarter: 4 }
+    : { year: now.getFullYear(), quarter: prior };
 }
 
 function getCurrentYear(): number {
@@ -109,8 +151,9 @@ function formatDate(dateStr: string): string {
 
 function Form941Content() {
   const searchParams = useSearchParams();
-  const initialYear = searchParams.get('year') ? parseInt(searchParams.get('year')!) : getCurrentYear();
-  const initialQuarter = searchParams.get('quarter') ? parseInt(searchParams.get('quarter')!) : getCurrentQuarter();
+  const fallback = getDefaultPeriod();
+  const initialYear = searchParams.get('year') ? parseInt(searchParams.get('year')!) : fallback.year;
+  const initialQuarter = searchParams.get('quarter') ? parseInt(searchParams.get('quarter')!) : fallback.quarter;
 
   const [selectedYear, setSelectedYear] = useState(initialYear);
   const [selectedQuarter, setSelectedQuarter] = useState(initialQuarter);
@@ -127,7 +170,7 @@ function Form941Content() {
   // action for any cases the user chose to file anyway.
   const handleMarkFiledClick = () => {
     if (!data) return;
-    const hasLiability = data.totals.totalTaxesAfterAdjustments > 0;
+    const hasLiability = data.lines.line12TotalAfterCredits > 0;
     const noDeposits = data.deposits.length === 0;
     if (hasLiability && noDeposits) {
       setShowNoDepositsWarning(true);
@@ -333,7 +376,7 @@ function Form941Content() {
                 </div>
                 <div>
                   <dt className="text-sm text-gray-500">Employees Paid</dt>
-                  <dd className="text-sm font-medium text-gray-900">{data.totals.employeeCount}</dd>
+                  <dd className="text-sm font-medium text-gray-900">{data.employeesPaidInQuarter}</dd>
                 </div>
                 <div>
                   <dt className="text-sm text-gray-500">Payroll Records</dt>
@@ -343,28 +386,59 @@ function Form941Content() {
             </div>
           </div>
 
+          {/* Data-quality warnings */}
+          {data.warnings.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="flex gap-3">
+                <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                <div>
+                  <h3 className="text-sm font-medium text-amber-800">
+                    Review before filing ({data.warnings.length})
+                  </h3>
+                  <ul className="mt-2 space-y-1.5 text-sm text-amber-800 list-disc pl-4">
+                    {data.warnings.map((w) => (
+                      <li key={w.code}>{w.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Form 941 Lines Preview */}
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="border-b px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">Form 941 Values</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Part 1 — Form 941 Values</h2>
+              <p className="mt-0.5 text-sm text-gray-500">
+                Social Security wage base used: ${data.socialSecurityWageBase.toLocaleString()} ({data.year})
+              </p>
             </div>
             <div className="p-6">
               <table className="min-w-full">
                 <tbody className="divide-y divide-gray-200">
                   <tr>
-                    <td className="py-3 text-sm text-gray-500 w-20">Line 1</td>
-                    <td className="py-3 text-sm text-gray-900">Number of employees who received wages</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{data.totals.employeeCount}</td>
+                    <td className="py-3 text-sm text-gray-500 w-20 align-top">Line 1</td>
+                    <td className="py-3 text-sm text-gray-900">
+                      Number of employees who received wages
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        For the pay period including {formatDate(data.line1ReferenceDate)} — not
+                        everyone paid during the quarter.
+                      </div>
+                    </td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{data.lines.line1EmployeeCount}</td>
                   </tr>
                   <tr>
-                    <td className="py-3 text-sm text-gray-500">Line 2</td>
-                    <td className="py-3 text-sm text-gray-900">Wages, tips, and other compensation</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.totals.totalWages)}</td>
+                    <td className="py-3 text-sm text-gray-500 align-top">Line 2</td>
+                    <td className="py-3 text-sm text-gray-900">
+                      Wages, tips, and other compensation
+                      <div className="mt-0.5 text-xs text-gray-500">Gross pay less pre-tax deductions.</div>
+                    </td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{formatCurrency(data.lines.line2Wages)}</td>
                   </tr>
                   <tr>
                     <td className="py-3 text-sm text-gray-500">Line 3</td>
                     <td className="py-3 text-sm text-gray-900">Federal income tax withheld</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.totals.federalTaxWithheld)}</td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line3FederalTaxWithheld)}</td>
                   </tr>
                   <tr className="bg-gray-50">
                     <td className="py-3 text-sm text-gray-500">Line 5a</td>
@@ -373,7 +447,7 @@ function Form941Content() {
                       <span className="text-gray-500 ml-2">× 12.4%</span>
                     </td>
                     <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.totals.socialSecurityWages)} → {formatCurrency(data.totals.socialSecurityTax)}
+                      {formatCurrency(data.lines.line5aSocialSecurityWages)} → {formatCurrency(data.lines.line5aTax)}
                     </td>
                   </tr>
                   <tr className="bg-gray-50">
@@ -383,10 +457,10 @@ function Form941Content() {
                       <span className="text-gray-500 ml-2">× 2.9%</span>
                     </td>
                     <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.totals.medicareWages)} → {formatCurrency(data.totals.medicareTax)}
+                      {formatCurrency(data.lines.line5cMedicareWages)} → {formatCurrency(data.lines.line5cTax)}
                     </td>
                   </tr>
-                  {data.totals.additionalMedicareTax > 0 && (
+                  {data.lines.line5dAdditionalMedicareWages > 0 && (
                     <tr className="bg-gray-50">
                       <td className="py-3 text-sm text-gray-500">Line 5d</td>
                       <td className="py-3 text-sm text-gray-900">
@@ -394,7 +468,7 @@ function Form941Content() {
                         <span className="text-gray-500 ml-2">× 0.9%</span>
                       </td>
                       <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                        {formatCurrency(data.totals.additionalMedicareWages)} → {formatCurrency(data.totals.additionalMedicareTax)}
+                        {formatCurrency(data.lines.line5dAdditionalMedicareWages)} → {formatCurrency(data.lines.line5dTax)}
                       </td>
                     </tr>
                   )}
@@ -402,39 +476,55 @@ function Form941Content() {
                     <td className="py-3 text-sm text-gray-500">Line 5e</td>
                     <td className="py-3 text-sm text-gray-900">Total Social Security and Medicare taxes</td>
                     <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.totals.socialSecurityTax + data.totals.medicareTax + data.totals.additionalMedicareTax)}
+                      {formatCurrency(data.lines.line5eTotal)}
                     </td>
                   </tr>
                   <tr className="border-t-2 border-gray-300">
                     <td className="py-3 text-sm text-gray-500">Line 6</td>
                     <td className="py-3 text-sm text-gray-900">Total taxes before adjustments</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.totals.totalTaxesBeforeAdjustments)}</td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line6TotalBeforeAdjustments)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 text-sm text-gray-500 align-top">Line 7</td>
+                    <td className="py-3 text-sm text-gray-900">
+                      Current quarter&apos;s adjustment for fractions of cents
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        Difference between the rate arithmetic above and the amounts actually
+                        withheld per paycheck.
+                      </div>
+                    </td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{formatCurrency(data.lines.line7FractionsOfCents)}</td>
                   </tr>
                   <tr className="border-t-2 border-gray-300 bg-blue-50">
                     <td className="py-3 text-sm font-medium text-blue-900">Line 10</td>
                     <td className="py-3 text-sm font-medium text-blue-900">Total taxes after adjustments</td>
-                    <td className="py-3 text-lg font-bold text-blue-900 text-right">{formatCurrency(data.totals.totalTaxesAfterAdjustments)}</td>
+                    <td className="py-3 text-lg font-bold text-blue-900 text-right">{formatCurrency(data.lines.line10TotalAfterAdjustments)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 text-sm text-gray-500">Line 12</td>
+                    <td className="py-3 text-sm text-gray-900">Total taxes after adjustments and nonrefundable credits</td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line12TotalAfterCredits)}</td>
                   </tr>
                   <tr>
                     <td className="py-3 text-sm text-gray-500">Line 13</td>
                     <td className="py-3 text-sm text-gray-900">Total deposits made for this quarter</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.totals.totalDeposits)}</td>
+                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line13TotalDeposits)}</td>
                   </tr>
-                  {data.totals.balanceDue > 0 && (
+                  {data.lines.line14BalanceDue > 0 && (
                     <tr className="border-t-2 border-gray-300 bg-red-50">
                       <td className="py-3 text-sm font-medium text-red-900">Line 14</td>
                       <td className="py-3 text-sm font-medium text-red-900">Balance due</td>
-                      <td className="py-3 text-lg font-bold text-red-900 text-right">{formatCurrency(data.totals.balanceDue)}</td>
+                      <td className="py-3 text-lg font-bold text-red-900 text-right">{formatCurrency(data.lines.line14BalanceDue)}</td>
                     </tr>
                   )}
-                  {data.totals.overpayment > 0 && (
+                  {data.lines.line15Overpayment > 0 && (
                     <tr className="border-t-2 border-gray-300 bg-amber-50">
                       <td className="py-3 text-sm font-medium text-amber-900">Line 15</td>
                       <td className="py-3 text-sm font-medium text-amber-900">Overpayment</td>
-                      <td className="py-3 text-lg font-bold text-amber-900 text-right">{formatCurrency(data.totals.overpayment)}</td>
+                      <td className="py-3 text-lg font-bold text-amber-900 text-right">{formatCurrency(data.lines.line15Overpayment)}</td>
                     </tr>
                   )}
-                  {data.totals.balanceDue === 0 && data.totals.overpayment === 0 && (
+                  {data.lines.line14BalanceDue === 0 && data.lines.line15Overpayment === 0 && (
                     <tr className="border-t-2 border-gray-300 bg-green-50">
                       <td className="py-3 text-sm font-medium text-green-900">Balance</td>
                       <td className="py-3 text-sm font-medium text-green-900">Paid in full — no balance due</td>
@@ -444,6 +534,109 @@ function Form941Content() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Part 2 — deposit schedule and tax liability */}
+          <div className="rounded-lg border bg-white shadow-sm">
+            <div className="border-b px-6 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Part 2 — Deposit schedule and tax liability (line 16)
+                </h2>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    data.line16.schedule === 'semiweekly'
+                      ? 'bg-purple-100 text-purple-800'
+                      : data.line16.schedule === 'monthly'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {data.line16.schedule === 'semiweekly'
+                    ? 'Semiweekly depositor'
+                    : data.line16.schedule === 'monthly'
+                      ? 'Monthly depositor'
+                      : 'Schedule not set'}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                {data.line16.schedule === null ? (
+                  <>
+                    Set your deposit schedule in{' '}
+                    <Link href="/settings" className="text-blue-600 hover:underline">
+                      Settings
+                    </Link>{' '}
+                    so line 16 marks the right box.
+                  </>
+                ) : data.line16.requiresScheduleB ? (
+                  'The semiweekly box is marked and the monthly amounts are left blank, as the IRS requires. Report liability by day on Schedule B.'
+                ) : (
+                  'The monthly box is marked and these three amounts are entered on line 16.'
+                )}
+              </p>
+            </div>
+
+            {data.line16.reportMonthlyLiabilities && (
+              <div className="p-6">
+                <table className="min-w-full">
+                  <tbody className="divide-y divide-gray-200">
+                    {data.monthlyLiabilities.map((m) => (
+                      <tr key={m.month}>
+                        <td className="py-3 text-sm text-gray-500 w-24">Month {m.month}</td>
+                        <td className="py-3 text-sm text-gray-900">{m.monthName}</td>
+                        <td className="py-3 text-sm font-medium text-gray-900 text-right">
+                          {formatCurrency(m.liability)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 border-gray-300 bg-gray-50">
+                      <td className="py-3 text-sm font-medium text-gray-900" colSpan={2}>
+                        Total liability for quarter
+                      </td>
+                      <td className="py-3 text-sm font-bold text-gray-900 text-right">
+                        {formatCurrency(data.monthlyTotal)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {data.line16.requiresScheduleB && (
+              <div className="p-6">
+                <p className="text-sm text-gray-700">
+                  Liability by day is in <strong>Schedule B</strong> below. Schedule B subtotals each
+                  month, so those figures are shown here for cross-checking — they are{' '}
+                  <em>not</em> entered on line 16.
+                </p>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
+                  {data.monthlyLiabilities.map((m) => (
+                    <div key={m.month} className="rounded-md border border-gray-200 px-3 py-2">
+                      <div className="text-xs text-gray-500">{m.monthName} subtotal</div>
+                      <div className="font-medium text-gray-900 tabular-nums">
+                        {formatCurrency(m.liability)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {data.line16.selection === 'unknown' && (
+              <div className="p-6 text-sm text-gray-600">
+                Line 16 is left blank on the generated PDF until a deposit schedule is set.
+              </div>
+            )}
+
+            {!data.scheduleB.matchesLine12 && (
+              <div className="border-t px-6 py-3">
+                <p className="text-sm text-red-700">
+                  Total liability does not equal line 12 (
+                  {formatCurrency(data.lines.line12TotalAfterCredits)}). The IRS rejects returns
+                  where these disagree — resolve before filing.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Deposits Applied */}
@@ -484,7 +677,7 @@ function Form941Content() {
                     ))}
                     <tr className="border-t-2 border-gray-300 font-semibold">
                       <td colSpan={3} className="py-2">Total Deposits (Line 13)</td>
-                      <td className="py-2 text-right">{formatCurrency(data.totals.totalDeposits)}</td>
+                      <td className="py-2 text-right">{formatCurrency(data.lines.line13TotalDeposits)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -529,7 +722,7 @@ function Form941Content() {
                   {!data.scheduleB.matchesLine12 && (
                     <div className="mt-3 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                       ⚠ Schedule B total ({formatCurrency(data.scheduleB.total)}) doesn&apos;t match
-                      Line 10 ({formatCurrency(data.totals.totalTaxesAfterAdjustments)}). Review for
+                      Line 12 ({formatCurrency(data.lines.line12TotalAfterCredits)}). Review for
                       voided payrolls or rounding.
                     </div>
                   )}
@@ -628,7 +821,7 @@ function Form941Content() {
         <NoDepositsWarningModal
           year={selectedYear}
           quarter={selectedQuarter}
-          totalLiability={data.totals.totalTaxesAfterAdjustments}
+          totalLiability={data.lines.line12TotalAfterCredits}
           onClose={() => setShowNoDepositsWarning(false)}
           onMarkFiledAnyway={() => {
             setShowNoDepositsWarning(false);
@@ -642,9 +835,9 @@ function Form941Content() {
         <Mark941FiledModal
           year={selectedYear}
           quarter={selectedQuarter}
-          totalLiability={data.totals.totalTaxesAfterAdjustments}
-          totalDeposits={data.totals.totalDeposits}
-          balanceDue={data.totals.totalTaxesAfterAdjustments - data.totals.totalDeposits}
+          totalLiability={data.lines.line12TotalAfterCredits}
+          totalDeposits={data.lines.line13TotalDeposits}
+          balanceDue={data.lines.line12TotalAfterCredits - data.lines.line13TotalDeposits}
           acknowledgedNoDeposits={acknowledgedNoDeposits}
           onClose={() => {
             setShowFilingModal(false);

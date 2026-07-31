@@ -35,6 +35,11 @@ prisma/*.db
 prisma/**/*.db
 prisma/*.db-journal
 prisma/**/*.db-journal
+# WAL mode sidecars — these hold real DB pages, never commit them
+prisma/*.db-wal
+prisma/**/*.db-wal
+prisma/*.db-shm
+prisma/**/*.db-shm
 /app/generated/prisma
 
 # uploads
@@ -49,3 +54,6 @@ backups/
 
 # claude code
 /.claude
+
+# graphify — regenerable from source via `python -m graphify update .`
+/graphify-out

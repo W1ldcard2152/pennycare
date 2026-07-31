@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { PDFDocument } from 'pdf-lib';
-import { startOfDay, endOfDay, formatDate } from '@/lib/date-utils';
+import { formatDate } from '@/lib/date-utils';
+import {
+  buildForm941,
+  quarterBounds,
+  line1ReferenceDate,
+  type Form941EmployeeInput,
+  type Form941RecordInput,
+} from '@/lib/form941';
 import fs from 'fs';
 import path from 'path';
 
@@ -28,28 +35,22 @@ function checkFieldSafe(form: ReturnType<PDFDocument['getForm']>, fieldName: str
   }
 }
 
-// Format currency for form fields (no $ sign, 2 decimal places)
-function formatCurrency(amount: number): string {
-  return amount.toFixed(2);
-}
-
-// Format EIN with dash (XX-XXXXXXX)
-function formatEIN(ein: string): string {
-  const digits = ein.replace(/\D/g, '');
-  if (digits.length >= 9) {
-    return `${digits.slice(0, 2)}-${digits.slice(2, 9)}`;
-  }
-  return ein;
-}
-
-// Get quarter date range — timezone-safe, returns UTC noon-anchored boundaries.
-function getQuarterDateRange(year: number, quarter: number): { start: Date; end: Date; startStr: string; endStr: string } {
-  const startMonth = String((quarter - 1) * 3 + 1).padStart(2, '0');
-  const endMonth = String(quarter * 3).padStart(2, '0');
-  const lastDay = new Date(Date.UTC(year, quarter * 3, 0)).getUTCDate();
-  const startStr = `${year}-${startMonth}-01`;
-  const endStr = `${year}-${endMonth}-${String(lastDay).padStart(2, '0')}`;
-  return { start: startOfDay(startStr), end: endOfDay(endStr), startStr, endStr };
+/**
+ * IRS money lines are two separate boxes: whole dollars and cents. Writing
+ * "1234.56" into a single field puts the whole string in one box — which is how
+ * the pre-1.3 implementation silently produced a wrong return.
+ */
+function setMoney(
+  form: ReturnType<PDFDocument['getForm']>,
+  dollarsField: string,
+  centsField: string,
+  amount: number
+) {
+  const negative = amount < 0;
+  const cents = Math.round(Math.abs(amount) * 100);
+  const dollars = Math.floor(cents / 100);
+  setFieldSafe(form, dollarsField, `${negative ? '-' : ''}${dollars}`);
+  setFieldSafe(form, centsField, String(cents % 100).padStart(2, '0'));
 }
 
 function quarterToString(q: number): string {
@@ -59,7 +60,7 @@ function quarterToString(q: number): string {
 // GET /api/tax-forms/941 - Generate Form 941 PDF
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('payroll');
+    const { error, companyId } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;
@@ -74,7 +75,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Quarter must be between 1 and 4' }, { status: 400 });
     }
 
-    const { start: dateStart, end: dateEnd, startStr: dateStartStr, endStr: dateEndStr } = getQuarterDateRange(year, quarter);
+    const { start: dateStart, end: dateEnd } = quarterBounds(year, quarter);
+    const dateStartStr = formatDate(dateStart);
+    const dateEndStr = formatDate(dateEnd);
 
     // Get company info
     const company = await prisma.company.findUnique({
@@ -88,6 +91,7 @@ export async function GET(request: NextRequest) {
         state: true,
         zipCode: true,
         phone: true,
+        federalDepositSchedule: true,
       },
     });
 
@@ -95,77 +99,70 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // Get all payroll records for the quarter
+    // Pull every ACTIVE record from Jan 1 through the end of the quarter. The
+    // Social Security cap and the additional-Medicare threshold are year-to-date,
+    // so earlier quarters are needed even though they are not reported. Voided
+    // and corrected records are excluded — they are not wages paid.
+    const yearStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
     const records = await prisma.payrollRecord.findMany({
       where: {
         companyId: companyId!,
-        payDate: {
-          gte: dateStart,
-          lte: dateEnd,
-        },
+        status: 'active',
+        payDate: { gte: yearStart, lte: dateEnd },
       },
       include: {
         employee: {
           select: {
             id: true,
+            socialSecurityTaxability: true,
+            medicareTaxability: true,
+            hireDate: true,
+            terminationDate: true,
+            ytdGrossPaySeed: true,
+            ytdSeedAsOfDate: true,
           },
         },
       },
+      orderBy: { payDate: 'asc' },
     });
 
-    // Calculate totals
-    const totals = {
-      // Count unique employees
-      employeeCount: new Set(records.map(r => r.employee.id)).size,
-      // Line 2: Total wages
-      totalWages: 0,
-      // Line 3: Federal income tax withheld
-      federalTaxWithheld: 0,
-      // Line 5a: Taxable Social Security wages (and employer match)
-      socialSecurityWages: 0,
-      socialSecurityTax: 0, // Employee + Employer portion
-      // Line 5c: Taxable Medicare wages
-      medicareWages: 0,
-      medicareTax: 0, // Employee + Employer portion
-      // Line 5d: Additional Medicare
-      additionalMedicareWages: 0,
-      additionalMedicareTax: 0,
-      // Line 6: Total taxes before adjustments
-      totalTaxesBeforeAdjustments: 0,
-      // Line 10: Total taxes after adjustments
-      totalTaxesAfterAdjustments: 0,
-    };
-
-    for (const record of records) {
-      totals.totalWages += record.grossPay;
-      totals.federalTaxWithheld += record.federalTax;
-
-      // Social Security
-      totals.socialSecurityWages += record.grossPay; // All gross pay is subject to SS up to wage base
-      totals.socialSecurityTax += record.socialSecurity + (record.employerSocialSecurity || 0);
-
-      // Medicare
-      totals.medicareWages += record.grossPay;
-      totals.medicareTax += record.medicare + (record.employerMedicare || 0);
-
-      // Additional Medicare (wages over $200k)
-      if (record.additionalMedicare && record.additionalMedicare > 0) {
-        totals.additionalMedicareWages += record.grossPay; // Simplified - actual calculation is more complex
-        totals.additionalMedicareTax += record.additionalMedicare;
-      }
+    const employeeMap = new Map<string, Form941EmployeeInput>();
+    for (const r of records) {
+      if (employeeMap.has(r.employee.id)) continue;
+      employeeMap.set(r.employee.id, {
+        id: r.employee.id,
+        socialSecurityTaxability: r.employee.socialSecurityTaxability,
+        medicareTaxability: r.employee.medicareTaxability,
+        hireDate: r.employee.hireDate,
+        terminationDate: r.employee.terminationDate,
+        ytdGrossPaySeed: r.employee.ytdGrossPaySeed,
+        ytdSeedAsOfDate: r.employee.ytdSeedAsOfDate,
+      });
     }
 
-    // Calculate Line 6 (total taxes before adjustments)
-    totals.totalTaxesBeforeAdjustments =
-      totals.federalTaxWithheld +
-      totals.socialSecurityTax +
-      totals.medicareTax +
-      totals.additionalMedicareTax;
+    const yearRecords: Form941RecordInput[] = records.map((r) => ({
+      employeeId: r.employee.id,
+      payDate: r.payDate,
+      payPeriodStart: r.payPeriodStart,
+      payPeriodEnd: r.payPeriodEnd,
+      grossPay: r.grossPay,
+      taxableWages: r.taxableWages,
+      federalTax: r.federalTax,
+      socialSecurity: r.socialSecurity,
+      employerSocialSecurity: r.employerSocialSecurity,
+      medicare: r.medicare,
+      employerMedicare: r.employerMedicare,
+      additionalMedicare: r.additionalMedicare,
+    }));
 
-    // Line 10 (no adjustments in this implementation)
-    totals.totalTaxesAfterAdjustments = totals.totalTaxesBeforeAdjustments;
+    const quarterRecords = records.filter((r) => r.payDate >= dateStart && r.payDate <= dateEnd);
+    const quarterRecordCount = quarterRecords.length;
+    // Distinct employees paid in the quarter. This is NOT line 1 (which counts
+    // only the pay period including the 12th of the third month) — it is the
+    // summary tile figure.
+    const employeesPaidInQuarter = new Set(quarterRecords.map((r) => r.employee.id)).size;
 
-    // Line 13 — Total deposits made for this quarter against federal_941.
+    // Line 13 â€” Total deposits made for this quarter against federal_941.
     // Sum the recorded deposits (excluding voided ones).
     const quarterStr = quarterToString(quarter);
     const depositRows = await prisma.taxDeposit.findMany({
@@ -198,34 +195,26 @@ export async function GET(request: NextRequest) {
       0
     );
 
-    // Line 14 / 15 — balance due or overpayment
-    const balance = totals.totalTaxesAfterAdjustments - totalDeposits;
-    const balanceDue = balance > 0 ? balance : 0;
-    const overpayment = balance < 0 ? -balance : 0;
+    // Only the two schedules the form recognises count; anything else (including
+    // a legacy empty string) is treated as unset so line 16 is left blank rather
+    // than guessed at.
+    const depositSchedule =
+      company.federalDepositSchedule === 'monthly' ||
+      company.federalDepositSchedule === 'semiweekly'
+        ? company.federalDepositSchedule
+        : null;
 
-    // Schedule B — daily liability for semi-weekly depositors. Group payroll
-    // records by payDate and sum the federal tax components for each day.
-    const liabilityByDay = new Map<string, number>();
-    for (const r of records) {
-      const day = formatDate(r.payDate);
-      const dayLiability =
-        r.federalTax +
-        r.socialSecurity +
-        (r.employerSocialSecurity || 0) +
-        r.medicare +
-        (r.employerMedicare || 0) +
-        (r.additionalMedicare || 0);
-      liabilityByDay.set(day, (liabilityByDay.get(day) || 0) + dayLiability);
-    }
-    const scheduleB = Array.from(liabilityByDay.entries())
-      .map(([payDate, liability]) => ({
-        payDate,
-        liability: Math.round(liability * 100) / 100,
-      }))
-      .sort((a, b) => a.payDate.localeCompare(b.payDate));
-    const scheduleBTotal = scheduleB.reduce((s, d) => s + d.liability, 0);
+    const form941 = buildForm941({
+      year,
+      quarter,
+      employees: [...employeeMap.values()],
+      yearRecords,
+      totalDeposits,
+      depositSchedule,
+    });
+    const { lines } = form941;
 
-    // Filing status — has the user marked this quarter's 941 as filed?
+    // Filing status â€” has the user marked this quarter's 941 as filed?
     const filing = await prisma.taxFiling.findFirst({
       where: {
         companyId: companyId!,
@@ -245,21 +234,30 @@ export async function GET(request: NextRequest) {
           start: dateStartStr,
           end: dateEndStr,
         },
+        lines,
+        socialSecurityWageBase: form941.socialSecurityWageBase,
+        wageBaseIsExact: form941.wageBaseIsExact,
+        warnings: form941.warnings,
+        booked: form941.booked,
+        line16: form941.line16,
+        monthlyLiabilities: form941.monthlyLiabilities,
+        monthlyTotal: form941.monthlyTotal,
+        // Retained for callers still reading the old shape (dashboard tiles).
         totals: {
-          employeeCount: totals.employeeCount,
-          totalWages: Math.round(totals.totalWages * 100) / 100,
-          federalTaxWithheld: Math.round(totals.federalTaxWithheld * 100) / 100,
-          socialSecurityWages: Math.round(totals.socialSecurityWages * 100) / 100,
-          socialSecurityTax: Math.round(totals.socialSecurityTax * 100) / 100,
-          medicareWages: Math.round(totals.medicareWages * 100) / 100,
-          medicareTax: Math.round(totals.medicareTax * 100) / 100,
-          additionalMedicareWages: Math.round(totals.additionalMedicareWages * 100) / 100,
-          additionalMedicareTax: Math.round(totals.additionalMedicareTax * 100) / 100,
-          totalTaxesBeforeAdjustments: Math.round(totals.totalTaxesBeforeAdjustments * 100) / 100,
-          totalTaxesAfterAdjustments: Math.round(totals.totalTaxesAfterAdjustments * 100) / 100,
-          totalDeposits: Math.round(totalDeposits * 100) / 100,
-          balanceDue: Math.round(balanceDue * 100) / 100,
-          overpayment: Math.round(overpayment * 100) / 100,
+          employeeCount: lines.line1EmployeeCount,
+          totalWages: lines.line2Wages,
+          federalTaxWithheld: lines.line3FederalTaxWithheld,
+          socialSecurityWages: lines.line5aSocialSecurityWages,
+          socialSecurityTax: lines.line5aTax,
+          medicareWages: lines.line5cMedicareWages,
+          medicareTax: lines.line5cTax,
+          additionalMedicareWages: lines.line5dAdditionalMedicareWages,
+          additionalMedicareTax: lines.line5dTax,
+          totalTaxesBeforeAdjustments: lines.line6TotalBeforeAdjustments,
+          totalTaxesAfterAdjustments: lines.line10TotalAfterAdjustments,
+          totalDeposits: lines.line13TotalDeposits,
+          balanceDue: lines.line14BalanceDue,
+          overpayment: lines.line15Overpayment,
         },
         deposits: depositRows.map((d) => ({
           id: d.id,
@@ -275,10 +273,10 @@ export async function GET(request: NextRequest) {
           ) / 100,
         })),
         scheduleB: {
-          dailyLiabilities: scheduleB,
-          total: Math.round(scheduleBTotal * 100) / 100,
-          // Sanity check — Schedule B total should equal Line 12 (totalTaxesAfterAdjustments)
-          matchesLine12: Math.abs(scheduleBTotal - totals.totalTaxesAfterAdjustments) < 0.01,
+          dailyLiabilities: form941.dailyLiabilities,
+          total: form941.monthlyTotal,
+          // Schedule B and Part 2 line 16 must both equal line 12.
+          matchesLine12: Math.abs(form941.monthlyTotal - lines.line12TotalAfterCredits) < 0.01,
         },
         filing: filing
           ? {
@@ -292,7 +290,9 @@ export async function GET(request: NextRequest) {
               balanceDue: filing.balanceDue,
             }
           : null,
-        recordCount: records.length,
+        recordCount: quarterRecordCount,
+        employeesPaidInQuarter,
+        line1ReferenceDate: formatDate(line1ReferenceDate(year, quarter)),
       });
     }
 
@@ -302,57 +302,93 @@ export async function GET(request: NextRequest) {
     const pdfDoc = await PDFDocument.load(templateBytes);
     const form = pdfDoc.getForm();
 
-    // Fill company information
-    if (company.fein) {
-      setFieldSafe(form, 'topmostSubform[0].Page1[0].EntityArea[0].f1_1[0]', formatEIN(company.fein));
+    // ------------------------------------------------------------------
+    // Field names below were mapped by correlating each widget's rectangle
+    // against the template's own text. Do not adjust them from the IRS line
+    // numbering alone: the entity block consumes f1_1..f1_11, so the Part 1
+    // body starts at f1_12, and every money line is a DOLLARS box plus a
+    // separate CENTS box.
+    // ------------------------------------------------------------------
+    const P1 = 'topmostSubform[0].Page1[0]';
+    const ENTITY = `${P1}.Header[0].EntityArea[0]`;
+
+    // EIN is split: two-digit prefix, then the remaining seven.
+    const einDigits = (company.fein || '').replace(/\D/g, '');
+    setFieldSafe(form, `${ENTITY}.f1_1[0]`, einDigits.slice(0, 2));
+    setFieldSafe(form, `${ENTITY}.f1_2[0]`, einDigits.slice(2, 9));
+
+    setFieldSafe(form, `${ENTITY}.f1_3[0]`, company.legalBusinessName || company.companyName);
+    // Trade name only when it actually differs from the legal name.
+    if (company.legalBusinessName && company.companyName !== company.legalBusinessName) {
+      setFieldSafe(form, `${ENTITY}.f1_4[0]`, company.companyName);
     }
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].EntityArea[0].f1_2[0]', company.legalBusinessName || company.companyName);
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].EntityArea[0].f1_3[0]', company.companyName);
+    setFieldSafe(form, `${ENTITY}.f1_5[0]`, company.address || '');
+    setFieldSafe(form, `${ENTITY}.f1_6[0]`, company.city || '');
+    setFieldSafe(form, `${ENTITY}.f1_7[0]`, company.state || '');
+    setFieldSafe(form, `${ENTITY}.f1_8[0]`, company.zipCode || '');
 
-    // Address
-    const addressLine = company.address || '';
-    const cityStateZip = [company.city, company.state, company.zipCode].filter(Boolean).join(', ');
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].EntityArea[0].f1_4[0]', addressLine);
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].EntityArea[0].f1_5[0]', cityStateZip);
+    // Report for this quarter (c1_1[0..3] = Q1..Q4).
+    checkFieldSafe(form, `${P1}.Header[0].ReportForQuarter[0].c1_1[${quarter - 1}]`, true);
 
-    // Quarter checkbox (1, 2, 3, or 4)
-    checkFieldSafe(form, `topmostSubform[0].Page1[0].EntityArea[0].c1_1[${quarter - 1}]`, true);
+    // --- Part 1 ---
+    setFieldSafe(form, `${P1}.f1_12[0]`, String(lines.line1EmployeeCount));
+    setMoney(form, `${P1}.f1_13[0]`, `${P1}.f1_14[0]`, lines.line2Wages);
+    setMoney(form, `${P1}.f1_15[0]`, `${P1}.f1_16[0]`, lines.line3FederalTaxWithheld);
 
-    // Part 1 - Line 1: Number of employees
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_6[0]', String(totals.employeeCount));
-
-    // Line 2: Wages, tips, and other compensation
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_7[0]', formatCurrency(totals.totalWages));
-
-    // Line 3: Federal income tax withheld
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_8[0]', formatCurrency(totals.federalTaxWithheld));
-
-    // Line 5a column 1: Taxable social security wages
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_10[0]', formatCurrency(totals.socialSecurityWages));
-    // Line 5a column 2: Tax (12.4% rate - column 1 × 0.124)
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_11[0]', formatCurrency(totals.socialSecurityTax));
-
-    // Line 5c column 1: Taxable Medicare wages
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_14[0]', formatCurrency(totals.medicareWages));
-    // Line 5c column 2: Tax (2.9% rate - column 1 × 0.029)
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_15[0]', formatCurrency(totals.medicareTax));
-
-    // Line 5d column 1: Taxable wages for additional Medicare
-    if (totals.additionalMedicareTax > 0) {
-      setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_16[0]', formatCurrency(totals.additionalMedicareWages));
-      // Line 5d column 2: Tax (0.9% rate - column 1 × 0.009)
-      setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_17[0]', formatCurrency(totals.additionalMedicareTax));
+    // Line 4 — check only when nothing is subject to SS or Medicare.
+    if (lines.line5aSocialSecurityWages === 0 && lines.line5cMedicareWages === 0) {
+      checkFieldSafe(form, `${P1}.c1_2[0]`, true);
     }
 
-    // Line 5e: Total social security and Medicare taxes
-    const line5eTotal = totals.socialSecurityTax + totals.medicareTax + totals.additionalMedicareTax;
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_18[0]', formatCurrency(line5eTotal));
+    // Line 5a (cols 1 and 2), 5b tips, 5c Medicare, 5d additional Medicare.
+    setMoney(form, `${P1}.f1_17[0]`, `${P1}.f1_18[0]`, lines.line5aSocialSecurityWages);
+    setMoney(form, `${P1}.f1_19[0]`, `${P1}.f1_20[0]`, lines.line5aTax);
+    setMoney(form, `${P1}.f1_21[0]`, `${P1}.f1_22[0]`, lines.line5bTipsWages);
+    setMoney(form, `${P1}.f1_23[0]`, `${P1}.f1_24[0]`, lines.line5bTax);
+    setMoney(form, `${P1}.f1_25[0]`, `${P1}.f1_26[0]`, lines.line5cMedicareWages);
+    setMoney(form, `${P1}.f1_27[0]`, `${P1}.f1_28[0]`, lines.line5cTax);
+    if (lines.line5dAdditionalMedicareWages > 0) {
+      setMoney(form, `${P1}.f1_29[0]`, `${P1}.f1_30[0]`, lines.line5dAdditionalMedicareWages);
+      setMoney(form, `${P1}.f1_31[0]`, `${P1}.f1_32[0]`, lines.line5dTax);
+    }
 
-    // Line 6: Total taxes before adjustments (line 3 + line 5e)
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_19[0]', formatCurrency(totals.totalTaxesBeforeAdjustments));
+    setMoney(form, `${P1}.f1_33[0]`, `${P1}.f1_34[0]`, lines.line5eTotal);
+    setMoney(form, `${P1}.f1_35[0]`, `${P1}.f1_36[0]`, lines.line5fSection3121q);
+    setMoney(form, `${P1}.f1_37[0]`, `${P1}.f1_38[0]`, lines.line6TotalBeforeAdjustments);
+    setMoney(form, `${P1}.f1_39[0]`, `${P1}.f1_40[0]`, lines.line7FractionsOfCents);
+    setMoney(form, `${P1}.f1_41[0]`, `${P1}.f1_42[0]`, lines.line8SickPay);
+    setMoney(form, `${P1}.f1_43[0]`, `${P1}.f1_44[0]`, lines.line9TipsAndGroupLife);
+    setMoney(form, `${P1}.f1_45[0]`, `${P1}.f1_46[0]`, lines.line10TotalAfterAdjustments);
+    setMoney(form, `${P1}.f1_47[0]`, `${P1}.f1_48[0]`, lines.line11NonrefundableCredits);
+    setMoney(form, `${P1}.f1_49[0]`, `${P1}.f1_50[0]`, lines.line12TotalAfterCredits);
+    setMoney(form, `${P1}.f1_51[0]`, `${P1}.f1_52[0]`, lines.line13TotalDeposits);
+    setMoney(form, `${P1}.f1_53[0]`, `${P1}.f1_54[0]`, lines.line14BalanceDue);
+    setMoney(form, `${P1}.f1_55[0]`, `${P1}.f1_56[0]`, lines.line15Overpayment);
 
-    // Line 10: Total taxes after adjustments (same as line 6 if no adjustments)
-    setFieldSafe(form, 'topmostSubform[0].Page1[0].f1_23[0]', formatCurrency(totals.totalTaxesAfterAdjustments));
+    // --- Page 2 header + Part 2 monthly liabilities ---
+    const P2 = 'topmostSubform[0].Page2[0]';
+    setFieldSafe(form, `${P2}.Name_ReadOrder[0].f1_3[0]`, company.legalBusinessName || company.companyName);
+    setFieldSafe(form, `${P2}.EIN_Number[0].f1_1[0]`, einDigits.slice(0, 2));
+    setFieldSafe(form, `${P2}.EIN_Number[0].f1_2[0]`, einDigits.slice(2, 9));
+
+    // Line 16 — driven by Company.federalDepositSchedule. c2_1[0] is the
+    // under-$2,500 box (a filer determination that also depends on the prior
+    // quarter, so never auto-marked), [1] is monthly, [2] is semiweekly.
+    // A semiweekly depositor leaves the monthly amounts blank and attaches
+    // Schedule B; filling them anyway would contradict the checked box.
+    if (form941.line16.selection === 'monthly') {
+      checkFieldSafe(form, `${P2}.c2_1[1]`, true);
+      const [m1, m2, m3] = form941.monthlyLiabilities;
+      setMoney(form, `${P2}.f2_1[0]`, `${P2}.f2_2[0]`, m1.liability);
+      setMoney(form, `${P2}.f2_3[0]`, `${P2}.f2_4[0]`, m2.liability);
+      setMoney(form, `${P2}.f2_5[0]`, `${P2}.f2_6[0]`, m3.liability);
+      setMoney(form, `${P2}.f2_7[0]`, `${P2}.f2_8[0]`, form941.monthlyTotal);
+    } else if (form941.line16.selection === 'semiweekly') {
+      checkFieldSafe(form, `${P2}.c2_1[2]`, true);
+    }
+
+    // Parts 3, 4 and 5 (business status, third-party designee, signature) are
+    // filer declarations, not derived data, and are left blank on purpose.
 
     // Serialize PDF
     const pdfBytes = await pdfDoc.save();

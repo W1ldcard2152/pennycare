@@ -979,6 +979,10 @@ function TaxRemindersSettings({
             <p className="mt-1 text-sm text-gray-500">
               IRS assigns based on prior-year liability. Under $50,000 = Monthly; $50,000+ = Semi-Weekly.
             </p>
+            <p className="mt-1 text-sm text-gray-500">
+              Also drives Form 941 Part 2 line 16: monthly enters the three monthly amounts,
+              semi-weekly marks the semi-weekly box and requires a Schedule B attachment.
+            </p>
           </div>
 
           <div>

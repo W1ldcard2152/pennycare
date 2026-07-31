@@ -120,7 +120,9 @@ const NY_PFL_ANNUAL_MAX = 411.91; // 2026 max
 // NY 2026 raised the SUI wage base to $17,600 (up from $12,800 in 2025) under the
 // 2025 budget bill — wage base now permanently indexed to 18% of state avg annual wage.
 const NY_SUI_WAGE_BASE = 17600;
-const NY_RSF_RATE = 0.00075; // NY Re-employment Service Fund — 0.075% of SUI-eligible wages
+// Exported so the NYS-45 builder reports the same rate on Part A line 5 that
+// payroll actually accrued (see lib/nys45.ts).
+export const NY_RSF_RATE = 0.00075; // NY Re-employment Service Fund — 0.075% of SUI-eligible wages
 const FUTA_WAGE_BASE = 7000; // First $7,000 per employee
 
 // NYC tax rates (simplified)
