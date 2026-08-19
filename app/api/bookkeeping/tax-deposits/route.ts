@@ -13,7 +13,7 @@ import { createTaxDepositSchema, validateRequest } from '@/lib/validation';
 // Lists tax deposits for the company, most recent first. All filters optional.
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const params = request.nextUrl.searchParams;
@@ -48,11 +48,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/bookkeeping/tax-deposits — record a new deposit + create the
+// POST /api/bookkeeping/tax-deposits â€” record a new deposit + create the
 // matching journal entry that clears the corresponding liability accounts.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     const depositDate = parseBusinessDate(data.depositDate);
 
     const deposit = await prisma.$transaction(async (tx) => {
-      // Step 1 — create the TaxDeposit row (no journal entry link yet)
+      // Step 1 â€” create the TaxDeposit row (no journal entry link yet)
       const created = await tx.taxDeposit.create({
         data: {
           companyId: companyId!,
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Step 2 — create the matching journal entry
+      // Step 2 â€” create the matching journal entry
       const { journalEntryId } = await createTaxDepositJournalEntry(
         tx,
         companyId!,
@@ -127,9 +127,10 @@ export async function POST(request: NextRequest) {
           totalAmount: created.totalAmount,
         },
         data.bankAccountId,
+        { userId: session!.userId, role: role! },
       );
 
-      // Step 3 — link the journal entry back onto the deposit
+      // Step 3 â€” link the journal entry back onto the deposit
       return tx.taxDeposit.update({
         where: { id: created.id },
         data: { journalEntryId },

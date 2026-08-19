@@ -7,7 +7,7 @@ import { startOfDay, endOfDay, formatDate } from '@/lib/date-utils';
 // Returns paginated audit log entries with filters
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { searchParams } = new URL(request.url);

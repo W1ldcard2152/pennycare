@@ -8,7 +8,7 @@ import { logAudit } from '@/lib/audit';
 // GET /api/employees - List all employees
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const employees = await prisma.employee.findMany({
@@ -39,7 +39,7 @@ export async function GET() {
 // POST /api/employees - Create new employee
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const data = await request.json();
@@ -56,8 +56,29 @@ export async function POST(request: NextRequest) {
     // Encrypt sensitive data
     const taxIdEncrypted = data.taxId ? encrypt(data.taxId) : null;
 
-    // Create employee with related data
-    const employee = await prisma.employee.create({
+    // Employee number is assigned SERVER-SIDE inside the create transaction
+    // (atomic counter increment, same pattern as journal entry numbering).
+    // Any client-supplied number is ignored — the next-number endpoint is
+    // display-only. Skips over numbers already taken by manual entry in
+    // pre-1.2 data; the @@unique([companyId, employeeNumber]) constraint is
+    // the backstop.
+    const employee = await prisma.$transaction(async (tx) => {
+      let assignedNumber: string;
+      for (;;) {
+        const company = await tx.company.update({
+          where: { id: companyId! },
+          data: { nextEmployeeNumber: { increment: 1 } },
+          select: { nextEmployeeNumber: true },
+        });
+        assignedNumber = String(company.nextEmployeeNumber - 1).padStart(3, '0');
+        const taken = await tx.employee.findFirst({
+          where: { companyId: companyId!, employeeNumber: assignedNumber },
+          select: { id: true },
+        });
+        if (!taken) break;
+      }
+
+      return tx.employee.create({
       data: {
         companyId: companyId!,
         // Basic info
@@ -73,7 +94,7 @@ export async function POST(request: NextRequest) {
         zipCode: data.zipCode || null,
 
         // Employment details
-        employeeNumber: data.employeeNumber,
+        employeeNumber: assignedNumber,
         position: data.position,
         employmentType: data.employmentType,
         department: data.department || null,
@@ -136,23 +157,8 @@ export async function POST(request: NextRequest) {
         paymentInfo: true,
         emergencyContact: true,
       },
-    });
-
-    // Increment the company's nextEmployeeNumber counter
-    const employeeNum = parseInt(data.employeeNumber.replace(/\D/g, ''), 10);
-    if (!isNaN(employeeNum)) {
-      const company = await prisma.company.findUnique({
-        where: { id: companyId! },
-        select: { nextEmployeeNumber: true },
       });
-
-      if (company && employeeNum >= (company.nextEmployeeNumber || 1)) {
-        await prisma.company.update({
-          where: { id: companyId! },
-          data: { nextEmployeeNumber: employeeNum + 1 },
-        });
-      }
-    }
+    });
 
     // Audit log
     await logAudit({

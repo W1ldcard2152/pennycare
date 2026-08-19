@@ -23,13 +23,13 @@ interface BackupTargetView {
   status: 'connected' | 'folder_missing' | 'marker_missing' | 'marker_mismatch';
 }
 
-// GET /api/admin/backup/targets — list registered targets with live status
+// GET /api/admin/backup/targets â€” list registered targets with live status
 export async function GET() {
   try {
-    const { error } = await requireCompanyAccess('admin');
+    const { error } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
-    // Using $queryRaw for forward-compat — the Prisma client may not have
+    // Using $queryRaw for forward-compat â€” the Prisma client may not have
     // regenerated yet on dev machines after the schema change. Switch to
     // prisma.backupTarget.findMany() once everyone's regenerated.
     const targets = await prisma.backupTarget.findMany({
@@ -56,17 +56,17 @@ export async function GET() {
   }
 }
 
-// POST /api/admin/backup/targets — register a new target.
+// POST /api/admin/backup/targets â€” register a new target.
 // Body: { folderPath: string, name: string }
 // Behavior:
 //   1. Validate the folder exists and is writable.
 //   2. If it already has a marker for a different (still-registered) target,
-//      reject — the user picked a folder that's already in use.
+//      reject â€” the user picked a folder that's already in use.
 //   3. If it has a marker that we don't know about, take it over (overwrite).
 //   4. Write a fresh marker and create the DB record.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json().catch(() => ({}));
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     // If a marker already exists at this path, check whether it belongs to a
-    // target we know about — that means another DB thinks it owns this folder.
+    // target we know about â€” that means another DB thinks it owns this folder.
     // Possible if the user moved their database and the marker stuck around.
     // We allow overwriting: the user explicitly picked this folder, intent is clear.
     const existingMarker = readMarker(folderPath);

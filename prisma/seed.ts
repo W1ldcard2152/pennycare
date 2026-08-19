@@ -48,7 +48,7 @@ async function main() {
     data: {
       userId: user.id,
       companyId: company.id,
-      role: 'owner',
+      role: 'OWNER',
     },
   });
 

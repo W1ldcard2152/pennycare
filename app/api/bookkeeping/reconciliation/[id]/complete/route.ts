@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { validateRequest, completeReconciliationSchema } from '@/lib/validation';
-import { isDebitNormal, createJournalEntry } from '@/lib/bookkeeping';
+import { isDebitNormal } from '@/lib/bookkeeping';
+import { createEntry, markLinesReconciled } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 import { formatDate } from '@/lib/date-utils';
 
@@ -13,7 +14,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -187,14 +188,17 @@ export async function POST(
         }
       }
 
-      const adjustingEntry = await createJournalEntry({
-        companyId: companyId!,
-        date: reconciliation.statementEndDate,
-        memo: `Reconciliation adjustment for ${reconciliation.account.name}`,
-        source: 'reconciliation',
-        sourceId: id,
-        lines,
-      });
+      const adjustingEntry = await createEntry(
+        { userId: session!.userId, role: role! },
+        {
+          companyId: companyId!,
+          date: reconciliation.statementEndDate,
+          memo: `Reconciliation adjustment for ${reconciliation.account.name}`,
+          source: 'reconciliation',
+          sourceId: id,
+          lines,
+        }
+      );
 
       adjustingEntryId = adjustingEntry.id;
 
@@ -212,11 +216,8 @@ export async function POST(
           },
         });
 
-        // Mark this line as reconciled
-        await prisma.journalEntryLine.update({
-          where: { id: adjustingLine.id },
-          data: { isReconciled: true },
-        });
+        // Mark this line as reconciled (via the JE service — it owns line writes)
+        await markLinesReconciled([adjustingLine.id], true);
       }
 
       // Update cleared balance with adjustment
@@ -238,12 +239,7 @@ export async function POST(
 
     // Mark all cleared items' journal entry lines as reconciled
     const lineIds = reconciliation.clearedItems.map((item) => item.journalEntryLineId);
-    if (lineIds.length > 0) {
-      await prisma.journalEntryLine.updateMany({
-        where: { id: { in: lineIds } },
-        data: { isReconciled: true },
-      });
-    }
+    await markLinesReconciled(lineIds, true);
 
     // Update the reconciliation as completed
     const updated = await prisma.reconciliation.update({

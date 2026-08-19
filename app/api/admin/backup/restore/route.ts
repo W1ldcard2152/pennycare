@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
+import { prisma } from '@/lib/db';
 import { getDatabasePath, getBackupsDir } from '@/lib/paths';
 import fs from 'fs';
 import path from 'path';
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     // Only owners can restore (destructive operation)
     // Note: We check for owner role but don't fail if company lookup fails,
     // since this might be called after clearing all data with a fresh account
-    const { error, companyId, session } = await requireCompanyAccess('owner');
+    const { error, companyId, session } = await requireCompanyAccess('OWNER');
 
     // If there's an auth error, check if it's just a company access issue
     // In that case, we still allow restore if user is authenticated
@@ -92,6 +93,16 @@ export async function POST(request: NextRequest) {
       fs.mkdirSync(backupsDir, { recursive: true });
     }
 
+    // Flush the WAL into the main file so (a) the pre-restore safety backup
+    // captures every committed write and (b) no stale WAL contents can be
+    // replayed over the freshly restored file. The truncated (empty) -wal
+    // left behind is harmless if it can't be deleted below.
+    try {
+      await prisma.$executeRaw`PRAGMA wal_checkpoint(TRUNCATE)`;
+    } catch {
+      // Non-fatal: worst case the safety backup misses the last few writes
+    }
+
     // Create automatic backup of current database before restore
     const timestamp = formatTimestamp();
     const autoBackupFilename = `cvbooks-pre-restore-${timestamp}.db`;
@@ -110,6 +121,17 @@ export async function POST(request: NextRequest) {
 
     // Clean up temp file
     fs.unlinkSync(tempPath);
+
+    // Remove WAL sidecars so nothing from the old database gets replayed
+    // into the restored file. Best-effort: the live connection may hold the
+    // handles on Windows, but the WAL was truncated to empty above.
+    for (const sidecar of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+      try {
+        if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+      } catch {
+        // Locked by the live connection — safe because the WAL is empty
+      }
+    }
 
     // Log the restore (note: this will be logged in the OLD database connection
     // which may still be cached, but the file on disk is the new one)

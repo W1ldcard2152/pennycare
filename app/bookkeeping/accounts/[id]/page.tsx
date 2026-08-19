@@ -290,22 +290,27 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   };
 
   const handleBulkComplete = ({
-    updated,
+    entriesAffected,
     unchanged,
     skipped,
-    totalLinesChanged,
+    generatedEntries,
   }: {
-    updated: number;
+    entriesAffected: number;
     unchanged: number;
     skipped: number;
-    totalLinesChanged: number;
+    generatedEntries: Array<{ year: number; entryNumber: number; id: string }>;
   }) => {
     setBulkModalOpen(false);
     setSelectedEntryIds(new Set());
     const parts: string[] = [];
-    parts.push(
-      `Reclassified ${updated} ${updated === 1 ? 'entry' : 'entries'} (${totalLinesChanged} ${totalLinesChanged === 1 ? 'line' : 'lines'})`,
-    );
+    if (generatedEntries.length > 0) {
+      const numbers = generatedEntries.map((e) => `#${e.entryNumber}`).join(', ');
+      parts.push(
+        `Reclassified ${entriesAffected} ${entriesAffected === 1 ? 'entry' : 'entries'} via ${generatedEntries.length} new journal ${generatedEntries.length === 1 ? 'entry' : 'entries'} (${numbers})`,
+      );
+    } else {
+      parts.push('No reclassification entries were needed');
+    }
     if (unchanged > 0) parts.push(`${unchanged} unchanged`);
     if (skipped > 0) parts.push(`${skipped} skipped`);
     setBulkResultMessage(parts.join(', ') + '.');

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { bulkReclassifyApplySchema, validateRequest } from '@/lib/validation';
 import { checkClosedPeriod } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 
 type SkipReason =
@@ -12,19 +13,21 @@ type SkipReason =
   | 'not_found';
 
 // POST /api/bookkeeping/accounts/[id]/bulk-reclassify
-// Apply a set of find-and-replace rules across the selected entries. For each
-// entry, every line whose accountId matches a rule's sourceAccountId is
-// updated to the rule's targetAccountId. Debit/credit/amount are preserved.
+// Reclassify amounts between accounts WITHOUT editing the original entries
+// (1.2: booked entries are immutable). For each rule (source → target), we sum
+// the net amount the matched lines posted to the source account, then generate
+// a reclassification journal entry that moves that net to the target — one JE
+// per affected fiscal year so each lands in the same period as the original
+// activity and period reports stay correct. Original lines are untouched.
 //
-// An entry is skipped only if voided, in a closed period, or a rule would
-// touch a reconciled line on it. The source account in the URL is the page
-// context the user is on — it isn't used to filter rules.
+// An entry is skipped if voided, in a closed period, or a rule would touch a
+// reconciled line on it. The source account in the URL is page context only.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id: pageAccountId } = await params;
 
@@ -85,19 +88,20 @@ export async function POST(
 
     const entriesById = new Map(entries.map((e) => [e.id, e]));
 
-    interface PlannedUpdate {
-      entryId: string;
-      entryNumber: number;
-      lineUpdates: {
-        lineId: string;
-        fromAccount: { id: string; code: string; name: string };
-        toAccountId: string;
-      }[];
-    }
-
     const skipped: { entryId: string; entryNumber: number | null; reason: SkipReason }[] = [];
-    const planned: PlannedUpdate[] = [];
     let unchanged = 0;
+    let entriesAffected = 0;
+
+    // Accumulate net amounts (integer cents) per fiscal year, per rule source.
+    // netCents = sum(debit − credit) the matched lines posted to the source.
+    // We also remember the latest matched entry date in each year to date the
+    // reclassification JE within that period.
+    type YearGroup = {
+      year: number;
+      latestDate: Date;
+      netCentsBySource: Map<string, number>;
+    };
+    const yearGroups = new Map<number, YearGroup>();
 
     for (const entryId of entryIds) {
       const entry = entriesById.get(entryId);
@@ -115,12 +119,11 @@ export async function POST(
         continue;
       }
 
-      // Find lines on this entry whose accountId matches any rule source.
       const matchingLines = entry.lines.filter((l) => sourceIdSet.has(l.accountId));
 
-      // If any matched line is reconciled, the entry is fully skipped — we
-      // can't partially apply rules because the user expects all-or-nothing
-      // remapping per entry.
+      // If any matched line is reconciled, skip the whole entry — reclassifying
+      // an amount that's been reconciled would change the source account's
+      // cleared balance against a completed reconciliation.
       const reconciledMatch = matchingLines.find((l) => l.isReconciled);
       if (reconciledMatch) {
         skipped.push({ entryId, entryNumber: entry.entryNumber, reason: 'reconciled_line_blocked' });
@@ -128,67 +131,84 @@ export async function POST(
       }
 
       if (matchingLines.length === 0) {
-        // Entry is eligible but no rules touch it. Don't count as skipped —
-        // count separately so the UI can report "unchanged".
         unchanged += 1;
         continue;
       }
 
-      planned.push({
-        entryId: entry.id,
-        entryNumber: entry.entryNumber,
-        lineUpdates: matchingLines.map((l) => ({
-          lineId: l.id,
-          fromAccount: { id: l.account.id, code: l.account.code, name: l.account.name },
-          toAccountId: ruleByrSource.get(l.accountId)!,
-        })),
-      });
+      const year = entry.date.getUTCFullYear();
+      let group = yearGroups.get(year);
+      if (!group) {
+        group = { year, latestDate: entry.date, netCentsBySource: new Map() };
+        yearGroups.set(year, group);
+      }
+      if (entry.date > group.latestDate) group.latestDate = entry.date;
+
+      for (const line of matchingLines) {
+        const deltaCents = Math.round(line.debit * 100) - Math.round(line.credit * 100);
+        group.netCentsBySource.set(
+          line.accountId,
+          (group.netCentsBySource.get(line.accountId) ?? 0) + deltaCents
+        );
+      }
+      entriesAffected += 1;
     }
 
-    // Apply all line updates in a single transaction.
-    let totalLinesChanged = 0;
-    if (planned.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        for (const p of planned) {
-          for (const u of p.lineUpdates) {
-            await tx.journalEntryLine.update({
-              where: { id: u.lineId },
-              data: { accountId: u.toAccountId },
-            });
-            totalLinesChanged += 1;
-          }
+    // Generate one reclassification JE per affected fiscal year. For each rule
+    // source with a non-zero net, move that net from source to target:
+    //   net debit  → DEBIT target, CREDIT source
+    //   net credit → CREDIT target, DEBIT source
+    const actor = { userId: session!.userId, role: role! };
+    const generatedEntries: Array<{ year: number; entryNumber: number; id: string }> = [];
+
+    for (const group of Array.from(yearGroups.values()).sort((a, b) => a.year - b.year)) {
+      const lines: Array<{ accountId: string; description: string; debit: number; credit: number }> = [];
+      const remaps: Array<{ from: string; to: string; amount: number }> = [];
+
+      for (const [sourceId, netCents] of group.netCentsBySource) {
+        if (netCents === 0) continue;
+        const targetId = ruleByrSource.get(sourceId)!;
+        const src = accountById.get(sourceId)!;
+        const tgt = accountById.get(targetId)!;
+        const amount = Math.abs(netCents) / 100;
+        const desc = `Reclassify ${src.code} → ${tgt.code}`;
+        if (netCents > 0) {
+          lines.push({ accountId: targetId, description: desc, debit: amount, credit: 0 });
+          lines.push({ accountId: sourceId, description: desc, debit: 0, credit: amount });
+        } else {
+          lines.push({ accountId: targetId, description: desc, debit: 0, credit: amount });
+          lines.push({ accountId: sourceId, description: desc, debit: amount, credit: 0 });
         }
-      });
-    }
+        remaps.push({ from: src.code, to: tgt.code, amount });
+      }
 
-    // Audit each modified entry. Matches the regular edit-entry pattern so the
-    // entry's audit log surfaces this change alongside any prior manual edits.
-    for (const p of planned) {
+      if (lines.length === 0) continue;
+
+      const entry = await createEntry(actor, {
+        companyId: companyId!,
+        date: group.latestDate,
+        memo: `Reclassification (${group.year})`,
+        source: 'reclassification',
+        notes: `Bulk reclassification of ${entriesAffected} entr${entriesAffected === 1 ? 'y' : 'ies'}: ` +
+          remaps.map((r) => `${r.from}→${r.to} $${r.amount.toFixed(2)}`).join(', '),
+        lines,
+      });
+      generatedEntries.push({ year: group.year, entryNumber: entry.entryNumber, id: entry.id });
+
       await logAudit({
         companyId: companyId!,
         userId: session!.userId,
-        action: 'journal_entry.bulk_reclassify',
+        action: 'journal_entry.reclassify',
         entityType: 'JournalEntry',
-        entityId: p.entryId,
-        metadata: {
-          entryNumber: p.entryNumber,
-          lineRemaps: p.lineUpdates.map((u) => {
-            const tgt = accountById.get(u.toAccountId)!;
-            return {
-              lineId: u.lineId,
-              from: u.fromAccount,
-              to: { id: tgt.id, code: tgt.code, name: tgt.name },
-            };
-          }),
-        },
+        entityId: entry.id,
+        metadata: { year: group.year, entryNumber: entry.entryNumber, remaps },
       });
     }
 
     return NextResponse.json({
-      updated: planned.length,
+      entriesAffected,
       unchanged,
       skipped,
-      totalLinesChanged,
+      generatedEntries,
     });
   } catch (err) {
     console.error('Error applying bulk reclassify:', err);

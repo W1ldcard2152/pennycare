@@ -11,7 +11,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { id } = await params;
@@ -45,43 +45,10 @@ export async function POST(
       );
     }
 
-    // Step 1: Void the original record (mark as "corrected" instead of "voided" for clarity)
-    await prisma.payrollRecord.update({
-      where: { id },
-      data: {
-        status: 'corrected',
-        voidedAt: new Date(),
-        voidedBy: session!.userId,
-        voidReason: `Corrected: ${reason}`,
-      },
-    });
-
-    // Reverse YTD deduction amounts from the original
-    const deductionTypes = new Map<string, number>();
-    if (original.preTax401k > 0) deductionTypes.set('401k', original.preTax401k);
-    if (original.preTaxHealthIns > 0) deductionTypes.set('health_insurance', original.preTaxHealthIns);
-    if (original.preTaxDental > 0) deductionTypes.set('dental', original.preTaxDental);
-    if (original.preTaxVision > 0) deductionTypes.set('vision', original.preTaxVision);
-    if (original.preTaxHSA > 0) deductionTypes.set('hsa', original.preTaxHSA);
-    if (original.preTaxFSA > 0) deductionTypes.set('fsa', original.preTaxFSA);
-    if (original.postTaxRoth401k > 0) deductionTypes.set('401k_roth', original.postTaxRoth401k);
-    if (original.garnishments > 0) deductionTypes.set('garnishment', original.garnishments);
-    if (original.childSupport > 0) deductionTypes.set('child_support', original.childSupport);
-    if (original.loanRepayments > 0) deductionTypes.set('loan_repayment', original.loanRepayments);
-
-    for (const [deductionType, amount] of deductionTypes) {
-      const employeeDeductions = await prisma.employeeDeduction.findMany({
-        where: { employeeId: original.employeeId, deductionType, isActive: true },
-      });
-      for (const ded of employeeDeductions) {
-        await prisma.employeeDeduction.update({
-          where: { id: ded.id },
-          data: { ytdAmount: Math.max(0, ded.ytdAmount - amount) },
-        });
-      }
-    }
-
-    // Step 2: Recalculate using current employee data
+    // Recalculate using current employee data. All reads happen BEFORE any
+    // writes so the void→reverse-YTD→create→re-apply sequence can run in one
+    // transaction (1.2 fix: a crash mid-correction no longer leaves the
+    // original corrected with no replacement, or a half-applied YTD).
     const company = await prisma.company.findUnique({ where: { id: companyId! } });
     if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 400 });
@@ -205,10 +172,49 @@ export async function POST(
     const loanRepayments = result.postTaxDeductions.filter((d) => d.type === 'loan_repayment').reduce((s, d) => s + d.amount, 0);
     const postTaxOther = result.postTaxDeductions.filter((d) => !['401k_roth', 'garnishment', 'child_support', 'loan_repayment'].includes(d.type)).reduce((s, d) => s + d.amount, 0);
 
-    const correctionRecord = await prisma.payrollRecord.create({
+    // Void original + reverse original YTD + create correction + apply new YTD,
+    // all in one transaction.
+    const correctionRecord = await prisma.$transaction(async (tx) => {
+      await tx.payrollRecord.update({
+        where: { id },
+        data: {
+          status: 'corrected',
+          voidedAt: new Date(),
+          voidedBy: session!.userId,
+          voidReason: `Corrected: ${reason}`,
+        },
+      });
+
+      // Reverse YTD deduction amounts from the original
+      const deductionTypes = new Map<string, number>();
+      if (original.preTax401k > 0) deductionTypes.set('401k', original.preTax401k);
+      if (original.preTaxHealthIns > 0) deductionTypes.set('health_insurance', original.preTaxHealthIns);
+      if (original.preTaxDental > 0) deductionTypes.set('dental', original.preTaxDental);
+      if (original.preTaxVision > 0) deductionTypes.set('vision', original.preTaxVision);
+      if (original.preTaxHSA > 0) deductionTypes.set('hsa', original.preTaxHSA);
+      if (original.preTaxFSA > 0) deductionTypes.set('fsa', original.preTaxFSA);
+      if (original.postTaxRoth401k > 0) deductionTypes.set('401k_roth', original.postTaxRoth401k);
+      if (original.garnishments > 0) deductionTypes.set('garnishment', original.garnishments);
+      if (original.childSupport > 0) deductionTypes.set('child_support', original.childSupport);
+      if (original.loanRepayments > 0) deductionTypes.set('loan_repayment', original.loanRepayments);
+
+      for (const [deductionType, amount] of deductionTypes) {
+        const employeeDeductions = await tx.employeeDeduction.findMany({
+          where: { employeeId: original.employeeId, deductionType, isActive: true },
+        });
+        for (const ded of employeeDeductions) {
+          await tx.employeeDeduction.update({
+            where: { id: ded.id },
+            data: { ytdAmount: Math.max(0, ded.ytdAmount - amount) },
+          });
+        }
+      }
+
+      const correctionRecord = await tx.payrollRecord.create({
       data: {
         companyId: companyId!,
         employeeId: employee.id,
+        createdById: session!.userId,
         payPeriodStart: original.payPeriodStart,
         payPeriodEnd: original.payPeriodEnd,
         payDate: original.payDate,
@@ -253,19 +259,22 @@ export async function POST(
         originalRecordId: id,
         notes: `Correction of record ${id}: ${reason}`,
       },
-    });
+      });
 
-    // Update YTD amounts on employee deductions for the new record
-    for (const ded of employee.deductions) {
-      const deductionResult = [...result.preTaxDeductions, ...result.postTaxDeductions]
-        .find((d) => d.type === ded.deductionType);
-      if (deductionResult) {
-        await prisma.employeeDeduction.update({
-          where: { id: ded.id },
-          data: { ytdAmount: ded.ytdAmount + deductionResult.amount },
-        });
+      // Update YTD amounts on employee deductions for the new record
+      for (const ded of employee.deductions) {
+        const deductionResult = [...result.preTaxDeductions, ...result.postTaxDeductions]
+          .find((d) => d.type === ded.deductionType);
+        if (deductionResult) {
+          await tx.employeeDeduction.update({
+            where: { id: ded.id },
+            data: { ytdAmount: ded.ytdAmount + deductionResult.amount },
+          });
+        }
       }
-    }
+
+      return correctionRecord;
+    }, { timeout: 20000 });
 
     // Audit logs
     await logAudit({

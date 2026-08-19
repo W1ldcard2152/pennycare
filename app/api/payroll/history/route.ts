@@ -6,7 +6,7 @@ import { startOfDay, endOfDay } from '@/lib/date-utils';
 // GET /api/payroll/history - Get payroll history
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const { searchParams } = new URL(request.url);

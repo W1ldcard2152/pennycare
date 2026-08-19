@@ -42,21 +42,33 @@ interface JournalEntry {
 const SOURCE_COLORS: Record<string, string> = {
   manual: 'bg-blue-100 text-blue-700',
   payroll: 'bg-green-100 text-green-700',
+  payroll_payment: 'bg-green-100 text-green-700',
   expense: 'bg-orange-100 text-orange-700',
   ebay_import: 'bg-yellow-100 text-yellow-700',
   statement_import: 'bg-teal-100 text-teal-700',
   cc_import: 'bg-pink-100 text-pink-700',
   opening_balance: 'bg-purple-100 text-purple-700',
+  reconciliation: 'bg-indigo-100 text-indigo-700',
+  year_end_closing: 'bg-slate-200 text-slate-700',
+  tax_deposit: 'bg-cyan-100 text-cyan-700',
+  reversal: 'bg-red-100 text-red-700',
+  reclassification: 'bg-amber-100 text-amber-700',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: 'Manual',
   payroll: 'Payroll',
+  payroll_payment: 'Payroll Payment',
   expense: 'Expense',
   ebay_import: 'eBay Import',
   statement_import: 'Statement Import',
   cc_import: 'CC Import',
   opening_balance: 'Opening Balance',
+  reconciliation: 'Reconciliation',
+  year_end_closing: 'Year-End Closing',
+  tax_deposit: 'Tax Deposit',
+  reversal: 'Reversal',
+  reclassification: 'Reclassification',
 };
 
 function formatCurrency(amount: number) {
@@ -108,6 +120,13 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const [voidReason, setVoidReason] = useState('');
   const [voidLoading, setVoidLoading] = useState(false);
   const [voidError, setVoidError] = useState('');
+  // Reverse-entry modal (the correction mechanism for booked entries)
+  const [showReverseModal, setShowReverseModal] = useState(false);
+  const [reverseDate, setReverseDate] = useState('');
+  const [reverseMemo, setReverseMemo] = useState('');
+  const [reverseLoading, setReverseLoading] = useState(false);
+  const [reverseError, setReverseError] = useState('');
+  const [reverseSuccess, setReverseSuccess] = useState<{ id: string; entryNumber: number } | null>(null);
 
   // Audit history
   const [auditLogs, setAuditLogs] = useState<Array<{
@@ -316,6 +335,47 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
     }
   };
 
+  const openReverseModal = () => {
+    setShowReverseModal(true);
+    setReverseDate(new Date().toISOString().split('T')[0]);
+    setReverseMemo('');
+    setReverseError('');
+  };
+
+  const closeReverseModal = () => {
+    setShowReverseModal(false);
+    setReverseError('');
+  };
+
+  const confirmReverse = async () => {
+    if (!entry) return;
+    if (!reverseDate) {
+      setReverseError('A reversal date is required');
+      return;
+    }
+    setReverseLoading(true);
+    setReverseError('');
+    try {
+      const res = await fetch(`/api/bookkeeping/journal-entries/${entry.id}/reverse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: reverseDate, memo: reverseMemo.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setReverseError(err.error || 'Failed to reverse entry');
+        return;
+      }
+      const reversal = await res.json();
+      setReverseSuccess({ id: reversal.id, entryNumber: reversal.entryNumber });
+      closeReverseModal();
+    } catch {
+      setReverseError('Failed to reverse entry');
+    } finally {
+      setReverseLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen p-8">
@@ -425,13 +485,14 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
             </div>
 
             {/* Action Buttons */}
+            {/* Booked entries are immutable: correct via a reversing entry, not edit. */}
             {entry.status === 'posted' && !editing && (
               <div className="flex gap-2">
                 <button
-                  onClick={startEditing}
+                  onClick={openReverseModal}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
                 >
-                  Edit Entry
+                  Reverse Entry
                 </button>
                 <button
                   onClick={openVoidModal}
@@ -441,7 +502,34 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
                 </button>
               </div>
             )}
+            {/* Drafts (team-mode approval workflow) remain editable in place. */}
+            {entry.status === 'draft' && !editing && (
+              <div className="flex gap-2">
+                <button
+                  onClick={startEditing}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                >
+                  Edit Draft
+                </button>
+              </div>
+            )}
           </div>
+
+          {/* Reversal success banner */}
+          {reverseSuccess && (
+            <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200 flex items-center justify-between">
+              <p className="text-sm text-green-700">
+                Reversing entry #{reverseSuccess.entryNumber} created. This entry remains booked; the
+                reversal offsets it.
+              </p>
+              <Link
+                href={`/bookkeeping/journal-entries/${reverseSuccess.id}`}
+                className="text-sm font-medium text-green-700 underline"
+              >
+                View reversal
+              </Link>
+            </div>
+          )}
 
           {/* Void Info */}
           {entry.status === 'voided' && (
@@ -777,6 +865,71 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {voidLoading ? 'Voiding...' : 'Void Entry'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reverse Modal */}
+      {showReverseModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Reverse Journal Entry #{entry.entryNumber}
+              </h3>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-gray-600 mb-4">
+                This creates a new journal entry with every debit and credit of{' '}
+                <strong>{entry.memo}</strong> flipped, offsetting it on the books. The original entry
+                stays booked for the audit trail.
+              </p>
+
+              {reverseError && (
+                <div className="mb-4 p-2 bg-red-50 text-red-600 rounded text-sm">{reverseError}</div>
+              )}
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reversal date *</label>
+                <input
+                  type="date"
+                  value={reverseDate}
+                  onChange={(e) => setReverseDate(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Memo (optional)
+                </label>
+                <input
+                  type="text"
+                  value={reverseMemo}
+                  onChange={(e) => setReverseMemo(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                  placeholder={`Reversal of JE #${entry.entryNumber}`}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+              <button
+                type="button"
+                onClick={closeReverseModal}
+                disabled={reverseLoading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmReverse}
+                disabled={reverseLoading || !reverseDate}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {reverseLoading ? 'Reversing...' : 'Create Reversing Entry'}
               </button>
             </div>
           </div>

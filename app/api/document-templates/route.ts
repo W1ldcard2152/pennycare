@@ -9,7 +9,7 @@ import path from 'path';
 // GET /api/document-templates - List all available templates
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     // Get system templates (available to all) + company-specific templates
@@ -40,7 +40,7 @@ export async function GET() {
 // POST /api/document-templates - Upload a new template
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const formData = await request.formData();

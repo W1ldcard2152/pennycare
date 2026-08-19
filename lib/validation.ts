@@ -15,12 +15,37 @@ export const registerSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
 });
 
+const ROLE_VALUES = ['OWNER', 'APPROVER', 'BOOKKEEPER', 'VIEWER'] as const;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
+export const createUserSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  temporaryPassword: z.string().min(8, 'Temporary password must be at least 8 characters'),
+  role: z.enum(ROLE_VALUES),
+});
+
+// All fields optional — the route applies whichever are present. `action`
+// disambiguates deactivate/reactivate/reset-password/change-role.
+export const updateUserSchema = z.object({
+  action: z.enum(['deactivate', 'reactivate', 'reset_password', 'change_role']),
+  role: z.enum(ROLE_VALUES).optional(),
+  temporaryPassword: z.string().min(8, 'Temporary password must be at least 8 characters').optional(),
+});
+
 // ── Employees ─────────────────────────────────────────
 
 export const createEmployeeSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
-  employeeNumber: z.string().min(1, 'Employee number is required'),
+  // Accepted but ignored — the server assigns the employee number inside the
+  // create transaction (see POST /api/employees)
+  employeeNumber: z.string().optional(),
   position: z.string().min(1, 'Position is required'),
   employmentType: z.enum(['full-time', 'part-time'], {
     message: 'Employment type must be "full-time" or "part-time"',

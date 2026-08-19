@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/auth';
+import { requireCompanyAccess } from '@/lib/api-utils';
 import { z } from 'zod';
 import { validateRequest } from '@/lib/validation';
 
@@ -45,33 +46,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET /api/feedback - List all feedback (admin only)
+// GET /api/feedback - List feedback (APPROVER+ of the current company).
+//
+// Scoped to users who have access to the active company — previously this read
+// ALL feedback across every company for anyone who was owner/admin of ANY
+// company (a cross-tenant leak, harmless single-user but wrong in team mode).
 export async function GET(request: NextRequest) {
-  const session = await getSession();
-
-  if (!session) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
-  // Check if user is an owner/admin of any company
-  const access = await prisma.userCompanyAccess.findFirst({
-    where: {
-      userId: session.userId,
-      role: { in: ['owner', 'admin'] },
-    },
-  });
-
-  if (!access) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-  }
+  const { error, companyId } = await requireCompanyAccess('APPROVER');
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const showArchived = searchParams.get('archived') === 'true';
 
   try {
+    // Restrict to feedback submitted by users who have access to this company.
+    const companyUserIds = (
+      await prisma.userCompanyAccess.findMany({
+        where: { companyId: companyId! },
+        select: { userId: true },
+      })
+    ).map((a) => a.userId);
+
     const feedbackList = await prisma.feedback.findMany({
       where: {
         archived: showArchived,
+        userId: { in: companyUserIds },
       },
       orderBy: { createdAt: 'desc' },
     });

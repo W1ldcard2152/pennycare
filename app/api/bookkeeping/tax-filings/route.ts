@@ -5,7 +5,7 @@ import { logAudit } from '@/lib/audit';
 import { parseBusinessDate } from '@/lib/date-utils';
 import { createTaxFilingSchema, validateRequest } from '@/lib/validation';
 
-// Map "941" / "940" / "NYS-45" / "W-2" / "W-3" → the existing TaxFiling.formType
+// Map "941" / "940" / "NYS-45" / "W-2" / "W-3" â†’ the existing TaxFiling.formType
 // values used by the reminders banner ("941", "nys45", "940", "w2"). New form
 // types added by this module map straight through where there's no legacy
 // equivalent.
@@ -32,7 +32,7 @@ function quarterToInt(q: string | null | undefined): number | null {
 //   ?year=2026&formType=941
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const params = request.nextUrl.searchParams;
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/bookkeeping/tax-filings — record a filed return.
+// POST /api/bookkeeping/tax-filings â€” record a filed return.
 // Upserts on (companyId, formType, year, quarter) so re-marking a filing as
 // "filed" updates the existing row.
 //
@@ -68,12 +68,12 @@ export async function GET(request: NextRequest) {
 // later.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const rawBody = await request.json();
     const acknowledgedNoDeposits = rawBody?.acknowledgedNoDeposits === true;
-    // Strip the flag before zod validation — it isn't part of the filing schema.
+    // Strip the flag before zod validation â€” it isn't part of the filing schema.
     const { acknowledgedNoDeposits: _ignore, ...bodyForValidation } = rawBody ?? {};
     void _ignore;
 

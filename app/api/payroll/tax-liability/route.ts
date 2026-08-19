@@ -8,7 +8,7 @@ import { computeNys1Alert } from '@/lib/nys1';
 // GET /api/payroll/tax-liability - Get tax liability summary for a date range
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { voidEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 
 // POST /api/bookkeeping/year-end/[fiscalYear]/reopen
@@ -10,7 +11,8 @@ export async function POST(
   { params }: { params: Promise<{ fiscalYear: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    // Reopening a closed year voids the closing entry — OWNER only (1.2)
+    const { error, companyId, session, role } = await requireCompanyAccess('OWNER');
     if (error) return error;
 
     const { fiscalYear: fiscalYearStr } = await params;
@@ -40,28 +42,31 @@ export async function POST(
       return NextResponse.json({ error: `Fiscal year ${fiscalYear} is already open` }, { status: 400 });
     }
 
-    // Void the closing entry if it exists
-    if (closedPeriod.closingEntryId) {
-      await prisma.journalEntry.update({
-        where: { id: closedPeriod.closingEntryId },
+    // Reopen + void-closing-entry in one transaction. Order matters: the
+    // closing entry is dated on periodEnd (inside the year being reopened), so
+    // the period must be flagged open BEFORE voidEntry runs — otherwise its
+    // closed-period guard would (correctly, for any other caller) refuse the
+    // void. Reopening is the one operation that legitimately makes the period
+    // editable again.
+    const updatedPeriod = await prisma.$transaction(async (tx) => {
+      const updated = await tx.closedPeriod.update({
+        where: { id: closedPeriod.id },
         data: {
-          status: 'voided',
-          voidedAt: new Date(),
-          voidedBy: session!.userId,
-          voidReason: `Period reopened: ${reason.trim()}`,
+          isOpen: true,
+          reopenedAt: new Date(),
+          reopenedBy: session!.userId,
+          reopenReason: reason.trim(),
         },
       });
-    }
-
-    // Mark the period as open
-    const updatedPeriod = await prisma.closedPeriod.update({
-      where: { id: closedPeriod.id },
-      data: {
-        isOpen: true,
-        reopenedAt: new Date(),
-        reopenedBy: session!.userId,
-        reopenReason: reason.trim(),
-      },
+      if (closedPeriod.closingEntryId) {
+        await voidEntry(
+          { userId: session!.userId, role: role! },
+          closedPeriod.closingEntryId,
+          `Period reopened: ${reason.trim()}`,
+          tx
+        );
+      }
+      return updated;
     });
 
     await logAudit({

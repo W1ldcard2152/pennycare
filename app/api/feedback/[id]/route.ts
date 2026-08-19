@@ -1,31 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { requireCompanyAccess } from '@/lib/api-utils';
 
-// PATCH /api/feedback/[id] - Archive/unarchive feedback
+// Confirm the feedback row was submitted by a user with access to the active
+// company before an APPROVER+ of that company can touch it — prevents
+// cross-tenant archive/delete.
+async function feedbackInCompany(feedbackId: string, companyId: string): Promise<boolean> {
+  const feedback = await prisma.feedback.findUnique({
+    where: { id: feedbackId },
+    select: { userId: true },
+  });
+  if (!feedback) return false;
+  const access = await prisma.userCompanyAccess.findUnique({
+    where: { userId_companyId: { userId: feedback.userId, companyId } },
+    select: { id: true },
+  });
+  return Boolean(access);
+}
+
+// PATCH /api/feedback/[id] - Archive/unarchive feedback (APPROVER+)
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-
-  if (!session) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
-  // Check if user is an owner/admin of any company
-  const access = await prisma.userCompanyAccess.findFirst({
-    where: {
-      userId: session.userId,
-      role: { in: ['owner', 'admin'] },
-    },
-  });
-
-  if (!access) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-  }
-
+  const { error, companyId } = await requireCompanyAccess('APPROVER');
+  if (error) return error;
   const { id } = await params;
+
+  if (!(await feedbackInCompany(id, companyId!))) {
+    return NextResponse.json({ error: 'Feedback not found' }, { status: 404 });
+  }
 
   try {
     const body = await request.json();
@@ -46,30 +50,18 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/feedback/[id] - Delete feedback
+// DELETE /api/feedback/[id] - Delete feedback (APPROVER+)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-
-  if (!session) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
-  // Check if user is an owner/admin of any company
-  const access = await prisma.userCompanyAccess.findFirst({
-    where: {
-      userId: session.userId,
-      role: { in: ['owner', 'admin'] },
-    },
-  });
-
-  if (!access) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-  }
-
+  const { error, companyId } = await requireCompanyAccess('APPROVER');
+  if (error) return error;
   const { id } = await params;
+
+  if (!(await feedbackInCompany(id, companyId!))) {
+    return NextResponse.json({ error: 'Feedback not found' }, { status: 404 });
+  }
 
   try {
     await prisma.feedback.delete({

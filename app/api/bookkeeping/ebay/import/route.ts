@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
-import { createJournalEntry } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 import { localToBusinessDate, parseBusinessDate, formatDate } from '@/lib/date-utils';
 import Papa from 'papaparse';
@@ -228,8 +228,9 @@ function parseRow(row: Record<string, string>, rowIndex: number): { sale: Parsed
 // POST /api/bookkeeping/ebay/import - Import eBay CSV
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
+    const actor = { userId: session!.userId, role: role! };
 
     // Parse multipart form data
     const formData = await request.formData();
@@ -326,7 +327,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Resolve eBay account mappings — use company config, fall back to defaults by code
+    // Resolve eBay account mappings â€” use company config, fall back to defaults by code
     const DEFAULT_CODES = { pendingPayouts: '1120', sales: '4010', fees: '6590' };
 
     const company = await prisma.company.findUnique({
@@ -359,7 +360,7 @@ export async function POST(request: NextRequest) {
     if (missingRoles.length > 0) {
       return NextResponse.json(
         {
-          error: `Missing eBay account mappings: ${missingRoles.join(', ')}. Go to eBay Sales → Account Settings to configure which accounts to use.`,
+          error: `Missing eBay account mappings: ${missingRoles.join(', ')}. Go to eBay Sales â†’ Account Settings to configure which accounts to use.`,
         },
         { status: 400 }
       );
@@ -383,8 +384,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Process each day separately to avoid SQLite timeout issues
-    // createJournalEntry() uses its own prisma.$transaction() internally,
-    // so we can't nest it inside another transaction
+    // createEntry() uses its own transaction internally (per-day), so we don't
+    // nest it; a partially-imported batch is recovered via batch delete.
     const createdSales: Array<{ id: string; orderNumber: string; itemId: string; orderDate: Date }> = [];
     const journalEntryIds: string[] = [];
     const failedDays: Array<{ dateKey: string; error: string }> = [];
@@ -402,7 +403,7 @@ export async function POST(request: NextRequest) {
 
         // Step 1: Create journal entry (uses its own transaction internally)
         // Use parseBusinessDate to create noon UTC date (timezone-safe)
-        const entry = await createJournalEntry({
+        const entry = await createEntry(actor, {
           companyId: companyId!,
           date: parseBusinessDate(dateKey),
           memo: `eBay sales for ${dateKey}`,

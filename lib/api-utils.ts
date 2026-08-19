@@ -2,14 +2,40 @@ import { NextResponse } from 'next/server';
 import { getSession } from './auth';
 import { prisma } from './db';
 
-export type Role = 'owner' | 'admin' | 'payroll' | 'viewer';
+/**
+ * Per-company roles (stored on UserCompanyAccess.role), v1.2 naming:
+ *   OWNER      — full access, user management, ownership transfer
+ *   APPROVER   — approves/books/voids journal entries (pre-1.2 'admin')
+ *   BOOKKEEPER — prepares entries, imports, payroll ops (pre-1.2 'payroll')
+ *   VIEWER     — read-only
+ */
+export type Role = 'OWNER' | 'APPROVER' | 'BOOKKEEPER' | 'VIEWER';
 
-const ROLE_LEVEL: Record<Role, number> = {
-  viewer: 1,
-  payroll: 2,
-  admin: 3,
-  owner: 4,
+export const ROLE_LEVEL: Record<Role, number> = {
+  VIEWER: 1,
+  BOOKKEEPER: 2,
+  APPROVER: 3,
+  OWNER: 4,
 };
+
+// Pre-1.2 stored values, mapped in place by scripts/repair-pre-1.2-migration.ts.
+// Normalizing here too keeps a not-yet-migrated database working.
+const LEGACY_ROLE_MAP: Record<string, Role> = {
+  owner: 'OWNER',
+  admin: 'APPROVER',
+  payroll: 'BOOKKEEPER',
+  viewer: 'VIEWER',
+};
+
+export function normalizeRole(stored: string): Role | null {
+  if (stored in ROLE_LEVEL) return stored as Role;
+  return LEGACY_ROLE_MAP[stored] ?? null;
+}
+
+/** True if `role` meets or exceeds `required` on the role ladder. */
+export function roleAtLeast(role: Role, required: Role): boolean {
+  return ROLE_LEVEL[role] >= ROLE_LEVEL[required];
+}
 
 /**
  * Check that the caller is authenticated, has a company selected,
@@ -62,7 +88,16 @@ export async function requireCompanyAccess(requiredRole?: Role) {
     };
   }
 
-  const userRole = access.role as Role;
+  const userRole = normalizeRole(access.role);
+
+  if (!userRole) {
+    return {
+      error: NextResponse.json({ error: 'Access denied' }, { status: 403 }),
+      session,
+      companyId: null,
+      role: null as Role | null,
+    };
+  }
 
   // Check role level if a minimum role is required
   if (requiredRole && ROLE_LEVEL[userRole] < ROLE_LEVEL[requiredRole]) {

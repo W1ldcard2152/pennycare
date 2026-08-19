@@ -6,7 +6,7 @@ import { createTimeEntrySchema, validateRequest } from '@/lib/validation';
 // GET /api/time-entries - Get time entries for a date range
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const { searchParams } = new URL(request.url);
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 // POST /api/time-entries - Create or update time entry
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('payroll');
+    const { error, companyId } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();

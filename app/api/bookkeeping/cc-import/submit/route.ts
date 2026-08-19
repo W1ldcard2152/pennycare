@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
-import { createJournalEntry } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
+import { logAudit } from '@/lib/audit';
 import { applyRules } from '@/lib/transaction-rules';
 import { parseBusinessDate, formatDate } from '@/lib/date-utils';
 
@@ -29,8 +30,16 @@ interface SubmitTransaction {
 // POST /api/bookkeeping/cc-import/submit
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
+    // Each interest/payment JE is created in its own transaction (the service
+    // opens one per call). We deliberately DON'T wrap the whole import in one
+    // transaction: it interleaves rule-matching reads with writes, which under
+    // connection_limit=1 would deadlock against a held transaction, and the
+    // CLAUDE.md SQLite-timeout note warns against long bulk transactions. The
+    // recovery path for a partially-booked statement is batch delete, same as
+    // the eBay importer.
+    const actor = { userId: session!.userId, role: role! };
 
     const body = await request.json();
     const {
@@ -115,7 +124,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Create interest journal entry: DEBIT interest expense, CREDIT credit card
-      await createJournalEntry({
+      await createEntry(actor, {
         companyId: companyId!,
         date: endDate,
         memo: `Credit card interest - ${sourceAccount.name}`,
@@ -145,7 +154,7 @@ export async function POST(request: NextRequest) {
       for (const payment of payments) {
         // Use parseBusinessDate for timezone-safe date creation (noon UTC)
         const paymentDate = parseBusinessDate(payment.date);
-        await createJournalEntry({
+        await createEntry(actor, {
           companyId: companyId!,
           date: paymentDate,
           memo: payment.description,
@@ -346,27 +355,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Log audit entry
-    await prisma.auditLog.create({
-      data: {
-        userId: session!.userId,
-        companyId: companyId!,
-        action: 'CC_IMPORT',
-        entityType: 'StatementImport',
-        entityId: batchName,
-        metadata: JSON.stringify({
-          format,
-          sourceAccountId,
-          sourceAccountName: sourceAccount.name,
-          batchName,
-          interestBooked,
-          interestAmount: interestAmount || 0,
-          paymentsBooked,
-          creditsMatched,
-          creditsUnmatched,
-          transactionsMatched,
-          transactionsUnmatched,
-        }),
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'cc_import.submit',
+      entityType: 'StatementImport',
+      entityId: batchName,
+      metadata: {
+        format,
+        sourceAccountId,
+        sourceAccountName: sourceAccount.name,
+        batchName,
+        interestBooked,
+        interestAmount: interestAmount || 0,
+        paymentsBooked,
+        creditsMatched,
+        creditsUnmatched,
+        transactionsMatched,
+        transactionsUnmatched,
       },
     });
 

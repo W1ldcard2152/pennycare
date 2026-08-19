@@ -23,8 +23,16 @@ model User {
   lastName      String
   isActive      Boolean             @default(true)
 
+  // Set when an admin resets the password to a temporary one; enforced at login
+  mustChangePassword Boolean        @default(false)
+
   // Relations
   companyAccess UserCompanyAccess[]
+
+  // Attribution relations (Restrict: users are deactivated, never deleted)
+  createdJournalEntries  JournalEntry[]  @relation("JECreatedBy")
+  approvedJournalEntries JournalEntry[]  @relation("JEApprovedBy")
+  createdPayrollRecords  PayrollRecord[] @relation("PayrollCreatedBy")
 
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -41,6 +49,9 @@ model UserCompanyAccess {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // role values: 'OWNER', 'APPROVER', 'BOOKKEEPER', 'VIEWER'
+  // (pre-1.2 values 'owner'/'admin'/'payroll'/'viewer' migrated in place)
 
   @@unique([userId, companyId])
   @@index([userId])
@@ -127,13 +138,17 @@ model Company {
   ebaySalesAccountId          String?  // Revenue account for eBay sales (default: 4010)
   ebayFeesAccountId           String?  // Expense account for eBay fees (default: 6590)
 
+  // Journal entry approval workflow:
+  //   "single_user" — every entry auto-books, creator stamped as preparer + approver
+  //   "team"        — manual entries follow the ApprovalRule matrix; system entries auto-book
+  approvalMode      String   @default("single_user")
+
   // Relations
   userAccess        UserCompanyAccess[]
   employees         Employee[]
   timeEntries       TimeEntry[]
   payrollRecords    PayrollRecord[]
   accounts          Account[]
-  transactions      Transaction[]
   vendors           Vendor[]
   expenses          Expense[]
   documentTemplates DocumentTemplate[]
@@ -147,6 +162,7 @@ model Company {
   backups           Backup[]
   nys1Filings       Nys1Filing[]
   taxDeposits       TaxDeposit[]
+  approvalRules     ApprovalRule[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -256,6 +272,8 @@ model Employee {
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@unique([companyId, employeeNumber])
 }
 
 model PaymentInfo {
@@ -475,6 +493,10 @@ model PayrollRecord {
   voidReason      String?
   originalRecordId String? // If this is a correction, points to the voided record it replaces
 
+  // Attribution (null = pre-1.2, before attribution existed)
+  createdById     String?
+  createdBy       User?    @relation("PayrollCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -497,6 +519,8 @@ model AuditLog {
   entityId    String   // ID of the affected record
   changes     String?  // JSON: { field: { old: X, new: Y } } for updates
   metadata    String?  // JSON: additional context (e.g., reason for void)
+  beforeJson  String?  // JSON: full entity snapshot before the action (tier-1 financial audit)
+  afterJson   String?  // JSON: full entity snapshot after the action (tier-1 financial audit)
   createdAt   DateTime @default(now())
 
   @@index([companyId, createdAt])
@@ -539,8 +563,6 @@ model Account {
   isActive    Boolean  @default(true)
 
   // Relations
-  debitTransactions  Transaction[] @relation("DebitAccount")
-  creditTransactions Transaction[] @relation("CreditAccount")
   journalEntryLines  JournalEntryLine[]
 
   // Statement import relations
@@ -557,42 +579,6 @@ model Account {
 
   @@unique([companyId, code])
   @@index([companyId])
-}
-
-model Transaction {
-  id            String   @id @default(cuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  date          DateTime
-  description   String
-  referenceNumber String?
-
-  // Double-entry bookkeeping
-  debitAccountId  String
-  debitAccount    Account  @relation("DebitAccount", fields: [debitAccountId], references: [id])
-  creditAccountId String
-  creditAccount   Account  @relation("CreditAccount", fields: [creditAccountId], references: [id])
-
-  amount        Float
-
-  // Optional categorization
-  category      String?
-  tags          String?  // JSON array of tags
-
-  // Reconciliation
-  isReconciled  Boolean  @default(false)
-  reconciledDate DateTime?
-
-  notes         String?
-  attachments   String?  // JSON array of file paths
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([companyId, date])
-  @@index([date])
-  @@index([debitAccountId])
-  @@index([creditAccountId])
 }
 
 model Vendor {
@@ -759,15 +745,34 @@ model JournalEntry {
   memo          String
   referenceNumber String?
 
-  // Source tracking
-  source        String   @default("manual") // "manual", "payroll", "expense", "statement_import", "cc_import", "opening_balance", "ebay_import", "reconciliation"
+  // Source tracking. Values: "manual", "payroll", "payroll_payment", "expense",
+  // "statement_import", "cc_import", "ebay_import", "opening_balance",
+  // "reconciliation", "year_end_closing", "tax_deposit", "reversal",
+  // "reclassification". Everything except "manual" is system-generated and
+  // exempt from the approval matrix.
+  source        String   @default("manual")
   sourceId      String?  // ID of the source record
 
-  // Status
-  status        String   @default("posted") // "posted", "voided"
+  // Status — values via lib/je-status.ts: "draft", "pending_approval",
+  // "posted" (= BOOKED; kept as the stored value for 1.1 compatibility),
+  // "rejected", "voided"
+  status        String   @default("posted")
   voidedAt      DateTime?
   voidedBy      String?
   voidReason    String?
+  rejectedReason String?
+
+  // Attribution + approval (null createdById = pre-1.2, before attribution existed)
+  createdById   String?
+  createdBy     User?    @relation("JECreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedById  String?
+  approvedBy    User?    @relation("JEApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt    DateTime?
+
+  // Reversal link: set on a correcting entry that flips the lines of a booked one
+  reversesEntryId String?
+  reversesEntry   JournalEntry?  @relation("Reversal", fields: [reversesEntryId], references: [id])
+  reversedBy      JournalEntry[] @relation("Reversal")
 
   // Lines (debits and credits)
   lines            JournalEntryLine[]
@@ -788,10 +793,29 @@ model JournalEntry {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@unique([companyId, entryNumber])
   @@index([companyId, date])
-  @@index([companyId, entryNumber])
   @@index([date])
   @@index([source, sourceId])
+}
+
+// Per-company approval matrix for MANUAL journal entries in "team" mode.
+// System-generated entries (imports, payroll, tax deposits, ...) bypass the
+// matrix entirely. Evaluated by lib/approval-rules.ts: all matching rules
+// must be satisfied (strictest required role wins); if NO rule matches, the
+// engine default-denies and escalates to OWNER.
+model ApprovalRule {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  priority     Int      @default(0)
+  conditions   String   // JSON, e.g. {"minAmount": 5000} — amounts in integer cents; may later include {"source": "..."}, account scopes
+  requiredRole String   // 'OWNER', 'APPROVER', 'BOOKKEEPER', 'VIEWER'
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([companyId, active])
 }
 
 model JournalEntryLine {

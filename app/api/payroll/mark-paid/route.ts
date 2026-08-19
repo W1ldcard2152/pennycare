@@ -5,6 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
 import { parseBusinessDate, formatDate } from '@/lib/date-utils';
 import { round2 } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
 import { validateRequest } from '@/lib/validation';
 
 const markPaidSchema = z.object({
@@ -26,7 +27,7 @@ const markPaidSchema = z.object({
 // One combined JE per call, summing net pay across the selected records.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     const totalNetPay = round2(records.reduce((sum, r) => sum + r.netPay, 0));
     if (totalNetPay <= 0) {
-      return NextResponse.json({ error: 'Total net pay is zero — nothing to record' }, { status: 400 });
+      return NextResponse.json({ error: 'Total net pay is zero â€” nothing to record' }, { status: 400 });
     }
 
     const paidDateParsed = parseBusinessDate(paidDate);
@@ -116,42 +117,33 @@ export async function POST(request: NextRequest) {
         : `Payroll paid: ${employeeCount} employees (${payDateStr})`;
 
     const result = await prisma.$transaction(async (tx) => {
-      // Increment journal entry counter
-      const company = await tx.company.update({
-        where: { id: companyId! },
-        data: { nextJournalEntryNumber: { increment: 1 } },
-        select: { nextJournalEntryNumber: true },
-      });
-      const entryNumber = company.nextJournalEntryNumber - 1;
-
-      // Create the JE: DR 2100 net pay payable, CR bank
-      const entry = await tx.journalEntry.create({
-        data: {
+      // Create the JE (DR 2100 net pay payable, CR bank) through the service —
+      // numbering, status, attribution, tier-1 audit — then flip the records
+      // to paid on the same transaction so the two never diverge.
+      const entry = await createEntry(
+        { userId: session!.userId, role: role! },
+        {
           companyId: companyId!,
-          entryNumber,
           date: paidDateParsed,
           memo,
           source: 'payroll_payment',
-          sourceId: null,
-          lines: {
-            create: [
-              {
-                accountId: netPayAccount.id,
-                description: `Net pay payable cleared (${employeeCount} employee${employeeCount !== 1 ? 's' : ''})`,
-                debit: totalNetPay,
-                credit: 0,
-              },
-              {
-                accountId: bankAccount.id,
-                description: paymentMethod === 'check' ? `Check${checkNumber ? ` #${checkNumber}` : ''}` : 'Direct deposit',
-                debit: 0,
-                credit: totalNetPay,
-              },
-            ],
-          },
+          lines: [
+            {
+              accountId: netPayAccount.id,
+              description: `Net pay payable cleared (${employeeCount} employee${employeeCount !== 1 ? 's' : ''})`,
+              debit: totalNetPay,
+              credit: 0,
+            },
+            {
+              accountId: bankAccount.id,
+              description: paymentMethod === 'check' ? `Check${checkNumber ? ` #${checkNumber}` : ''}` : 'Direct deposit',
+              debit: 0,
+              credit: totalNetPay,
+            },
+          ],
         },
-        select: { id: true, entryNumber: true },
-      });
+        tx
+      );
 
       // Mark each PayrollRecord as paid
       await tx.payrollRecord.updateMany({

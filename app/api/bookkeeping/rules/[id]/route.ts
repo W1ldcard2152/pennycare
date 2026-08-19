@@ -42,7 +42,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -137,7 +137,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 

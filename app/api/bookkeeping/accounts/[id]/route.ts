@@ -33,7 +33,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -75,7 +75,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -94,16 +94,6 @@ export async function DELETE(
     if (lineCount > 0) {
       return conflict(
         `Cannot delete "${existing.name}" — it has ${lineCount} journal entry line${lineCount !== 1 ? 's' : ''}. Deactivate it instead.`
-      );
-    }
-
-    // Old-style transactions
-    const txCount = await prisma.transaction.count({
-      where: { OR: [{ debitAccountId: id }, { creditAccountId: id }] },
-    });
-    if (txCount > 0) {
-      return conflict(
-        `Cannot delete "${existing.name}" — it has ${txCount} transaction${txCount !== 1 ? 's' : ''}. Deactivate it instead.`
       );
     }
 

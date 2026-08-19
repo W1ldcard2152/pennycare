@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { updateJournalEntrySchema, validateRequest } from '@/lib/validation';
-import { validateJournalEntry, checkClosedPeriod } from '@/lib/bookkeeping';
-import { logAudit } from '@/lib/audit';
+import { validateJournalEntry } from '@/lib/bookkeeping';
+import { updateDraft, deleteDraft, JournalEntryStateError } from '@/lib/journal-entry-service';
+import { JE_STATUS } from '@/lib/je-status';
 import { parseBusinessDate } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/journal-entries/[id]
@@ -38,13 +39,15 @@ export async function GET(
   }
 }
 
-// PUT /api/bookkeeping/journal-entries/[id] - Edit a journal entry
+// PUT /api/bookkeeping/journal-entries/[id] - Edit a DRAFT journal entry only.
+// Booked ('posted') entries are immutable in 1.2 — corrections are reversing
+// entries (POST .../reverse). A PUT against a booked entry returns 409.
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
     const { id } = await params;
 
@@ -56,7 +59,6 @@ export async function PUT(
 
     const { date, memo, referenceNumber, notes, lines } = validation.data;
 
-    // Validate debits = credits
     const lineInputs = lines.map((l) => ({
       accountId: l.accountId,
       description: l.description || undefined,
@@ -68,177 +70,75 @@ export async function PUT(
       return NextResponse.json({ error: entryValidation.error }, { status: 400 });
     }
 
-    // Fetch the existing entry
+    // Company-scope + status gate before handing to the service. A non-draft
+    // status gets a 409 that points the UI at the reverse action.
     const existing = await prisma.journalEntry.findFirst({
       where: { id, companyId: companyId! },
-      include: {
-        lines: {
-          include: {
-            account: { select: { id: true, code: true, name: true } },
-          },
-        },
-      },
+      select: { status: true },
     });
+    if (!existing) {
+      return NextResponse.json({ error: 'Journal entry not found' }, { status: 404 });
+    }
+    if (existing.status !== JE_STATUS.DRAFT) {
+      return NextResponse.json(
+        {
+          error:
+            'Only draft entries can be edited. This entry is booked — create a reversing entry to correct it.',
+          status: existing.status,
+        },
+        { status: 409 }
+      );
+    }
 
+    const updated = await updateDraft(
+      { userId: session!.userId, role: role! },
+      id,
+      {
+        date: parseBusinessDate(date),
+        memo,
+        referenceNumber: referenceNumber || null,
+        notes: notes || null,
+        lines: lineInputs,
+      }
+    );
+
+    return NextResponse.json(updated);
+  } catch (err) {
+    if (err instanceof JournalEntryStateError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    const message = err instanceof Error ? err.message : 'Failed to update journal entry';
+    console.error('Error updating journal entry:', err);
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+// DELETE /api/bookkeeping/journal-entries/[id] - Hard-delete a DRAFT entry.
+// Booked entries are never deleted (void or reverse instead).
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
+    if (error) return error;
+    const { id } = await params;
+
+    const existing = await prisma.journalEntry.findFirst({
+      where: { id, companyId: companyId! },
+      select: { status: true },
+    });
     if (!existing) {
       return NextResponse.json({ error: 'Journal entry not found' }, { status: 404 });
     }
 
-    if (existing.status === 'voided') {
-      return NextResponse.json({ error: 'Cannot edit a voided journal entry' }, { status: 409 });
-    }
-
-    // Check closed period for both old and new dates
-    const { isClosed, closedPeriod } = await checkClosedPeriod(companyId!, existing.date);
-    if (isClosed) {
-      return NextResponse.json({
-        error: `Cannot edit: Fiscal year ${closedPeriod!.fiscalYear} is closed. Reopen the period to make changes.`,
-      }, { status: 409 });
-    }
-
-    const newDate = parseBusinessDate(date);
-    const { isClosed: newDateClosed, closedPeriod: newClosedPeriod } = await checkClosedPeriod(companyId!, newDate);
-    if (newDateClosed) {
-      return NextResponse.json({
-        error: `Cannot move entry to closed fiscal year ${newClosedPeriod!.fiscalYear}. Reopen the period to make changes.`,
-      }, { status: 409 });
-    }
-
-    // Reconciled line protection: block changes to reconciled lines, allow changes to others
-    const reconciledLines = existing.lines.filter(l => l.isReconciled);
-
-    if (reconciledLines.length > 0) {
-      // Block date changes — date affects which reconciliation period the line falls in
-      const newDateParsed = parseBusinessDate(date);
-      const existingDateStr = existing.date.toISOString().split('T')[0];
-      const newDateStr = newDateParsed.toISOString().split('T')[0];
-      if (existingDateStr !== newDateStr) {
-        return NextResponse.json({
-          error: 'Cannot change the date: this entry has reconciled lines. Un-reconcile first.',
-          accounts: [...new Set(reconciledLines.map(l => l.account.name))].join(', '),
-        }, { status: 409 });
-      }
-
-      // Each reconciled line must be present and unchanged (same account + same amounts)
-      for (const rl of reconciledLines) {
-        const match = lineInputs.find(
-          l =>
-            l.accountId === rl.accountId &&
-            Math.round(l.debit * 100) === Math.round(rl.debit * 100) &&
-            Math.round(l.credit * 100) === Math.round(rl.credit * 100)
-        );
-        if (!match) {
-          return NextResponse.json({
-            error: `Cannot modify reconciled line for "${rl.account.name}". Un-reconcile first.`,
-            accounts: rl.account.name,
-          }, { status: 409 });
-        }
-      }
-    }
-
-    // Build fingerprints so we don't delete/recreate reconciled lines
-    const reconciledFingerprints = new Set(
-      reconciledLines.map(
-        l => `${l.accountId}:${Math.round(l.debit * 100)}:${Math.round(l.credit * 100)}`
-      )
-    );
-
-    // Build audit metadata capturing what changed
-    const changes: Record<string, { from: unknown; to: unknown }> = {};
-    if (existing.memo !== memo) changes.memo = { from: existing.memo, to: memo };
-    if (existing.date.toISOString().split('T')[0] !== date) changes.date = { from: existing.date.toISOString().split('T')[0], to: date };
-    if ((existing.referenceNumber || null) !== (referenceNumber || null)) changes.referenceNumber = { from: existing.referenceNumber, to: referenceNumber || null };
-    if ((existing.notes || null) !== (notes || null)) changes.notes = { from: existing.notes, to: notes || null };
-
-    // Track line changes for audit
-    const oldLines = existing.lines.map(l => ({
-      accountId: l.accountId,
-      accountName: l.account.name,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    }));
-
-    // Update in a transaction: delete non-reconciled lines, create new non-reconciled lines
-    // Reconciled lines are left in place (isReconciled=true preserved)
-    const linesToCreate = lineInputs.filter(
-      l =>
-        !reconciledFingerprints.has(
-          `${l.accountId}:${Math.round(l.debit * 100)}:${Math.round(l.credit * 100)}`
-        )
-    );
-
-    const updated = await prisma.$transaction(async (tx) => {
-      // First delete any ReconciledItem records referencing non-reconciled lines
-      // (SQLite FK cascade may not be enforced without explicit migration)
-      const nonReconciledLines = await tx.journalEntryLine.findMany({
-        where: { journalEntryId: id, isReconciled: false },
-        select: { id: true },
-      });
-      if (nonReconciledLines.length > 0) {
-        await tx.reconciledItem.deleteMany({
-          where: { journalEntryLineId: { in: nonReconciledLines.map(l => l.id) } },
-        });
-      }
-
-      // Only delete non-reconciled lines
-      await tx.journalEntryLine.deleteMany({
-        where: { journalEntryId: id, isReconciled: false },
-      });
-
-      // Update entry and create new non-reconciled lines
-      return tx.journalEntry.update({
-        where: { id },
-        data: {
-          date: newDate,
-          memo,
-          referenceNumber: referenceNumber || null,
-          notes: notes || null,
-          lines: {
-            create: linesToCreate.map((l) => ({
-              accountId: l.accountId,
-              description: l.description || null,
-              debit: l.debit,
-              credit: l.credit,
-            })),
-          },
-        },
-        include: {
-          lines: {
-            include: {
-              account: { select: { id: true, code: true, name: true, type: true } },
-            },
-          },
-        },
-      });
-    });
-
-    const newLines = updated.lines.map(l => ({
-      accountId: l.accountId,
-      accountName: l.account.name,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    }));
-
-    await logAudit({
-      companyId: companyId!,
-      userId: session!.userId,
-      action: 'journal_entry.edit',
-      entityType: 'JournalEntry',
-      entityId: id,
-      metadata: {
-        entryNumber: existing.entryNumber,
-        changes,
-        previousLines: oldLines,
-        updatedLines: newLines,
-      },
-    });
-
-    return NextResponse.json(updated);
+    const result = await deleteDraft({ userId: session!.userId, role: role! }, id);
+    return NextResponse.json({ success: true, ...result });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to update journal entry';
-    console.error('Error updating journal entry:', err);
-    return NextResponse.json({ error: message }, { status: 400 });
+    if (err instanceof JournalEntryStateError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    console.error('Error deleting journal entry:', err);
+    return NextResponse.json({ error: 'Failed to delete journal entry' }, { status: 500 });
   }
 }

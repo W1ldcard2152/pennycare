@@ -112,6 +112,9 @@ export async function POST(request: NextRequest) {
         firstName: user.firstName,
         lastName: user.lastName,
       },
+      // When true, the client must route to the change-password screen before
+      // continuing — set after an admin password reset (1.2).
+      mustChangePassword: user.mustChangePassword,
       companies: user.companyAccess.map((access) => ({
         id: access.company.id,
         companyName: access.company.companyName,

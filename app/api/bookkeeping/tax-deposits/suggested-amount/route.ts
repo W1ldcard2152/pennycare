@@ -9,7 +9,7 @@ import { endOfDay, startOfDay } from '@/lib/date-utils';
 // Used by the deposit form's "Auto-fill" button.
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const params = request.nextUrl.searchParams;

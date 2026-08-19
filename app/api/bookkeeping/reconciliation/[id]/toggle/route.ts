@@ -11,7 +11,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 

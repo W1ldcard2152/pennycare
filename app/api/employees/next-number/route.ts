@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 
-// GET /api/employees/next-number - Get the next employee number
+// GET /api/employees/next-number - Display-only preview of the next employee
+// number. The actual number is assigned server-side inside the create
+// transaction (POST /api/employees ignores any client-supplied number), so
+// this is "approximately N" for the form, not a reservation.
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const company = await prisma.company.findUnique({

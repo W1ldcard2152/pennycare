@@ -7,11 +7,21 @@ import { logAudit } from '@/lib/audit';
 import { createPayrollJournalEntries } from '@/lib/bookkeeping';
 import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
+// Thrown by the in-transaction duplicate-period re-check so the catch can map
+// it to a 409 (the pre-transaction check returns 409 too).
+class DuplicatePayrollError extends Error {
+  constructor() {
+    super('Payroll has already been processed for this period. Void the existing records first if you need to reprocess.');
+    this.name = 'DuplicatePayrollError';
+  }
+}
+
 // POST /api/payroll/process - Process and save payroll
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
+    const actor = { userId: session!.userId, role: role! };
 
     const body = await request.json();
 
@@ -95,7 +105,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const processedRecords = [];
+    // Phase 1 — pure calculation, no DB writes. Builds the data we'll persist
+    // so the actual writes can all happen inside one transaction below.
+    type PreparedRecord = {
+      employee: (typeof employees)[number];
+      recordData: Parameters<typeof prisma.payrollRecord.create>[0]['data'];
+      deductionUpdates: Array<{ id: string; ytdAmount: number }>;
+      summary: { grossPay: number; netPay: number };
+    };
+    const prepared: PreparedRecord[] = [];
 
     for (const employee of employees) {
       const isSalaried = employee.payType === 'salary';
@@ -125,7 +143,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Calculate YTD totals — see preview route for cutoff rationale.
+      // Calculate YTD totals â€” see preview route for cutoff rationale.
       const yearStart = new Date(Date.UTC(new Date(startDate).getUTCFullYear(), 0, 1));
       const seedAsOf = employee.ytdSeedAsOfDate;
       const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
@@ -230,11 +248,11 @@ export async function POST(request: NextRequest) {
         .filter((d) => !['401k_roth', 'garnishment', 'child_support', 'loan_repayment'].includes(d.type))
         .reduce((sum, d) => sum + d.amount, 0);
 
-      // Create payroll record with detailed breakdown
-      const payrollRecord = await prisma.payrollRecord.create({
-        data: {
+      // Build payroll record data (persisted in the transaction below)
+      const recordData = {
           companyId: companyId!,
           employeeId: employee.id,
+          createdById: actor.userId,
           payPeriodStart: periodStart,
           payPeriodEnd: periodEnd,
           payDate: payDateParsed,
@@ -304,66 +322,119 @@ export async function POST(request: NextRequest) {
           paymentMethod: employee.paymentInfo?.paymentMethod || 'check',
           isPaid: false,
           status: 'active',
-        },
-      });
+      };
 
-      // Update YTD amounts on employee deductions
+      const deductionUpdates: Array<{ id: string; ytdAmount: number }> = [];
       for (const deduction of employee.deductions) {
         const deductionResult = [...result.preTaxDeductions, ...result.postTaxDeductions]
           .find((d) => d.type === deduction.deductionType);
         if (deductionResult) {
-          await prisma.employeeDeduction.update({
-            where: { id: deduction.id },
-            data: {
-              ytdAmount: deduction.ytdAmount + deductionResult.amount,
-            },
+          deductionUpdates.push({
+            id: deduction.id,
+            ytdAmount: deduction.ytdAmount + deductionResult.amount,
           });
         }
       }
 
-      // Per-employee audit log for forensic detail. Uses a distinct action
-      // so the dashboard's batch-level "payroll.process" feed isn't polluted
-      // with one entry per employee.
+      prepared.push({
+        employee,
+        recordData,
+        deductionUpdates,
+        summary: { grossPay: result.grossPay, netPay: result.netPay },
+      });
+    }
+
+    // Phase 2 — persist everything atomically. Records, deduction-YTD updates,
+    // and the payroll journal entry all commit together (1.2 fix): a crash or
+    // a JE failure mid-run rolls the whole payroll back rather than leaving
+    // records with no books entry, or a partial run. The duplicate-period
+    // guard is re-checked INSIDE the transaction to close the read-then-write
+    // race against a concurrent processor.
+    const { processedRecords, payrollRecordIds } = await prisma.$transaction(async (tx) => {
+      const dup = await tx.payrollRecord.findFirst({
+        where: {
+          companyId: companyId!,
+          payPeriodStart: periodStart,
+          payPeriodEnd: periodEnd,
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      if (dup) {
+        throw new DuplicatePayrollError();
+      }
+
+      const processedRecords: Array<{
+        employeeId: string;
+        employeeName: string;
+        payrollRecordId: string;
+        grossPay: number;
+        netPay: number;
+        details: typeof prepared[number]['recordData'];
+      }> = [];
+
+      for (const p of prepared) {
+        const payrollRecord = await tx.payrollRecord.create({ data: p.recordData });
+        for (const upd of p.deductionUpdates) {
+          await tx.employeeDeduction.update({
+            where: { id: upd.id },
+            data: { ytdAmount: upd.ytdAmount },
+          });
+        }
+        processedRecords.push({
+          employeeId: p.employee.id,
+          employeeName: `${p.employee.firstName} ${p.employee.lastName}`,
+          payrollRecordId: payrollRecord.id,
+          grossPay: p.summary.grossPay,
+          netPay: p.summary.netPay,
+          details: p.recordData,
+        });
+      }
+
+      const payrollRecordIds = processedRecords.map((r) => r.payrollRecordId);
+
+      // Create the payroll journal entry on the same transaction. A null
+      // return (or a throw) here aborts the whole run — payroll must never
+      // be saved without its books entry.
+      if (payrollRecordIds.length > 0) {
+        const periodLabel = `${startDate} to ${endDate}`;
+        const journalResult = await createPayrollJournalEntries(
+          companyId!,
+          payrollRecordIds,
+          payDateParsed,
+          periodLabel,
+          actor,
+          tx,
+        );
+        if (!journalResult) {
+          throw new Error(
+            'Could not create the payroll journal entry (chart of accounts may be missing required payroll accounts). Payroll was not saved.'
+          );
+        }
+      }
+
+      return { processedRecords, payrollRecordIds };
+    }, { timeout: 30000 });
+
+    // Audit logs are tier-2 (fire-and-forget) and written AFTER the commit so a
+    // rolled-back run leaves no orphan audit rows.
+    for (const r of processedRecords) {
       await logAudit({
         companyId: companyId!,
         userId: session!.userId,
         action: 'payroll.employee_processed',
         entityType: 'PayrollRecord',
-        entityId: payrollRecord.id,
+        entityId: r.payrollRecordId,
         metadata: {
-          employeeId: employee.id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
+          employeeId: r.employeeId,
+          employeeName: r.employeeName,
           payPeriod: `${startDate} to ${endDate}`,
-          grossPay: result.grossPay,
-          netPay: result.netPay,
+          grossPay: r.grossPay,
+          netPay: r.netPay,
         },
       });
-
-      processedRecords.push({
-        employeeId: employee.id,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
-        payrollRecordId: payrollRecord.id,
-        grossPay: result.grossPay,
-        netPay: result.netPay,
-        details: result,
-      });
     }
 
-    // Create bookkeeping journal entry for this payroll run
-    const payrollRecordIds = processedRecords.map((r) => r.payrollRecordId);
-    if (payrollRecordIds.length > 0) {
-      const periodLabel = `${startDate} to ${endDate}`;
-      const journalResult = await createPayrollJournalEntries(
-        companyId!,
-        payrollRecordIds,
-        payDateParsed,
-        periodLabel,
-      );
-      // journalResult may be null if accounts aren't seeded yet — that's OK
-    }
-
-    // Batch-level audit log for the dashboard activity feed (one entry per
-    // payroll run, with the employee count rolled up).
     if (processedRecords.length > 0) {
       const totalGross = processedRecords.reduce((s, r) => s + r.grossPay, 0);
       const totalNet = processedRecords.reduce((s, r) => s + r.netPay, 0);
@@ -389,9 +460,13 @@ export async function POST(request: NextRequest) {
       records: processedRecords,
     });
   } catch (error) {
+    if (error instanceof DuplicatePayrollError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Error processing payroll:', error);
+    const message = error instanceof Error ? error.message : 'Failed to process payroll';
     return NextResponse.json(
-      { error: 'Failed to process payroll' },
+      { error: message },
       { status: 500 }
     );
   }

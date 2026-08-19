@@ -55,7 +55,7 @@ async function hasUnrecordedLiability(
 // GET /api/tax-filings - List all filings for the company
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const filings = await prisma.taxFiling.findMany({
@@ -77,11 +77,11 @@ export async function GET() {
 // the client hasn't sent `acknowledgedNoDeposits: true`, the request is
 // rejected with a 400 carrying a structured error so callers can surface a
 // "books and filing will disagree" warning to the user. The guard applies
-// to every caller of this endpoint — Settings UI, Tax Forms page, scripts,
-// curl — so the protection can't be bypassed by changing entry point.
+// to every caller of this endpoint â€” Settings UI, Tax Forms page, scripts,
+// curl â€” so the protection can't be bypassed by changing entry point.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();

@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
 // POST /api/bookkeeping/accounts - Create new account
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();
@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
 
     const { code, name, type, accountGroup, description, taxLine } = validation.data;
 
-    // Block manual creation in reserved ranges (e.g. payroll 2100–2199) —
+    // Block manual creation in reserved ranges (e.g. payroll 2100â€“2199) â€”
     // those accounts must come from the seed flow so codes line up with
-    // hardcoded references in the payroll → journal-entry bridge.
+    // hardcoded references in the payroll â†’ journal-entry bridge.
     const reserved = isReservedCode(code);
     if (reserved.reserved) {
       return NextResponse.json({ error: reserved.message }, { status: 400 });

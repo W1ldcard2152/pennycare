@@ -9,13 +9,13 @@ import { logAudit } from '@/lib/audit';
 // Seeds the chart of accounts. Accepts an optional body:
 //   { tier?: 'basic' | 'business' | 'business_payroll', additionalCodes?: string[] }
 // Tier defaults to 'basic' if omitted. Codes already present for this
-// company are skipped — the operation is idempotent.
+// company are skipped â€” the operation is idempotent.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
-    // Accept empty body (backward-compat) — default tier kicks in
+    // Accept empty body (backward-compat) â€” default tier kicks in
     let body: unknown = {};
     try {
       const text = await request.text();

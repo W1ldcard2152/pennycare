@@ -441,16 +441,23 @@ function TimeEntryCell({
 }
 
 // Helper functions
+//
+// Anchor week boundaries to noon UTC of the user's LOCAL calendar day and do all
+// weekday math in UTC, so toISOString()/UTC rendering never shift the week by a
+// day depending on the time of day the app is launched. See app/payroll/run/page.tsx.
+function toBusinessNoon(date: Date): Date {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0));
+}
+
 function getStartOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day; // Sunday is 0
-  return new Date(d.setDate(diff));
+  const d = toBusinessNoon(date);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // Sunday is 0
+  return d;
 }
 
 function getEndOfWeek(date: Date): Date {
-  const d = new Date(getStartOfWeek(date));
-  d.setDate(d.getDate() + 6);
+  const d = getStartOfWeek(date);
+  d.setUTCDate(d.getUTCDate() + 6);
   return d;
 }
 
@@ -458,7 +465,7 @@ function getWeekDays(startDate: Date): Date[] {
   const days = [];
   for (let i = 0; i < 7; i++) {
     const day = new Date(startDate);
-    day.setDate(startDate.getDate() + i);
+    day.setUTCDate(startDate.getUTCDate() + i);
     days.push(day);
   }
   return days;
@@ -466,7 +473,7 @@ function getWeekDays(startDate: Date): Date[] {
 
 function addWeeks(date: Date, weeks: number): Date {
   const d = new Date(date);
-  d.setDate(d.getDate() + weeks * 7);
+  d.setUTCDate(d.getUTCDate() + weeks * 7);
   return d;
 }
 

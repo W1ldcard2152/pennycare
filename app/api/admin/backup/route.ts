@@ -7,10 +7,10 @@ import { performBackup } from '@/lib/backupRunner';
 import fs from 'fs';
 import path from 'path';
 
-// POST /api/admin/backup — user-initiated backup (clicks "Create Backup")
+// POST /api/admin/backup â€” user-initiated backup (clicks "Create Backup")
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json().catch(() => ({}));
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 // GET /api/admin/backup - List all backups
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const backupsDir = getBackupsDir();
@@ -86,7 +86,7 @@ export async function GET() {
         fileSize: backup.fileSize,
         description: backup.description,
         createdBy: backup.createdBy,
-        // 'system' is a synthetic createdBy for auto-backups — surface
+        // 'system' is a synthetic createdBy for auto-backups â€” surface
         // it explicitly instead of "Unknown" so the user understands
         // why some backups have no author.
         createdByName: backup.createdBy === 'system'

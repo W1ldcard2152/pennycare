@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createJournalEntrySchema, validateRequest } from '@/lib/validation';
-import { createJournalEntry } from '@/lib/bookkeeping';
-import { logAudit } from '@/lib/audit';
+import { createEntry } from '@/lib/journal-entry-service';
 import { startOfDay, endOfDay, parseBusinessDate } from '@/lib/date-utils';
 
 // GET /api/bookkeeping/journal-entries - List journal entries
@@ -81,7 +80,10 @@ export async function GET(request: NextRequest) {
 // POST /api/bookkeeping/journal-entries - Create manual journal entry
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    // BOOKKEEPER+ may create manual entries; whether the entry books
+    // immediately or lands in pending_approval is decided by the company's
+    // approvalMode and the matrix inside the JE service.
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();
@@ -92,34 +94,25 @@ export async function POST(request: NextRequest) {
 
     const { date, memo, referenceNumber, notes, lines } = validation.data;
 
-    // Use parseBusinessDate for timezone-safe date storage (noon UTC)
-    const entry = await createJournalEntry({
-      companyId: companyId!,
-      date: parseBusinessDate(date),
-      memo,
-      referenceNumber: referenceNumber || undefined,
-      source: 'manual',
-      lines: lines.map((l) => ({
-        accountId: l.accountId,
-        description: l.description || undefined,
-        debit: Number(l.debit) || 0,
-        credit: Number(l.credit) || 0,
-      })),
-      notes: notes || undefined,
-    });
-
-    await logAudit({
-      companyId: companyId!,
-      userId: session!.userId,
-      action: 'journal_entry.create',
-      entityType: 'JournalEntry',
-      entityId: entry.id,
-      metadata: {
-        entryNumber: entry.entryNumber,
+    // The JE service owns creation: numbering, status (per mode/matrix),
+    // attribution, and the tier-1 audit row, all in one transaction.
+    const entry = await createEntry(
+      { userId: session!.userId, role: role! },
+      {
+        companyId: companyId!,
+        date: parseBusinessDate(date),
         memo,
-        lineCount: lines.length,
-      },
-    });
+        referenceNumber: referenceNumber || undefined,
+        source: 'manual',
+        lines: lines.map((l) => ({
+          accountId: l.accountId,
+          description: l.description || undefined,
+          debit: Number(l.debit) || 0,
+          credit: Number(l.credit) || 0,
+        })),
+        notes: notes || undefined,
+      }
+    );
 
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {

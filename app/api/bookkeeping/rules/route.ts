@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
 // POST /api/bookkeeping/rules - Create a new transaction rule
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();

@@ -1,6 +1,6 @@
 import { prisma } from './db';
-import { logAudit } from './audit';
 import { startOfDay, endOfDay } from './date-utils';
+import { createEntry, validateJournalEntry, type Actor, type JournalEntryLineInput } from './journal-entry-service';
 import { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS } from './default-chart-of-accounts';
 import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
 import { ACCOUNT_CATALOG, getAccountsForTier, getCatalogAccount, resolveDependencies } from './account-catalog';
@@ -129,13 +129,14 @@ export { ACCOUNT_CATALOG };
 // ============================================
 // JOURNAL ENTRY HELPERS
 // ============================================
+//
+// The journal entry state machine, validation, and ALL JournalEntry writes
+// live in lib/journal-entry-service.ts. These re-exports keep the many
+// existing importers of this module working.
 
-export interface JournalEntryLineInput {
-  accountId: string;
-  description?: string;
-  debit: number;
-  credit: number;
-}
+export { checkClosedPeriod } from './journal-entry-service';
+export { validateJournalEntry };
+export type { JournalEntryLineInput, Actor } from './journal-entry-service';
 
 export interface CreateJournalEntryInput {
   companyId: string;
@@ -147,118 +148,21 @@ export interface CreateJournalEntryInput {
   lines: JournalEntryLineInput[];
   notes?: string;
   skipClosedPeriodCheck?: boolean; // For internal operations like year-end closing
+  /** Who is creating the entry — stamped as createdById (and approver when auto-booked). */
+  actor: Actor;
+  /** Run inside an existing transaction (required when pairing with other writes). */
+  tx?: Prisma.TransactionClient;
 }
 
 /**
- * Validate that debits equal credits in a journal entry.
- */
-export function validateJournalEntry(lines: JournalEntryLineInput[]): {
-  valid: boolean;
-  totalDebits: number;
-  totalCredits: number;
-  error?: string;
-} {
-  if (lines.length < 2) {
-    return { valid: false, totalDebits: 0, totalCredits: 0, error: 'A journal entry must have at least 2 lines' };
-  }
-
-  // Sum in integer cents so floating-point can't introduce drift. This also
-  // means we enforce penny-exact balance: any difference, even $0.01, fails.
-  // The previous `> 0.01` tolerance let single-penny payroll-aggregation drift
-  // slip through (see JE #340/#341 incident), bypassing the self-heal branch
-  // in createPayrollJournalEntries.
-  const debitCents = lines.reduce((sum, l) => sum + Math.round((l.debit || 0) * 100), 0);
-  const creditCents = lines.reduce((sum, l) => sum + Math.round((l.credit || 0) * 100), 0);
-  const totalDebits = debitCents / 100;
-  const totalCredits = creditCents / 100;
-
-  if (debitCents !== creditCents) {
-    return {
-      valid: false,
-      totalDebits,
-      totalCredits,
-      error: `Debits ($${totalDebits.toFixed(2)}) must equal credits ($${totalCredits.toFixed(2)})`,
-    };
-  }
-
-  // Each line must have either a debit or credit (not both, not neither).
-  // Negative amounts are rejected — they used to slip past `> 0` checks and
-  // produce lines that render as blank cells in the UI (see year-end closing
-  // bug for accounts with abnormal balance signs).
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const debit = line.debit || 0;
-    const credit = line.credit || 0;
-    if (debit < 0 || credit < 0) {
-      return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Debit and credit amounts must be non-negative` };
-    }
-    if (debit > 0 && credit > 0) {
-      return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Cannot have both debit and credit on the same line` };
-    }
-    if (debit === 0 && credit === 0) {
-      return { valid: false, totalDebits, totalCredits, error: `Line ${i + 1}: Must have either a debit or credit amount` };
-    }
-  }
-
-  return { valid: true, totalDebits, totalCredits };
-}
-
-/**
- * Create a journal entry with its lines in a transaction.
+ * Create a journal entry.
+ *
+ * @deprecated Thin delegate kept for call-site compatibility — new code
+ * should call `createEntry` from lib/journal-entry-service.ts directly.
  */
 export async function createJournalEntry(input: CreateJournalEntryInput) {
-  const validation = validateJournalEntry(input.lines);
-  if (!validation.valid) {
-    throw new Error(validation.error);
-  }
-
-  // Check for closed period unless explicitly skipped
-  if (!input.skipClosedPeriodCheck) {
-    const { isClosed, closedPeriod } = await checkClosedPeriod(input.companyId, input.date);
-    if (isClosed) {
-      throw new Error(`Cannot create journal entry: Fiscal year ${closedPeriod!.fiscalYear} is closed. Reopen the period to make changes.`);
-    }
-  }
-
-  return prisma.$transaction(async (tx) => {
-    // Get and increment the entry number
-    const company = await tx.company.update({
-      where: { id: input.companyId },
-      data: { nextJournalEntryNumber: { increment: 1 } },
-    });
-
-    const entryNumber = company.nextJournalEntryNumber - 1; // We incremented, so use the previous value
-
-    const entry = await tx.journalEntry.create({
-      data: {
-        companyId: input.companyId,
-        entryNumber,
-        date: input.date,
-        memo: input.memo,
-        referenceNumber: input.referenceNumber || null,
-        source: input.source || 'manual',
-        sourceId: input.sourceId || null,
-        notes: input.notes || null,
-        lines: {
-          create: input.lines.map((line) => ({
-            accountId: line.accountId,
-            description: line.description || null,
-            debit: line.debit || 0,
-            credit: line.credit || 0,
-          })),
-        },
-      },
-      include: {
-        lines: {
-          include: {
-            account: true,
-          },
-        },
-      },
-    });
-
-    return entry;
-  });
+  const { actor, tx, ...rest } = input;
+  return createEntry(actor, rest, tx);
 }
 
 // ============================================
@@ -280,6 +184,7 @@ export async function createOpeningBalanceEntry(
   accountId: string,
   amount: number,
   asOfDate: Date,
+  actor: Actor,
 ) {
   if (amount === 0) {
     throw new Error('Opening balance amount cannot be zero');
@@ -354,6 +259,7 @@ export async function createOpeningBalanceEntry(
     source: 'opening_balance',
     sourceId: targetAccount.id,
     lines,
+    actor,
   });
 }
 
@@ -374,8 +280,9 @@ export async function createOpeningBalanceEntry(
 async function ensurePayrollAccounts(
   companyId: string,
   codes: string[],
+  db: Prisma.TransactionClient = prisma,
 ): Promise<Map<string, string>> {
-  const existing = await prisma.account.findMany({
+  const existing = await db.account.findMany({
     where: { companyId, code: { in: codes } },
     select: { id: true, code: true },
   });
@@ -387,7 +294,7 @@ async function ensurePayrollAccounts(
     if (!def) {
       throw new Error(`No default chart definition for required payroll account ${code}`);
     }
-    const created = await prisma.account.create({
+    const created = await db.account.create({
       data: {
         companyId,
         code: def.code,
@@ -430,9 +337,15 @@ export async function createPayrollJournalEntries(
   payrollRecordIds: string[],
   payDate: Date,
   payPeriodLabel: string,
+  actor: Actor,
+  // Pass the active transaction so the JE creation, account auto-materialize,
+  // and record read all run on the same transaction as record creation. The
+  // newly-created (uncommitted) records are visible within that transaction.
+  tx?: Prisma.TransactionClient,
 ): Promise<{ entryId: string; entryNumber: number } | null> {
+  const db = tx ?? prisma;
   // Get the payroll records
-  const records = await prisma.payrollRecord.findMany({
+  const records = await db.payrollRecord.findMany({
     where: {
       id: { in: payrollRecordIds },
       companyId,
@@ -479,7 +392,7 @@ export async function createPayrollJournalEntries(
   // the default chart so payroll JE creation works even for companies that
   // never seeded defaults or are mid-migration.
   const accountCodes = ['6000', '6010', '2100', '2110', '2120', '2130', '2140', '2150', '2160', '2170', '2180'];
-  const acctMap = await ensurePayrollAccounts(companyId, accountCodes);
+  const acctMap = await ensurePayrollAccounts(companyId, accountCodes, db);
 
   // Build journal entry lines (only include non-zero amounts)
   const lines: JournalEntryLineInput[] = [];
@@ -551,191 +464,35 @@ export async function createPayrollJournalEntries(
       // diff = debits - credits. To balance, reduce a debit by diff.
       wageLine.debit = round2(wageLine.debit - diff);
     } else {
-      console.error(`Payroll journal entry doesn't balance: ${validation.error}`);
-      return null;
+      // Fail LOUDLY (1.2): payroll must never complete silently without a
+      // books entry. The caller rolls back / surfaces this as a blocking error.
+      throw new Error(`Payroll journal entry doesn't balance: ${validation.error}`);
     }
   }
 
   const employeeNames = records.map((r) => `${r.employee.firstName} ${r.employee.lastName}`).join(', ');
 
-  try {
-    const entry = await createJournalEntry({
-      companyId,
-      date: payDate,
-      memo: `Payroll: ${payPeriodLabel} (${records.length} employee${records.length > 1 ? 's' : ''})`,
-      referenceNumber: `PR-${payPeriodLabel}`,
-      source: 'payroll',
-      sourceId: payrollRecordIds.join(','),
-      lines,
-      notes: `Employees: ${employeeNames}`,
-    });
-
-    return { entryId: entry.id, entryNumber: entry.entryNumber };
-  } catch (error) {
-    console.error('Failed to create payroll journal entry:', error);
-    return null;
-  }
-}
-
-// ============================================
-// PAYROLL JE INTEGRITY REPAIR
-// ============================================
-
-export interface PayrollJournalRepairResult {
-  entryId: string;
-  entryNumber: number;
-  date: string;
-  diffCents: number;
-  status: 'patched' | 'skipped_closed_period' | 'skipped_too_large' | 'skipped_no_wage_line';
-  patchedLineId?: string;
-  patchedAccountCode?: string;
-  oldDebit?: number;
-  newDebit?: number;
-}
-
-export interface PayrollJournalRepairSummary {
-  scanned: number;
-  patched: number;
-  skipped: number;
-  results: PayrollJournalRepairResult[];
-}
-
-/**
- * Scan posted payroll journal entries for sub-penny drift caused by
- * sum-of-rounded vs round-of-sum aggregation. Patch each drifted entry by
- * absorbing the diff into the wage expense debit (6010 preferred, 6000
- * fallback), mirroring what the in-flight self-heal does at creation time.
- *
- * Idempotent: re-running after a successful repair is a no-op (balanced
- * entries are skipped on the integer-cents check).
- *
- * Refuses to patch:
- *  - Entries in closed fiscal periods (reopen the period to fix).
- *  - Entries with |diff| > MAX_DRIFT_CENTS (data corruption, not drift —
- *    investigate manually rather than mask a real bug).
- *  - Entries with no wage expense debit line (structural mismatch).
- *
- * @param companyId - Scope to one company.
- * @param userId - User to attribute the audit log entries to. Pass 'system'
- *   for CLI/script-run repairs.
- */
-export async function repairUnbalancedPayrollJournals(
-  companyId: string,
-  userId: string,
-): Promise<PayrollJournalRepairSummary> {
-  // Cap on the drift we'll silently auto-patch. The known mechanism produces
-  // at most $0.01 per entry; allowing up to 5¢ gives headroom for compounded
-  // drift across multiple aggregations without crossing into "this is a real
-  // imbalance, look at it" territory.
-  const MAX_DRIFT_CENTS = 5;
-
-  const entries = await prisma.journalEntry.findMany({
-    where: { companyId, status: 'posted', source: 'payroll' },
-    include: {
-      lines: { include: { account: { select: { code: true, name: true } } } },
-    },
-    orderBy: { entryNumber: 'asc' },
+  // No try/catch: a JE creation failure must propagate and fail the payroll
+  // run, not leave processed payroll with no books entry.
+  const entry = await createJournalEntry({
+    companyId,
+    date: payDate,
+    memo: `Payroll: ${payPeriodLabel} (${records.length} employee${records.length > 1 ? 's' : ''})`,
+    referenceNumber: `PR-${payPeriodLabel}`,
+    source: 'payroll',
+    sourceId: payrollRecordIds.join(','),
+    lines,
+    notes: `Employees: ${employeeNames}`,
+    actor,
+    tx,
   });
 
-  const results: PayrollJournalRepairResult[] = [];
-  let patched = 0;
-  let skipped = 0;
-
-  for (const entry of entries) {
-    const debitCents = entry.lines.reduce((s, l) => s + Math.round(l.debit * 100), 0);
-    const creditCents = entry.lines.reduce((s, l) => s + Math.round(l.credit * 100), 0);
-    const diffCents = debitCents - creditCents;
-
-    if (diffCents === 0) continue; // already balanced
-
-    const baseResult = {
-      entryId: entry.id,
-      entryNumber: entry.entryNumber,
-      date: entry.date.toISOString().slice(0, 10),
-      diffCents,
-    };
-
-    if (Math.abs(diffCents) > MAX_DRIFT_CENTS) {
-      results.push({ ...baseResult, status: 'skipped_too_large' });
-      skipped++;
-      continue;
-    }
-
-    // Closed-period guard. We don't reopen-then-fix automatically; that's a
-    // policy decision the user has to make. Surface in the result so the UI
-    // can list these explicitly.
-    const { isClosed } = await checkClosedPeriod(companyId, entry.date);
-    if (isClosed) {
-      results.push({ ...baseResult, status: 'skipped_closed_period' });
-      skipped++;
-      continue;
-    }
-
-    // Prefer 6010 (employer payroll taxes debit); fall back to 6000 (gross
-    // wages debit) if 6010 isn't present on this entry.
-    const targetLine =
-      entry.lines.find((l) => l.account.code === '6010' && l.debit > 0) ||
-      entry.lines.find((l) => l.account.code === '6000' && l.debit > 0);
-
-    if (!targetLine) {
-      results.push({ ...baseResult, status: 'skipped_no_wage_line' });
-      skipped++;
-      continue;
-    }
-
-    const oldDebit = targetLine.debit;
-    // diff = debits - credits. To balance, reduce the chosen debit by diff.
-    const newDebit = Math.round((oldDebit * 100 - diffCents)) / 100;
-
-    await prisma.$transaction(async (tx) => {
-      await tx.journalEntryLine.update({
-        where: { id: targetLine.id },
-        data: { debit: newDebit },
-      });
-      await tx.journalEntry.update({
-        where: { id: entry.id },
-        data: { updatedAt: new Date() },
-      });
-    });
-
-    await logAudit({
-      companyId,
-      userId,
-      action: 'journal_entry.rebalance_correction',
-      entityType: 'JournalEntry',
-      entityId: entry.id,
-      changes: {
-        [`line_${targetLine.id}.debit`]: { old: oldDebit, new: newDebit },
-      },
-      metadata: {
-        entryNumber: entry.entryNumber,
-        memo: entry.memo,
-        source: entry.source,
-        accountCode: targetLine.account.code,
-        accountName: targetLine.account.name,
-        diffCents,
-        reason:
-          'Payroll JE was off by a sub-penny amount due to sum-of-rounded vs ' +
-          'round-of-sum drift across per-employee tax/deduction aggregations. ' +
-          'Absorbed into wage expense debit to keep clearing account 2100 ' +
-          'clean against actual bank disbursement.',
-        repairFunction: 'repairUnbalancedPayrollJournals',
-      },
-    });
-
-    results.push({
-      ...baseResult,
-      status: 'patched',
-      patchedLineId: targetLine.id,
-      patchedAccountCode: targetLine.account.code,
-      oldDebit,
-      newDebit,
-    });
-    patched++;
-  }
-
-  return { scanned: entries.length, patched, skipped, results };
+  return { entryId: entry.id, entryNumber: entry.entryNumber };
 }
+
+// The payroll-JE repair endpoint and repairUnbalancedPayrollJournals were
+// removed in 1.2: the rounding bug they remediated is fixed at creation time,
+// and booked entries are immutable — corrections happen via reversing entries.
 
 // ============================================
 // FINANCIAL REPORT HELPERS
@@ -1060,54 +817,7 @@ export async function generateGeneralLedger(
 // YEAR-END CLOSING HELPERS
 // ============================================
 
-/**
- * Check if a date falls within a closed fiscal period.
- * Returns the closed period if found, null otherwise.
- *
- * @param companyId - The company ID
- * @param date - The date to check
- * @returns The closed period if the date is in a closed period, null otherwise
- */
-export async function checkClosedPeriod(companyId: string, date: Date): Promise<{
-  isClosed: boolean;
-  closedPeriod?: {
-    id: string;
-    fiscalYear: number;
-    periodEnd: Date;
-    closedAt: Date;
-    isOpen: boolean;
-  };
-}> {
-  // Get the fiscal year for the date
-  const year = date.getUTCFullYear();
-
-  const closedPeriod = await prisma.closedPeriod.findUnique({
-    where: { companyId_fiscalYear: { companyId, fiscalYear: year } },
-    select: {
-      id: true,
-      fiscalYear: true,
-      periodEnd: true,
-      closedAt: true,
-      isOpen: true,
-    },
-  });
-
-  if (!closedPeriod) {
-    return { isClosed: false };
-  }
-
-  // If the period has been reopened, it's not closed
-  if (closedPeriod.isOpen) {
-    return { isClosed: false };
-  }
-
-  // Check if the date is within the closed period
-  if (date <= closedPeriod.periodEnd) {
-    return { isClosed: true, closedPeriod };
-  }
-
-  return { isClosed: false };
-}
+// checkClosedPeriod now lives in lib/journal-entry-service.ts (re-exported above).
 
 /**
  * Create a year-end closing entry that zeros out all revenue and expense accounts
@@ -1127,6 +837,7 @@ export async function createYearEndClosingEntry(
   companyId: string,
   fiscalYear: number,
   periodEnd: Date,
+  actor: Actor,
 ) {
   // Get the start of the fiscal year (assume calendar year)
   const fiscalYearStart = `${fiscalYear}-01-01`;
@@ -1220,6 +931,7 @@ export async function createYearEndClosingEntry(
     sourceId: fiscalYear.toString(),
     lines,
     skipClosedPeriodCheck: true,
+    actor,
   });
 
   return {
@@ -1422,6 +1134,7 @@ export async function createTaxDepositJournalEntry(
     totalAmount: number;
   },
   bankAccountId: string,
+  actor: Actor,
 ): Promise<{ journalEntryId: string }> {
   // Resolve the liability account ids by code.
   const liabilityCodes = ['2110', '2120', '2130', '2140', '2160', '2170', '2180'];
@@ -1463,39 +1176,25 @@ export async function createTaxDepositJournalEntry(
     credit: round2(taxDeposit.totalAmount),
   });
 
-  // Sanity-check the entry balances
-  const totalDebits = lines.reduce((s, l) => s + l.debit, 0);
-  const totalCredits = lines.reduce((s, l) => s + l.credit, 0);
-  if (Math.abs(totalDebits - totalCredits) > 0.01) {
-    throw new Error(
-      `Tax deposit journal entry doesn't balance: debits ${totalDebits.toFixed(2)} vs credits ${totalCredits.toFixed(2)}`
-    );
-  }
-
-  // Increment the company's journal entry counter
-  const company = await tx.company.update({
-    where: { id: companyId },
-    data: { nextJournalEntryNumber: { increment: 1 } },
-    select: { nextJournalEntryNumber: true },
-  });
-  const entryNumber = company.nextJournalEntryNumber - 1;
-
   const memo = taxDeposit.taxPeriodQuarter
     ? `${taxDeposit.taxPeriodQuarter} ${taxDeposit.taxPeriodYear} ${taxDeposit.formReference} deposit`
     : `${taxDeposit.taxPeriodYear} ${taxDeposit.formReference} deposit`;
 
-  const entry = await tx.journalEntry.create({
-    data: {
+  // Creation (numbering, validation, status, audit) is owned by the JE
+  // service; we run on the caller's transaction so the TaxDeposit row and
+  // its journal entry commit together.
+  const entry = await createEntry(
+    actor,
+    {
       companyId,
-      entryNumber,
       date: taxDeposit.depositDate,
       memo,
       source: 'tax_deposit',
       sourceId: taxDepositId,
-      lines: { create: lines },
+      lines,
     },
-    select: { id: true },
-  });
+    tx
+  );
 
   return { journalEntryId: entry.id };
 }

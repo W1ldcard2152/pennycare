@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
+import { voidEntry } from '@/lib/journal-entry-service';
 import { validateRequest, voidTaxDepositSchema } from '@/lib/validation';
 
 // GET /api/bookkeeping/tax-deposits/[id]
@@ -10,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const { id } = await params;
@@ -46,7 +47,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { id } = await params;
@@ -82,15 +83,14 @@ export async function DELETE(
       });
 
       if (existing.journalEntryId) {
-        await tx.journalEntry.update({
-          where: { id: existing.journalEntryId },
-          data: {
-            status: 'voided',
-            voidedAt: new Date(),
-            voidedBy: session!.userId,
-            voidReason: `Tax deposit voided: ${reason}`,
-          },
-        });
+        // Void via the JE service (closed-period + reconciled guards, tier-1
+        // audit) on the same transaction as the deposit void.
+        await voidEntry(
+          { userId: session!.userId, role: role! },
+          existing.journalEntryId,
+          `Tax deposit voided: ${reason}`,
+          tx
+        );
       }
 
       return updated;

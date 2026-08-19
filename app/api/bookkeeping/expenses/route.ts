@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { createExpenseSchema, validateRequest } from '@/lib/validation';
-import { createJournalEntry } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 // POST /api/bookkeeping/expenses
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();
@@ -66,48 +66,53 @@ export async function POST(request: NextRequest) {
     const expenseDate = parseBusinessDate(data.date);
     const paidDate = data.paidDate ? parseBusinessDate(data.paidDate) : null;
 
-    const expense = await prisma.expense.create({
-      data: {
-        companyId: companyId!,
-        date: expenseDate,
-        vendorId: data.vendorId || null,
-        description: data.description,
-        category: data.category,
-        amount,
-        paymentMethod: data.paymentMethod || null,
-        referenceNumber: data.referenceNumber || null,
-        isPaid: data.isPaid || false,
-        paidDate,
-        notes: data.notes || null,
-      },
-      include: {
-        vendor: { select: { id: true, name: true } },
-      },
-    });
-
-    // Create journal entry if both debit and credit accounts are specified
-    let journalEntryId: string | null = null;
-    if (data.debitAccountId && data.creditAccountId) {
-      try {
-        const vendorName = expense.vendor?.name || 'Unknown';
-        const entry = await createJournalEntry({
+    // Expense row + its journal entry commit together (1.2): a JE failure now
+    // rolls back the expense rather than leaving an expense with no books entry.
+    const actor = { userId: session!.userId, role: role! };
+    const { expense, journalEntryId } = await prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.create({
+        data: {
           companyId: companyId!,
           date: expenseDate,
-          memo: `Expense: ${data.description}${expense.vendor ? ` (${vendorName})` : ''}`,
-          referenceNumber: data.referenceNumber || undefined,
-          source: 'expense',
-          sourceId: expense.id,
-          lines: [
-            { accountId: data.debitAccountId, description: data.description, debit: amount, credit: 0 },
-            { accountId: data.creditAccountId, description: data.description, debit: 0, credit: amount },
-          ],
-        });
+          vendorId: data.vendorId || null,
+          description: data.description,
+          category: data.category,
+          amount,
+          paymentMethod: data.paymentMethod || null,
+          referenceNumber: data.referenceNumber || null,
+          isPaid: data.isPaid || false,
+          paidDate,
+          notes: data.notes || null,
+        },
+        include: {
+          vendor: { select: { id: true, name: true } },
+        },
+      });
+
+      let journalEntryId: string | null = null;
+      if (data.debitAccountId && data.creditAccountId) {
+        const vendorName = expense.vendor?.name || 'Unknown';
+        const entry = await createEntry(
+          actor,
+          {
+            companyId: companyId!,
+            date: expenseDate,
+            memo: `Expense: ${data.description}${expense.vendor ? ` (${vendorName})` : ''}`,
+            referenceNumber: data.referenceNumber || undefined,
+            source: 'expense',
+            sourceId: expense.id,
+            lines: [
+              { accountId: data.debitAccountId, description: data.description, debit: amount, credit: 0 },
+              { accountId: data.creditAccountId, description: data.description, debit: 0, credit: amount },
+            ],
+          },
+          tx
+        );
         journalEntryId = entry.id;
-      } catch (jeError) {
-        console.error('Failed to create journal entry for expense:', jeError);
-        // Expense was still created, just without a journal entry
       }
-    }
+
+      return { expense, journalEntryId };
+    });
 
     await logAudit({
       companyId: companyId!,

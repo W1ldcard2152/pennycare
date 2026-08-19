@@ -59,7 +59,12 @@ interface Props {
   sourceAccountId: string;
   selectedIds: string[];
   onClose: () => void;
-  onComplete: (summary: { updated: number; unchanged: number; skipped: number; totalLinesChanged: number }) => void;
+  onComplete: (summary: {
+    entriesAffected: number;
+    unchanged: number;
+    skipped: number;
+    generatedEntries: Array<{ year: number; entryNumber: number; id: string }>;
+  }) => void;
 }
 
 function formatCurrency(amount: number) {
@@ -239,10 +244,10 @@ export default function BulkReclassifyModal({ sourceAccountId, selectedIds, onCl
       }
       const data = await res.json();
       onComplete({
-        updated: data.updated,
+        entriesAffected: data.entriesAffected,
         unchanged: data.unchanged,
         skipped: data.skipped.length,
-        totalLinesChanged: data.totalLinesChanged,
+        generatedEntries: data.generatedEntries ?? [],
       });
     } catch {
       setError('Reclassify failed');
@@ -445,10 +450,10 @@ export default function BulkReclassifyModal({ sourceAccountId, selectedIds, onCl
               {/* Summary */}
               <div className="bg-gray-50 rounded-lg p-4 grid grid-cols-3 gap-4 text-sm">
                 <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">Will modify</p>
+                  <p className="text-xs font-medium text-gray-500 uppercase">Will reclassify</p>
                   <p className="text-2xl font-bold text-green-700">{impact.willModify}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {impact.totalLinesChanged} {impact.totalLinesChanged === 1 ? 'line' : 'lines'} changed
+                    via reclassification entries (originals untouched)
                   </p>
                 </div>
                 <div>
@@ -477,7 +482,7 @@ export default function BulkReclassifyModal({ sourceAccountId, selectedIds, onCl
               ? 'Add a remapping to continue.'
               : impact.willModify === 0
                 ? 'No selected entries match the current rules.'
-                : `${impact.willModify} ${impact.willModify === 1 ? 'entry' : 'entries'} will be saved (${impact.totalLinesChanged} ${impact.totalLinesChanged === 1 ? 'line' : 'lines'}).`}
+                : `${impact.willModify} ${impact.willModify === 1 ? 'entry' : 'entries'} will be reclassified via new journal entries (one per fiscal year). The original entries are not modified.`}
           </p>
           <div className="flex gap-2">
             <button

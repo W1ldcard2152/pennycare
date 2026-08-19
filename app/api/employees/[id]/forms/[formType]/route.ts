@@ -350,7 +350,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; formType: string }> }
 ) {
   try {
-    const { error, companyId } = await requireCompanyAccess('payroll');
+    const { error, companyId } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const { id, formType } = await params;

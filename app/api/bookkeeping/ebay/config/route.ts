@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 // PUT /api/bookkeeping/ebay/config - Update eBay account mappings
 export async function PUT(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('admin');
+    const { error, companyId } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();

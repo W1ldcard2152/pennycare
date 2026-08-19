@@ -203,13 +203,12 @@ export default function NewEmployeePage() {
                 <input
                   type="text"
                   name="employeeNumber"
-                  required
+                  readOnly
                   value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
                   placeholder={loadingEmployeeNumber ? 'Loading...' : '001'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500 focus:outline-none"
                 />
-                <p className="text-xs text-gray-500 mt-1">Auto-generated, but can be edited</p>
+                <p className="text-xs text-gray-500 mt-1">Assigned automatically when the employee is saved</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

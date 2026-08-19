@@ -5,7 +5,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 // GET /api/reports/deductions - Deductions breakdown by type and employee
 export async function GET(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const searchParams = request.nextUrl.searchParams;

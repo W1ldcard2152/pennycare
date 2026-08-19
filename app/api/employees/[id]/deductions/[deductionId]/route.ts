@@ -9,7 +9,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string; deductionId: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { id, deductionId } = await params;
@@ -77,7 +77,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; deductionId: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { id, deductionId } = await params;

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { voidEntry } from '@/lib/journal-entry-service';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/bookkeeping/statements/batch/[batchName] - Get batch summary
 export async function GET(
@@ -55,8 +57,9 @@ export async function DELETE(
   { params }: { params: Promise<{ batchName: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
+    const actor = { userId: session!.userId, role: role! };
     const { batchName } = await params;
 
     const decodedBatchName = decodeURIComponent(batchName);
@@ -79,18 +82,11 @@ export async function DELETE(
     let deletedCount = 0;
 
     await prisma.$transaction(async (tx) => {
-      // For booked imports, void the journal entries
+      // For booked imports, void the journal entries via the service (closed-
+      // period + reconciled guards, tier-1 audit) on the same transaction.
       for (const imp of bookedImports) {
         if (imp.journalEntryId) {
-          await tx.journalEntry.update({
-            where: { id: imp.journalEntryId },
-            data: {
-              status: 'voided',
-              voidedAt: new Date(),
-              voidedBy: session!.userId,
-              voidReason: `Batch import "${decodedBatchName}" was deleted`,
-            },
-          });
+          await voidEntry(actor, imp.journalEntryId, `Batch import "${decodedBatchName}" was deleted`, tx);
           voidedCount++;
         }
       }
@@ -105,18 +101,11 @@ export async function DELETE(
             referenceNumber: decodedBatchName,
             status: 'posted',
           },
+          select: { id: true },
         });
 
         for (const entry of ccJournalEntries) {
-          await tx.journalEntry.update({
-            where: { id: entry.id },
-            data: {
-              status: 'voided',
-              voidedAt: new Date(),
-              voidedBy: session!.userId,
-              voidReason: `CC import batch "${decodedBatchName}" was deleted`,
-            },
-          });
+          await voidEntry(actor, entry.id, `CC import batch "${decodedBatchName}" was deleted`, tx);
           voidedCount++;
         }
       }
@@ -131,19 +120,16 @@ export async function DELETE(
       deletedCount = imports.length;
     });
 
-    // Log audit entry
-    await prisma.auditLog.create({
-      data: {
-        userId: session!.userId,
-        companyId: companyId!,
-        action: 'STATEMENT_BATCH_DELETE',
-        entityType: 'StatementImport',
-        entityId: decodedBatchName,
-        metadata: JSON.stringify({
-          batchName: decodedBatchName,
-          deletedCount,
-          voidedJournalEntries: voidedCount,
-        }),
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'statement.batch_delete',
+      entityType: 'StatementImport',
+      entityId: decodedBatchName,
+      metadata: {
+        batchName: decodedBatchName,
+        deletedCount,
+        voidedJournalEntries: voidedCount,
       },
     });
 

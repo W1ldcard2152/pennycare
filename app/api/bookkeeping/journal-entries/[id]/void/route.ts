@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
-import { logAudit } from '@/lib/audit';
-import { checkClosedPeriod } from '@/lib/bookkeeping';
+import { voidEntry, JournalEntryStateError } from '@/lib/journal-entry-service';
 
 // POST /api/bookkeeping/journal-entries/[id]/void
 export async function POST(
@@ -10,7 +9,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -20,88 +19,36 @@ export async function POST(
       return NextResponse.json({ error: 'A reason is required to void a journal entry' }, { status: 400 });
     }
 
+    // Company-scope the lookup (the service works by id alone).
     const entry = await prisma.journalEntry.findFirst({
       where: { id, companyId: companyId! },
+      select: { id: true },
     });
-
     if (!entry) {
       return NextResponse.json({ error: 'Journal entry not found' }, { status: 404 });
     }
 
-    if (entry.status === 'voided') {
-      return NextResponse.json({ error: 'This journal entry is already voided' }, { status: 409 });
-    }
-
-    // Check if the entry is in a closed period
-    const { isClosed, closedPeriod } = await checkClosedPeriod(companyId!, entry.date);
-    if (isClosed) {
-      return NextResponse.json({
-        error: `Cannot void: Fiscal year ${closedPeriod!.fiscalYear} is closed. Reopen the period to make changes.`,
-        closedPeriod: closedPeriod,
-      }, { status: 409 });
-    }
-
-    // Check if any lines are reconciled
-    const reconciledLines = await prisma.journalEntryLine.findMany({
-      where: {
-        journalEntryId: id,
-        isReconciled: true,
-      },
-      select: {
-        id: true,
-        account: { select: { name: true } },
-      },
-    });
-
-    if (reconciledLines.length > 0) {
-      const accountNames = [...new Set(reconciledLines.map(l => l.account.name))].join(', ');
-      return NextResponse.json(
-        {
-          error: 'Cannot void: this entry contains reconciled transactions. Un-reconcile first.',
-          accounts: accountNames,
-          reconciledLineCount: reconciledLines.length,
-        },
-        { status: 409 }
-      );
-    }
-
-    // Remove any reconciliation cleared items for these lines (in-progress reconciliations
-    // mark lines as cleared without setting isReconciled=true, so they escape the check above)
-    const entryLines = await prisma.journalEntryLine.findMany({
-      where: { journalEntryId: id },
-      select: { id: true },
-    });
-    const lineIds = entryLines.map((l) => l.id);
-    if (lineIds.length > 0) {
-      await prisma.reconciledItem.deleteMany({
-        where: { journalEntryLineId: { in: lineIds } },
+    // Void via the service. The closed-period and reconciled-line guards live
+    // there now. We still clear any in-progress reconciliation "cleared items"
+    // first (those mark lines without setting isReconciled, so they'd escape
+    // the service's reconciled-line guard) — in the same transaction.
+    const updated = await prisma.$transaction(async (tx) => {
+      const lines = await tx.journalEntryLine.findMany({
+        where: { journalEntryId: id },
+        select: { id: true },
       });
-    }
-
-    const updated = await prisma.journalEntry.update({
-      where: { id },
-      data: {
-        status: 'voided',
-        voidedAt: new Date(),
-        voidedBy: session!.userId,
-        voidReason: reason.trim(),
-      },
-      include: {
-        lines: { include: { account: true } },
-      },
-    });
-
-    await logAudit({
-      companyId: companyId!,
-      userId: session!.userId,
-      action: 'journal_entry.void',
-      entityType: 'JournalEntry',
-      entityId: id,
-      metadata: { reason: reason.trim(), entryNumber: entry.entryNumber },
+      const lineIds = lines.map((l) => l.id);
+      if (lineIds.length > 0) {
+        await tx.reconciledItem.deleteMany({ where: { journalEntryLineId: { in: lineIds } } });
+      }
+      return voidEntry({ userId: session!.userId, role: role! }, id, reason.trim(), tx);
     });
 
     return NextResponse.json(updated);
   } catch (err) {
+    if (err instanceof JournalEntryStateError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     console.error('Error voiding journal entry:', err);
     return NextResponse.json({ error: 'Failed to void journal entry' }, { status: 500 });
   }

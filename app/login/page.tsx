@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 
 function LoginForm() {
   const router = useRouter();
@@ -32,6 +31,13 @@ function LoginForm() {
         return;
       }
 
+      // An admin password reset forces a change before continuing.
+      if (data.mustChangePassword) {
+        router.push('/change-password?forced=1');
+        router.refresh();
+        return;
+      }
+
       // Redirect to the page they were trying to access, or dashboard
       const from = searchParams.get('from') || '/';
       router.push(from);
@@ -50,13 +56,7 @@ function LoginForm() {
             Sign in to CV Books
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Or{' '}
-            <Link
-              href="/register"
-              className="font-medium text-blue-600 hover:text-blue-500"
-            >
-              create a new account
-            </Link>
+            Need an account? Ask your administrator to create one.
           </p>
         </div>
 

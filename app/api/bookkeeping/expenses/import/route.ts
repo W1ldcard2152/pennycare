@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { importExpenseBatchSchema, validateRequest } from '@/lib/validation';
-import { createJournalEntry } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 
 // POST /api/bookkeeping/expenses/import - Bulk import expenses from CSV
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();
@@ -85,15 +85,19 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Create journal entries outside the main transaction (best-effort)
-    // Each expense gets its own journal entry: debit expense account, credit source account
+    // Create journal entries per-expense, each in its own transaction (the
+    // SQLite-timeout note in CLAUDE.md warns against wrapping a whole bulk
+    // import in one transaction). Best-effort: a JE failure leaves that
+    // expense without a books entry, recoverable by re-running or manual
+    // entry — same trade-off as the eBay importer.
+    const actor = { userId: session!.userId, role: role! };
     for (let i = 0; i < createdExpenses.length; i++) {
       const exp = expenses[i];
       const created = createdExpenses[i];
       const amount = Number(exp.amount);
 
       try {
-        await createJournalEntry({
+        await createEntry(actor, {
           companyId: companyId!,
           date: new Date(exp.date),
           memo: `Import: ${exp.description}`,

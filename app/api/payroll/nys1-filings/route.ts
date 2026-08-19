@@ -7,7 +7,7 @@ import { parseBusinessDate } from '@/lib/date-utils';
 // GET /api/payroll/nys1-filings - List NYS-1 filings for the current company
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const filings = await prisma.nys1Filing.findMany({
@@ -25,7 +25,7 @@ export async function GET() {
 // POST /api/payroll/nys1-filings - Record a new NYS-1 filing
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    const { error, companyId, session } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const body = await request.json();

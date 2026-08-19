@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { bookTransactionsSchema, validateRequest } from '@/lib/validation';
-import { createJournalEntry, isDebitNormal } from '@/lib/bookkeeping';
+import { isDebitNormal } from '@/lib/bookkeeping';
+import { createEntry } from '@/lib/journal-entry-service';
+import { logAudit } from '@/lib/audit';
 
 // POST /api/bookkeeping/statements/book
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();
@@ -64,9 +66,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create journal entries for each transaction (one per transaction)
-    // Note: createJournalEntry has its own internal transaction, so we create entries first,
-    // then update the statement imports in a separate batch operation
+    // Book each transaction: its journal entry and its status flip commit in
+    // ONE per-item transaction (1.2 fix for the double-book window). A crash
+    // mid-batch leaves cleanly-booked items booked and the rest pending —
+    // never a booked JE pointing at a still-pending import (which the prior
+    // two-phase version could produce, and re-booking would then duplicate).
+    const actor = { userId: session!.userId, role: role! };
     const bookedResults: { impId: string; entryId: string }[] = [];
 
     for (const imp of imports) {
@@ -107,61 +112,56 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const entry = await createJournalEntry({
-        companyId: companyId!,
-        date: imp.postDate,
-        memo: imp.memo || imp.description,
-        referenceNumber: imp.checkNumber || undefined,
-        notes: imp.note || undefined,
-        source: 'statement_import',
-        sourceId: imp.id,
-        lines: [
+      const entryId = await prisma.$transaction(async (tx) => {
+        const entry = await createEntry(
+          actor,
           {
-            accountId: debitAccountId,
-            description: imp.memo || imp.description,
-            debit: imp.amount,
-            credit: 0,
+            companyId: companyId!,
+            date: imp.postDate,
+            memo: imp.memo || imp.description,
+            referenceNumber: imp.checkNumber || undefined,
+            notes: imp.note || undefined,
+            source: 'statement_import',
+            sourceId: imp.id,
+            lines: [
+              {
+                accountId: debitAccountId,
+                description: imp.memo || imp.description,
+                debit: imp.amount,
+                credit: 0,
+              },
+              {
+                accountId: creditAccountId,
+                description: imp.memo || imp.description,
+                debit: 0,
+                credit: imp.amount,
+              },
+            ],
           },
-          {
-            accountId: creditAccountId,
-            description: imp.memo || imp.description,
-            debit: 0,
-            credit: imp.amount,
-          },
-        ],
+          tx
+        );
+        await tx.statementImport.update({
+          where: { id: imp.id },
+          data: { status: 'booked', journalEntryId: entry.id },
+        });
+        return entry.id;
       });
 
-      bookedResults.push({ impId: imp.id, entryId: entry.id });
+      bookedResults.push({ impId: imp.id, entryId });
     }
-
-    // Now update all statement imports in a single batch transaction
-    await prisma.$transaction(
-      bookedResults.map((result) =>
-        prisma.statementImport.update({
-          where: { id: result.impId },
-          data: {
-            status: 'booked',
-            journalEntryId: result.entryId,
-          },
-        })
-      )
-    );
 
     const journalEntriesCreated = bookedResults.length;
     const bookedIds = bookedResults.map((r) => r.impId);
 
-    // Log audit entry
-    await prisma.auditLog.create({
-      data: {
-        userId: session!.userId,
-        companyId: companyId!,
-        action: 'STATEMENT_BOOK',
-        entityType: 'StatementImport',
-        entityId: bookedIds.join(','),
-        metadata: JSON.stringify({
-          booked: bookedIds.length,
-          journalEntriesCreated,
-        }),
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'statement.book',
+      entityType: 'StatementImport',
+      entityId: bookedIds.join(','),
+      metadata: {
+        booked: bookedIds.length,
+        journalEntriesCreated,
       },
     });
 

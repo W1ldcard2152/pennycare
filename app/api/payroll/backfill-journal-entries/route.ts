@@ -10,7 +10,7 @@ import { formatDate } from '@/lib/date-utils';
 // Scans the company's active PayrollRecord rows, finds any whose payroll batch
 // doesn't yet have a corresponding source='payroll' journal entry, and creates
 // them retroactively. Use after migrating from a setup where the books predate
-// in-house payroll (e.g., switching from Paychex) — your historical payroll
+// in-house payroll (e.g., switching from Paychex) â€” your historical payroll
 // runs become reflected on the books with the right account assignments.
 //
 // Body (all optional):
@@ -19,8 +19,9 @@ import { formatDate } from '@/lib/date-utils';
 // Returns the list of pay dates processed and per-date results.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
+    const actor = { userId: session!.userId, role: role! };
 
     const body = await request.json().catch(() => ({}));
     const dryRun = body.dryRun === true;
@@ -114,6 +115,7 @@ export async function POST(request: NextRequest) {
           group.recordIds,
           group.payDate,
           label,
+          actor,
         );
         if (je) {
           results.push({

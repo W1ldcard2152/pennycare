@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Find years that actually have posted journal entries — enumerating every
+    // Find years that actually have posted journal entries â€” enumerating every
     // year between the earliest entry and now would surface fiscal years with
     // no activity (e.g. a gap year, or a backdated opening-balance entry that
     // pulls the earliest date back a decade).
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 // Close a fiscal year
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();
@@ -109,7 +109,12 @@ export async function POST(request: NextRequest) {
 
     // Create the closing entry
     const periodEnd = parseBusinessDate(endDate);
-    const { entry, summary } = await createYearEndClosingEntry(companyId!, fiscalYear, periodEnd);
+    const { entry, summary } = await createYearEndClosingEntry(
+      companyId!,
+      fiscalYear,
+      periodEnd,
+      { userId: session!.userId, role: role! },
+    );
 
     // Create or update the closed period record
     let closedPeriod;

@@ -208,31 +208,50 @@ interface JournalEntry {
 const SOURCE_COLORS: Record<string, string> = {
   manual: 'bg-blue-100 text-blue-700',
   payroll: 'bg-green-100 text-green-700',
+  payroll_payment: 'bg-green-100 text-green-700',
   expense: 'bg-orange-100 text-orange-700',
   ebay_import: 'bg-yellow-100 text-yellow-700',
   statement_import: 'bg-teal-100 text-teal-700',
   cc_import: 'bg-pink-100 text-pink-700',
   opening_balance: 'bg-purple-100 text-purple-700',
+  reconciliation: 'bg-indigo-100 text-indigo-700',
+  year_end_closing: 'bg-slate-200 text-slate-700',
+  tax_deposit: 'bg-cyan-100 text-cyan-700',
+  reversal: 'bg-red-100 text-red-700',
+  reclassification: 'bg-amber-100 text-amber-700',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: 'Manual',
   payroll: 'Payroll',
+  payroll_payment: 'Payroll Payment',
   expense: 'Expense',
   ebay_import: 'eBay Import',
   statement_import: 'Statement Import',
   cc_import: 'CC Import',
   opening_balance: 'Opening Balance',
+  reconciliation: 'Reconciliation',
+  year_end_closing: 'Year-End Closing',
+  tax_deposit: 'Tax Deposit',
+  reversal: 'Reversal',
+  reclassification: 'Reclassification',
 };
 
 const SOURCE_OPTIONS = [
   { value: '', label: 'All Sources' },
   { value: 'manual', label: 'Manual' },
   { value: 'payroll', label: 'Payroll' },
+  { value: 'payroll_payment', label: 'Payroll Payment' },
+  { value: 'expense', label: 'Expense' },
   { value: 'ebay_import', label: 'eBay Import' },
   { value: 'statement_import', label: 'Statement Import' },
   { value: 'cc_import', label: 'CC Import' },
   { value: 'opening_balance', label: 'Opening Balance' },
+  { value: 'reconciliation', label: 'Reconciliation' },
+  { value: 'year_end_closing', label: 'Year-End Closing' },
+  { value: 'tax_deposit', label: 'Tax Deposit' },
+  { value: 'reversal', label: 'Reversal' },
+  { value: 'reclassification', label: 'Reclassification' },
 ];
 
 const STATUS_OPTIONS = [

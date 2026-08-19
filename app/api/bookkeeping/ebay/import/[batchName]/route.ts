@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { voidEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 
 // DELETE /api/bookkeeping/ebay/import/[batchName] - Undo an import batch
@@ -9,7 +10,9 @@ export async function DELETE(
   { params }: { params: Promise<{ batchName: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('payroll');
+    // Deleting a batch voids booked journal entries — APPROVER+ (raised from
+    // BOOKKEEPER in 1.2: void/unbook of booked entries requires APPROVER+)
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const { batchName } = await params;
@@ -60,6 +63,7 @@ export async function DELETE(
     );
 
     // Perform deletion in transaction
+    const actor = { userId: session!.userId, role: role! };
     const result = await prisma.$transaction(async (tx) => {
       // Delete eBay sales first (they reference journal entries)
       const deleteResult = await tx.ebaySale.deleteMany({
@@ -69,18 +73,12 @@ export async function DELETE(
         },
       });
 
-      // Void associated journal entries (don't delete, just void for audit trail)
+      // Void associated journal entries through the service (closed-period and
+      // reconciled guards now apply — a batch overlapping a closed period
+      // surfaces a visible error instead of silently voiding).
       let voidedEntries = 0;
       for (const entryId of journalEntryIds) {
-        await tx.journalEntry.update({
-          where: { id: entryId },
-          data: {
-            status: 'voided',
-            voidedAt: new Date(),
-            voidedBy: session!.userId,
-            voidReason: `Batch import "${decodedBatchName}" was deleted`,
-          },
-        });
+        await voidEntry(actor, entryId, `Batch import "${decodedBatchName}" was deleted`, tx);
         voidedEntries++;
       }
 

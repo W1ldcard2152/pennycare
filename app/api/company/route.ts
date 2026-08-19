@@ -6,7 +6,7 @@ import { encrypt, safeDecrypt } from '@/lib/encryption';
 // GET /api/company - Get company settings for current company
 export async function GET() {
   try {
-    const { error, companyId } = await requireCompanyAccess('viewer');
+    const { error, companyId } = await requireCompanyAccess('VIEWER');
     if (error) return error;
 
     const company = await prisma.company.findUnique({
@@ -39,7 +39,7 @@ export async function GET() {
 // PUT /api/company - Update company settings for current company
 export async function PUT(request: NextRequest) {
   try {
-    const { error, companyId } = await requireCompanyAccess('owner');
+    const { error, companyId } = await requireCompanyAccess('OWNER');
     if (error) return error;
 
     const data = await request.json();

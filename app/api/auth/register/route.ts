@@ -5,8 +5,23 @@ import { registerSchema, validateRequest } from '@/lib/validation';
 import { logSecurityEvent } from '@/lib/audit';
 import { registerLimiter, getClientIp } from '@/lib/rateLimit';
 
+// POST /api/auth/register — FIRST-RUN SETUP ONLY.
+//
+// Open self-service registration was removed in 1.2. This endpoint now creates
+// the very first user (and their company) when the database has no users yet —
+// the only self-service account creation that exists. Once any user exists, it
+// returns 403; further users are minted by an OWNER via /api/users.
 export async function POST(request: NextRequest) {
   try {
+    // Gate: first-run only. If any user exists, registration is closed.
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
+      return NextResponse.json(
+        { error: 'Registration is closed. Ask an owner to create an account for you.' },
+        { status: 403 }
+      );
+    }
+
     // Rate limit registrations
     const ip = getClientIp(request);
     const ipCheck = registerLimiter.check(ip);
@@ -29,18 +44,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, password, firstName, lastName, companyName } = validation.data;
-
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User with this email already exists' },
-        { status: 400 }
-      );
-    }
 
     // Hash password
     const passwordHash = await hashPassword(password);
@@ -65,12 +68,12 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Create user-company access with owner role
+      // Create user-company access with OWNER role
       await tx.userCompanyAccess.create({
         data: {
           userId: user.id,
           companyId: company.id,
-          role: 'owner',
+          role: 'OWNER',
         },
       });
 

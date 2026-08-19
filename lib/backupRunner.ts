@@ -386,13 +386,23 @@ export async function performBackup(input: PerformBackupInput): Promise<BackupRe
   const filename = buildBackupFilename(tier, now);
   const backupPath = path.join(backupsDir, filename);
 
-  // Flush WAL before copy for consistency. Best-effort — a failure here
-  // doesn't mean the backup is bad, just that we couldn't squeeze the last
-  // few writes out of the journal.
-  try {
-    await prisma.$executeRaw`PRAGMA wal_checkpoint(TRUNCATE)`;
-  } catch {
-    // Non-fatal
+  // Flush the WAL fully before copying. The backup is a single .db file, so
+  // the checkpoint must complete (busy = 0) or the copy could silently miss
+  // recently committed transactions still sitting in the -wal sidecar.
+  let checkpointed = false;
+  for (let attempt = 0; attempt < 3 && !checkpointed; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 250));
+    try {
+      const rows = await prisma.$queryRaw<Array<{ busy: number | bigint }>>`PRAGMA wal_checkpoint(TRUNCATE)`;
+      checkpointed = rows.length === 0 || Number(rows[0].busy) === 0;
+    } catch {
+      checkpointed = false;
+    }
+  }
+  if (!checkpointed) {
+    throw new Error(
+      'Could not flush the SQLite write-ahead log before backup (database busy). Backup aborted to avoid a stale copy — try again in a moment.'
+    );
   }
 
   // Atomic + size-verified copy. Failure here aborts the entire backup

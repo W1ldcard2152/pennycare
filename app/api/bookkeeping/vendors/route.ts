@@ -28,7 +28,7 @@ export async function GET() {
 // POST /api/bookkeeping/vendors
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const body = await request.json();

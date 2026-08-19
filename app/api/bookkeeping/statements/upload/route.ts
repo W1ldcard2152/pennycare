@@ -29,7 +29,7 @@ interface ParsedTransaction {
 // POST /api/bookkeeping/statements/upload
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session } = await requireCompanyAccess('APPROVER');
     if (error) return error;
 
     const formData = await request.formData();
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse file — support CSV, XLS, and XLSX
+    // Parse file â€” support CSV, XLS, and XLSX
     const fileName = file.name.toLowerCase();
     const isExcel = fileName.endsWith('.xls') || fileName.endsWith('.xlsx');
 

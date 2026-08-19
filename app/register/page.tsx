@@ -76,10 +76,14 @@ export default function RegisterPage() {
       <div className="w-full max-w-md space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Create your account
+            First-time setup
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Already have an account?{' '}
+            This creates the first owner account and company. Once set up, additional
+            users are added by an owner under Settings → Users.
+          </p>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Already set up?{' '}
             <Link
               href="/login"
               className="font-medium text-blue-600 hover:text-blue-500"

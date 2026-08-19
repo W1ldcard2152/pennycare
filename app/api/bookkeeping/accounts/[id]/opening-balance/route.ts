@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { validateRequest } from '@/lib/validation';
 import { createOpeningBalanceEntry } from '@/lib/bookkeeping';
+import { logAudit } from '@/lib/audit';
 import { parseBusinessDate } from '@/lib/date-utils';
 
 const openingBalanceSchema = z.object({
@@ -20,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -40,30 +41,30 @@ export async function POST(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    // Create the opening balance journal entry using timezone-safe date
+    // Create the opening balance journal entry using timezone-safe date.
+    // The JE service writes the tier-1 create audit row; this adds a tier-2
+    // context row naming the account so the audit trail is searchable.
     const entry = await createOpeningBalanceEntry(
       companyId!,
       id,
       amount,
       parseBusinessDate(date),
+      { userId: session!.userId, role: role! },
     );
 
-    // Log audit entry
-    await prisma.auditLog.create({
-      data: {
-        userId: session!.userId,
-        companyId: companyId!,
-        action: 'CREATE_OPENING_BALANCE',
-        entityType: 'JournalEntry',
-        entityId: entry.id,
-        metadata: JSON.stringify({
-          accountId: id,
-          accountName: account.name,
-          accountCode: account.code,
-          amount,
-          date,
-          journalEntryNumber: entry.entryNumber,
-        }),
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'opening_balance.create',
+      entityType: 'JournalEntry',
+      entityId: entry.id,
+      metadata: {
+        accountId: id,
+        accountName: account.name,
+        accountCode: account.code,
+        amount,
+        date,
+        journalEntryNumber: entry.entryNumber,
       },
     });
 

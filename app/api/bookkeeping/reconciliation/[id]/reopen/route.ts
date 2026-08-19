@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { validateRequest, reopenReconciliationSchema } from '@/lib/validation';
+import { voidEntry, markLinesReconciled } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 import { formatDate } from '@/lib/date-utils';
 
@@ -12,7 +13,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -65,14 +66,11 @@ export async function POST(
       );
     }
 
-    // Un-reconcile all cleared items' journal entry lines
+    // Un-reconcile all cleared items' journal entry lines. This must happen
+    // BEFORE voiding the adjusting entry below — its own line is in this set,
+    // and voidEntry refuses to void an entry with reconciled lines.
     const lineIds = reconciliation.clearedItems.map((item) => item.journalEntryLineId);
-    if (lineIds.length > 0) {
-      await prisma.journalEntryLine.updateMany({
-        where: { id: { in: lineIds } },
-        data: { isReconciled: false },
-      });
-    }
+    await markLinesReconciled(lineIds, false);
 
     // Update the reconciliation status
     const updated = await prisma.reconciliation.update({
@@ -95,17 +93,15 @@ export async function POST(
       where: { reconciliationId: id },
     });
 
-    // If there was an adjusting entry, void it
+    // If there was an adjusting entry, void it through the JE service so the
+    // closed-period guard and tier-1 audit apply. The reconciled-line guard
+    // is already satisfied (lines un-reconciled above).
     if (reconciliation.adjustingEntryId) {
-      await prisma.journalEntry.update({
-        where: { id: reconciliation.adjustingEntryId },
-        data: {
-          status: 'voided',
-          voidedAt: new Date(),
-          voidedBy: session!.userId,
-          voidReason: 'Reconciliation reopened',
-        },
-      });
+      await voidEntry(
+        { userId: session!.userId, role: role! },
+        reconciliation.adjustingEntryId,
+        'Reconciliation reopened'
+      );
 
       // Clear the adjusting entry reference
       await prisma.reconciliation.update({

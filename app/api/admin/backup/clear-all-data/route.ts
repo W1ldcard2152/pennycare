@@ -21,7 +21,7 @@ function formatTimestamp(): string {
 export async function POST(request: NextRequest) {
   try {
     // Only owners can clear all data (most destructive operation)
-    const { error, session, companyId } = await requireCompanyAccess('owner');
+    const { error, session, companyId } = await requireCompanyAccess('OWNER');
     if (error) return error;
 
     const body = await request.json().catch(() => ({}));

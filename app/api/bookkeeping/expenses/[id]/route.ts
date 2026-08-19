@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { voidEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
 
 // GET /api/bookkeeping/expenses/[id]
@@ -34,7 +35,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('admin');
+    const { error, companyId, session, role } = await requireCompanyAccess('APPROVER');
     if (error) return error;
     const { id } = await params;
 
@@ -43,27 +44,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
     }
 
-    // Void any associated journal entries before deleting the expense
+    // Void associated journal entries (via the service — closed-period and
+    // reconciled guards, voidedBy attribution, tier-1 audit) and hard-delete
+    // the expense in one transaction.
+    const actor = { userId: session!.userId, role: role! };
     const relatedEntries = await prisma.journalEntry.findMany({
-      where: {
-        companyId: companyId!,
-        source: 'expense',
-        sourceId: id,
-        status: 'posted',
-      },
+      where: { companyId: companyId!, source: 'expense', sourceId: id, status: 'posted' },
+      select: { id: true },
     });
-    for (const entry of relatedEntries) {
-      await prisma.journalEntry.update({
-        where: { id: entry.id },
-        data: {
-          status: 'voided',
-          voidedAt: new Date(),
-          voidReason: 'Auto-voided: associated expense was deleted',
-        },
-      });
-    }
-
-    await prisma.expense.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      for (const entry of relatedEntries) {
+        await voidEntry(actor, entry.id, 'Auto-voided: associated expense was deleted', tx);
+      }
+      await tx.expense.delete({ where: { id } });
+    });
 
     await logAudit({
       companyId: companyId!,
