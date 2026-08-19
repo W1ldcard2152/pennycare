@@ -312,9 +312,17 @@ interface WindowState {
 
 const windows = new Map<number, WindowState>();
 
+/**
+ * Identity of a tab for dedup purposes. The query string is part of it: report
+ * and tax-form endpoints select their period entirely through search params
+ * (`/api/tax-forms/nys-45?year=2026&quarter=2`), so keying on pathname alone
+ * made every quarter the "same" tab — picking a new quarter and hitting
+ * Download PDF just re-focused the previously generated one.
+ */
 function dedupKey(url: string): string {
   try {
-    return new URL(url).pathname;
+    const parsed = new URL(url);
+    return parsed.pathname + parsed.search;
   } catch {
     return url;
   }

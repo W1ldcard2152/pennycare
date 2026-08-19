@@ -5,17 +5,9 @@ import { PDFDocument } from 'pdf-lib';
 import { formatDate } from '@/lib/date-utils';
 import { decrypt } from '@/lib/encryption';
 import { buildNys45, quarterBounds, type Nys45EmployeeInput, type Nys45RecordInput } from '@/lib/nys45';
+import { FormFiller } from '@/lib/pdf-form';
 import fs from 'fs';
 import path from 'path';
-
-function setFieldSafe(form: ReturnType<PDFDocument['getForm']>, fieldName: string, value: string) {
-  try {
-    const field = form.getTextField(fieldName);
-    field.setText(value);
-  } catch {
-    // Field not found or not a text field - skip silently
-  }
-}
 
 // Format currency for form fields (no $ sign, 2 decimal places)
 function formatCurrency(amount: number): string {
@@ -28,10 +20,13 @@ function maskSSN(ssn: string | null): string {
   return digits.length === 9 ? `***-**-${digits.slice(5)}` : '***-**-****';
 }
 
-function formatSSN(ssn: string | null): string {
+/**
+ * Part C column (a) is a 9-character box — the hyphenated form is 11 and pdf-lib
+ * rejects it outright, which used to leave every SSN on the return blank.
+ */
+function ssnDigits(ssn: string | null): string {
   if (!ssn) return '';
-  const digits = ssn.replace(/\D/g, '');
-  return digits.length === 9 ? `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}` : ssn;
+  return ssn.replace(/\D/g, '').slice(0, 9);
 }
 
 // GET /api/tax-forms/nys-45 - Generate NYS-45 PDF (or JSON preview)
@@ -288,71 +283,75 @@ export async function GET(request: NextRequest) {
     const templateBytes = fs.readFileSync(templatePath);
     const pdfDoc = await PDFDocument.load(templateBytes);
     const form = pdfDoc.getForm();
+    const filler = new FormFiller(form);
 
     const { partA, partB, partC } = form45;
 
     // --- Header ---
-    // UI registration and withholding ID are split across boxed segments.
+    // UI registration and withholding ID are split across boxed segments, and
+    // the boxes hold 7/1 and 10/2/1 characters respectively. Overflowing a box
+    // does not truncate — pdf-lib rejects the whole write and the box comes out
+    // empty — so each slice is sized to its box and filled left to right.
     const uiReg = (company.stateUIClientId || '').replace(/\D/g, '');
-    setFieldSafe(form, 'ui emp reg number 1', uiReg.slice(0, 7));
-    setFieldSafe(form, 'ui emp reg number 2', uiReg.slice(7));
+    filler.text('ui emp reg number 1', uiReg.slice(0, 7));
+    filler.text('ui emp reg number 2', uiReg.slice(7, 8));
     const wtId = (company.stateTaxId || '').replace(/\s/g, '');
-    setFieldSafe(form, 'withholding id number 1', wtId.slice(0, 2));
-    setFieldSafe(form, 'withholding id number 2', wtId.slice(2, 11));
-    setFieldSafe(form, 'withholding id number 3', wtId.slice(11));
-    setFieldSafe(form, 'year', String(year).slice(-2));
-    setFieldSafe(form, 'employer legal name', company.legalBusinessName || company.companyName);
-    setFieldSafe(form, 'Employer address', company.address || '');
-    setFieldSafe(form, 'Employer city name', company.city || '');
-    setFieldSafe(form, 'Employer state name', company.state || '');
-    setFieldSafe(form, 'Employer ZIP name', company.zipCode || '');
-    setFieldSafe(form, 'area code', (company.phone || '').replace(/\D/g, '').slice(0, 3));
-    setFieldSafe(form, 'telephone number', (company.phone || '').replace(/\D/g, '').slice(3));
+    filler.text('withholding id number 1', wtId.slice(0, 10));
+    filler.text('withholding id number 2', wtId.slice(10, 12));
+    filler.text('withholding id number 3', wtId.slice(12, 13));
+    filler.text('year', String(year).slice(-2));
+    filler.text('employer legal name', company.legalBusinessName || company.companyName);
+    filler.text('Employer address', company.address || '');
+    filler.text('Employer city name', company.city || '');
+    filler.text('Employer state name', company.state || '');
+    filler.text('Employer ZIP name', company.zipCode || '');
+    filler.text('area code', (company.phone || '').replace(/\D/g, '').slice(0, 3));
+    filler.text('telephone number', (company.phone || '').replace(/\D/g, '').slice(3));
 
     // --- Part A: number of employees (week containing the 12th) ---
-    setFieldSafe(form, 'no of emp a', String(partA.employeeCounts[0]));
-    setFieldSafe(form, 'no of emp b', String(partA.employeeCounts[1]));
-    setFieldSafe(form, 'no of emp c', String(partA.employeeCounts[2]));
+    filler.text('no of emp a', String(partA.employeeCounts[0]));
+    filler.text('no of emp b', String(partA.employeeCounts[1]));
+    filler.text('no of emp c', String(partA.employeeCounts[2]));
 
     // --- Part A: lines 1-6 ---
-    setFieldSafe(form, 'line 1', formatCurrency(partA.line1TotalRemuneration));
-    setFieldSafe(form, 'line 2', formatCurrency(partA.line2ExcessRemuneration));
-    setFieldSafe(form, 'line 3', formatCurrency(partA.line3WagesSubjectToContribution));
+    filler.text('line 1', formatCurrency(partA.line1TotalRemuneration));
+    filler.text('line 2', formatCurrency(partA.line2ExcessRemuneration));
+    filler.text('line 3', formatCurrency(partA.line3WagesSubjectToContribution));
     // 4a is the rate, split across whole/decimal boxes.
     const ratePct = partA.line4aUiRate.toFixed(3);
-    setFieldSafe(form, 'line 4 pct 1', ratePct.split('.')[0]);
-    setFieldSafe(form, 'line 4 pct 2', ratePct.split('.')[1] || '');
-    setFieldSafe(form, 'line 4', formatCurrency(partA.line4UiContributionsDue));
-    setFieldSafe(form, 'line 5', formatCurrency(partA.line5ReemploymentServiceFund));
-    setFieldSafe(form, 'line 6', formatCurrency(partA.line6Subtotal));
+    filler.text('line 4 pct 1', ratePct.split('.')[0]);
+    filler.text('line 4 pct 2', ratePct.split('.')[1] || '');
+    filler.text('line 4', formatCurrency(partA.line4UiContributionsDue));
+    filler.text('line 5', formatCurrency(partA.line5ReemploymentServiceFund));
+    filler.text('line 6', formatCurrency(partA.line6Subtotal));
     // Lines 7-12 cover prior-period under/overpayments and refunds, which this
     // app does not track. Line 10 is therefore left for the filer.
 
     // --- Part B: lines 13-24 ---
-    setFieldSafe(form, 'line 13', formatCurrency(partB.line13TotalTaxWithheld));
-    setFieldSafe(form, 'line 15', formatCurrency(partB.line15Nys1Payments));
-    setFieldSafe(form, 'line 17', formatCurrency(partB.line17TotalPayments));
-    setFieldSafe(form, 'line 20', formatCurrency(partB.line20TotalWtDue));
+    filler.text('line 13', formatCurrency(partB.line13TotalTaxWithheld));
+    filler.text('line 15', formatCurrency(partB.line15Nys1Payments));
+    filler.text('line 17', formatCurrency(partB.line17TotalPayments));
+    filler.text('line 20', formatCurrency(partB.line20TotalWtDue));
     if (partB.line21TotalWtOverpaid > 0) {
-      setFieldSafe(form, 'line 21', formatCurrency(partB.line21TotalWtOverpaid));
+      filler.text('line 21', formatCurrency(partB.line21TotalWtOverpaid));
     }
     // Line 14 (prior-quarter WT credit), line 16 (payments with prior NYS-45s)
     // and line 18 are not derivable from app data — left blank for the filer.
-    setFieldSafe(form, 'line 24', formatCurrency(partB.line24TotalAllTaxWithheld));
+    filler.text('line 24', formatCurrency(partB.line24TotalAllTaxWithheld));
 
     // --- Part C: 5 rows per page ---
     const pageRows = partC.slice(0, 5);
     pageRows.forEach((row, i) => {
-      setFieldSafe(form, `a_SSN.${i}`, formatSSN(row.ssn));
-      setFieldSafe(form, `b_Last_name.${i}`, row.lastName);
-      setFieldSafe(form, `c_First_name.${i}`, row.firstName);
-      setFieldSafe(form, `d_MI.${i}`, row.middleInitial);
-      setFieldSafe(form, `e_Wage type.${i}`, row.wageType);
-      setFieldSafe(form, `f_Total_UI.${i}`, formatCurrency(row.uiRemuneration));
-      setFieldSafe(form, `g_Gross_federal.${i}`, formatCurrency(row.grossFederalWages));
-      setFieldSafe(form, `h_NYS_tax.${i}`, formatCurrency(row.nysTaxWithheld));
-      setFieldSafe(form, `i_total_NYC_tax.${i}`, formatCurrency(row.nycTaxWithheld));
-      setFieldSafe(form, `j_Yonkers_tax.${i}`, formatCurrency(row.yonkersTaxWithheld));
+      filler.text(`a_SSN.${i}`, ssnDigits(row.ssn));
+      filler.text(`b_Last_name.${i}`, row.lastName);
+      filler.text(`c_First_name.${i}`, row.firstName);
+      filler.text(`d_MI.${i}`, row.middleInitial);
+      filler.text(`e_Wage type.${i}`, row.wageType);
+      filler.text(`f_Total_UI.${i}`, formatCurrency(row.uiRemuneration));
+      filler.text(`g_Gross_federal.${i}`, formatCurrency(row.grossFederalWages));
+      filler.text(`h_NYS_tax.${i}`, formatCurrency(row.nysTaxWithheld));
+      filler.text(`i_total_NYC_tax.${i}`, formatCurrency(row.nycTaxWithheld));
+      filler.text(`j_Yonkers_tax.${i}`, formatCurrency(row.yonkersTaxWithheld));
     });
 
     // Column A totals = "totals from this page only"; B totals = grand totals.
@@ -360,27 +359,41 @@ export async function GET(request: NextRequest) {
     const pageTotal = (pick: (r: typeof partC[number]) => number) =>
       Math.round(pageRows.reduce((s, r) => s + pick(r), 0) * 100) / 100;
 
-    setFieldSafe(form, 'f_Total_UI_A', formatCurrency(pageTotal((r) => r.uiRemuneration)));
-    setFieldSafe(form, 'g_Gross_federal_A', formatCurrency(pageTotal((r) => r.grossFederalWages)));
-    setFieldSafe(form, 'h_NYS_tax_A', formatCurrency(pageTotal((r) => r.nysTaxWithheld)));
-    setFieldSafe(form, 'i_total_NYC_tax_A', formatCurrency(pageTotal((r) => r.nycTaxWithheld)));
-    setFieldSafe(form, 'j_Yonkers_tax_A', formatCurrency(pageTotal((r) => r.yonkersTaxWithheld)));
+    filler.text('f_Total_UI_A', formatCurrency(pageTotal((r) => r.uiRemuneration)));
+    filler.text('g_Gross_federal_A', formatCurrency(pageTotal((r) => r.grossFederalWages)));
+    filler.text('h_NYS_tax_A', formatCurrency(pageTotal((r) => r.nysTaxWithheld)));
+    filler.text('i_total_NYC_tax_A', formatCurrency(pageTotal((r) => r.nycTaxWithheld)));
+    filler.text('j_Yonkers_tax_A', formatCurrency(pageTotal((r) => r.yonkersTaxWithheld)));
 
-    setFieldSafe(form, 'f_Total_UI_B', formatCurrency(partA.line1TotalRemuneration));
-    setFieldSafe(form, 'g_Gross_federal_B', formatCurrency(
+    filler.text('f_Total_UI_B', formatCurrency(partA.line1TotalRemuneration));
+    filler.text('g_Gross_federal_B', formatCurrency(
       Math.round(partC.reduce((s, r) => s + r.grossFederalWages, 0) * 100) / 100
     ));
-    setFieldSafe(form, 'h_NYS_tax_B', formatCurrency(partB.nysTaxWithheld));
-    setFieldSafe(form, 'i_total_NYC_tax_B', formatCurrency(partB.nycTaxWithheld));
-    setFieldSafe(form, 'j_Yonkers_tax_B', formatCurrency(partB.yonkersTaxWithheld));
+    filler.text('h_NYS_tax_B', formatCurrency(partB.nysTaxWithheld));
+    filler.text('i_total_NYC_tax_B', formatCurrency(partB.nycTaxWithheld));
+    filler.text('j_Yonkers_tax_B', formatCurrency(partB.yonkersTaxWithheld));
 
-    setFieldSafe(form, 'Page', '1');
-    setFieldSafe(form, 'Page_of', '1');
+    filler.text('Page', '1');
+    filler.text('Page_of', '1');
 
     // The quarter boxes on page 1 are printed artwork, not AcroForm widgets, so
     // they cannot be filled programmatically — the filer marks the quarter by
     // hand. Same for the seasonal-employer and amended-return boxes, which this
     // app has no data for.
+
+    filler.report('NYS-45');
+    if (filler.isTotalMismatch) {
+      // Every write was rejected: this build's field names do not match the
+      // bundled template. Serving the PDF would hand the filer a blank return
+      // that looks legitimate.
+      return NextResponse.json(
+        {
+          error:
+            'NYS-45 template mismatch — no form fields could be filled. The bundled template does not match this version of the app.',
+        },
+        { status: 500 }
+      );
+    }
 
     const pdfBytes = await pdfDoc.save();
     const fileName = `NYS-45_${year}_Q${quarter}.pdf`;

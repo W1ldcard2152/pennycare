@@ -10,30 +10,9 @@ import {
   type Form941EmployeeInput,
   type Form941RecordInput,
 } from '@/lib/form941';
+import { FormFiller } from '@/lib/pdf-form';
 import fs from 'fs';
 import path from 'path';
-
-function setFieldSafe(form: ReturnType<PDFDocument['getForm']>, fieldName: string, value: string) {
-  try {
-    const field = form.getTextField(fieldName);
-    field.setText(value);
-  } catch {
-    // Field not found or not a text field - skip silently
-  }
-}
-
-function checkFieldSafe(form: ReturnType<PDFDocument['getForm']>, fieldName: string, checked: boolean = true) {
-  try {
-    const field = form.getCheckBox(fieldName);
-    if (checked) {
-      field.check();
-    } else {
-      field.uncheck();
-    }
-  } catch {
-    // Field not found or not a checkbox - skip silently
-  }
-}
 
 /**
  * IRS money lines are two separate boxes: whole dollars and cents. Writing
@@ -41,7 +20,7 @@ function checkFieldSafe(form: ReturnType<PDFDocument['getForm']>, fieldName: str
  * the pre-1.3 implementation silently produced a wrong return.
  */
 function setMoney(
-  form: ReturnType<PDFDocument['getForm']>,
+  filler: FormFiller,
   dollarsField: string,
   centsField: string,
   amount: number
@@ -49,8 +28,8 @@ function setMoney(
   const negative = amount < 0;
   const cents = Math.round(Math.abs(amount) * 100);
   const dollars = Math.floor(cents / 100);
-  setFieldSafe(form, dollarsField, `${negative ? '-' : ''}${dollars}`);
-  setFieldSafe(form, centsField, String(cents % 100).padStart(2, '0'));
+  filler.text(dollarsField, `${negative ? '-' : ''}${dollars}`);
+  filler.text(centsField, String(cents % 100).padStart(2, '0'));
 }
 
 function quarterToString(q: number): string {
@@ -301,6 +280,7 @@ export async function GET(request: NextRequest) {
     const templateBytes = fs.readFileSync(templatePath);
     const pdfDoc = await PDFDocument.load(templateBytes);
     const form = pdfDoc.getForm();
+    const filler = new FormFiller(form);
 
     // ------------------------------------------------------------------
     // Field names below were mapped by correlating each widget's rectangle
@@ -314,62 +294,62 @@ export async function GET(request: NextRequest) {
 
     // EIN is split: two-digit prefix, then the remaining seven.
     const einDigits = (company.fein || '').replace(/\D/g, '');
-    setFieldSafe(form, `${ENTITY}.f1_1[0]`, einDigits.slice(0, 2));
-    setFieldSafe(form, `${ENTITY}.f1_2[0]`, einDigits.slice(2, 9));
+    filler.text(`${ENTITY}.f1_1[0]`, einDigits.slice(0, 2));
+    filler.text(`${ENTITY}.f1_2[0]`, einDigits.slice(2, 9));
 
-    setFieldSafe(form, `${ENTITY}.f1_3[0]`, company.legalBusinessName || company.companyName);
+    filler.text(`${ENTITY}.f1_3[0]`, company.legalBusinessName || company.companyName);
     // Trade name only when it actually differs from the legal name.
     if (company.legalBusinessName && company.companyName !== company.legalBusinessName) {
-      setFieldSafe(form, `${ENTITY}.f1_4[0]`, company.companyName);
+      filler.text(`${ENTITY}.f1_4[0]`, company.companyName);
     }
-    setFieldSafe(form, `${ENTITY}.f1_5[0]`, company.address || '');
-    setFieldSafe(form, `${ENTITY}.f1_6[0]`, company.city || '');
-    setFieldSafe(form, `${ENTITY}.f1_7[0]`, company.state || '');
-    setFieldSafe(form, `${ENTITY}.f1_8[0]`, company.zipCode || '');
+    filler.text(`${ENTITY}.f1_5[0]`, company.address || '');
+    filler.text(`${ENTITY}.f1_6[0]`, company.city || '');
+    filler.text(`${ENTITY}.f1_7[0]`, company.state || '');
+    filler.text(`${ENTITY}.f1_8[0]`, company.zipCode || '');
 
     // Report for this quarter (c1_1[0..3] = Q1..Q4).
-    checkFieldSafe(form, `${P1}.Header[0].ReportForQuarter[0].c1_1[${quarter - 1}]`, true);
+    filler.check(`${P1}.Header[0].ReportForQuarter[0].c1_1[${quarter - 1}]`, true);
 
     // --- Part 1 ---
-    setFieldSafe(form, `${P1}.f1_12[0]`, String(lines.line1EmployeeCount));
-    setMoney(form, `${P1}.f1_13[0]`, `${P1}.f1_14[0]`, lines.line2Wages);
-    setMoney(form, `${P1}.f1_15[0]`, `${P1}.f1_16[0]`, lines.line3FederalTaxWithheld);
+    filler.text(`${P1}.f1_12[0]`, String(lines.line1EmployeeCount));
+    setMoney(filler,`${P1}.f1_13[0]`, `${P1}.f1_14[0]`, lines.line2Wages);
+    setMoney(filler,`${P1}.f1_15[0]`, `${P1}.f1_16[0]`, lines.line3FederalTaxWithheld);
 
     // Line 4 — check only when nothing is subject to SS or Medicare.
     if (lines.line5aSocialSecurityWages === 0 && lines.line5cMedicareWages === 0) {
-      checkFieldSafe(form, `${P1}.c1_2[0]`, true);
+      filler.check(`${P1}.c1_2[0]`, true);
     }
 
     // Line 5a (cols 1 and 2), 5b tips, 5c Medicare, 5d additional Medicare.
-    setMoney(form, `${P1}.f1_17[0]`, `${P1}.f1_18[0]`, lines.line5aSocialSecurityWages);
-    setMoney(form, `${P1}.f1_19[0]`, `${P1}.f1_20[0]`, lines.line5aTax);
-    setMoney(form, `${P1}.f1_21[0]`, `${P1}.f1_22[0]`, lines.line5bTipsWages);
-    setMoney(form, `${P1}.f1_23[0]`, `${P1}.f1_24[0]`, lines.line5bTax);
-    setMoney(form, `${P1}.f1_25[0]`, `${P1}.f1_26[0]`, lines.line5cMedicareWages);
-    setMoney(form, `${P1}.f1_27[0]`, `${P1}.f1_28[0]`, lines.line5cTax);
+    setMoney(filler,`${P1}.f1_17[0]`, `${P1}.f1_18[0]`, lines.line5aSocialSecurityWages);
+    setMoney(filler,`${P1}.f1_19[0]`, `${P1}.f1_20[0]`, lines.line5aTax);
+    setMoney(filler,`${P1}.f1_21[0]`, `${P1}.f1_22[0]`, lines.line5bTipsWages);
+    setMoney(filler,`${P1}.f1_23[0]`, `${P1}.f1_24[0]`, lines.line5bTax);
+    setMoney(filler,`${P1}.f1_25[0]`, `${P1}.f1_26[0]`, lines.line5cMedicareWages);
+    setMoney(filler,`${P1}.f1_27[0]`, `${P1}.f1_28[0]`, lines.line5cTax);
     if (lines.line5dAdditionalMedicareWages > 0) {
-      setMoney(form, `${P1}.f1_29[0]`, `${P1}.f1_30[0]`, lines.line5dAdditionalMedicareWages);
-      setMoney(form, `${P1}.f1_31[0]`, `${P1}.f1_32[0]`, lines.line5dTax);
+      setMoney(filler,`${P1}.f1_29[0]`, `${P1}.f1_30[0]`, lines.line5dAdditionalMedicareWages);
+      setMoney(filler,`${P1}.f1_31[0]`, `${P1}.f1_32[0]`, lines.line5dTax);
     }
 
-    setMoney(form, `${P1}.f1_33[0]`, `${P1}.f1_34[0]`, lines.line5eTotal);
-    setMoney(form, `${P1}.f1_35[0]`, `${P1}.f1_36[0]`, lines.line5fSection3121q);
-    setMoney(form, `${P1}.f1_37[0]`, `${P1}.f1_38[0]`, lines.line6TotalBeforeAdjustments);
-    setMoney(form, `${P1}.f1_39[0]`, `${P1}.f1_40[0]`, lines.line7FractionsOfCents);
-    setMoney(form, `${P1}.f1_41[0]`, `${P1}.f1_42[0]`, lines.line8SickPay);
-    setMoney(form, `${P1}.f1_43[0]`, `${P1}.f1_44[0]`, lines.line9TipsAndGroupLife);
-    setMoney(form, `${P1}.f1_45[0]`, `${P1}.f1_46[0]`, lines.line10TotalAfterAdjustments);
-    setMoney(form, `${P1}.f1_47[0]`, `${P1}.f1_48[0]`, lines.line11NonrefundableCredits);
-    setMoney(form, `${P1}.f1_49[0]`, `${P1}.f1_50[0]`, lines.line12TotalAfterCredits);
-    setMoney(form, `${P1}.f1_51[0]`, `${P1}.f1_52[0]`, lines.line13TotalDeposits);
-    setMoney(form, `${P1}.f1_53[0]`, `${P1}.f1_54[0]`, lines.line14BalanceDue);
-    setMoney(form, `${P1}.f1_55[0]`, `${P1}.f1_56[0]`, lines.line15Overpayment);
+    setMoney(filler,`${P1}.f1_33[0]`, `${P1}.f1_34[0]`, lines.line5eTotal);
+    setMoney(filler,`${P1}.f1_35[0]`, `${P1}.f1_36[0]`, lines.line5fSection3121q);
+    setMoney(filler,`${P1}.f1_37[0]`, `${P1}.f1_38[0]`, lines.line6TotalBeforeAdjustments);
+    setMoney(filler,`${P1}.f1_39[0]`, `${P1}.f1_40[0]`, lines.line7FractionsOfCents);
+    setMoney(filler,`${P1}.f1_41[0]`, `${P1}.f1_42[0]`, lines.line8SickPay);
+    setMoney(filler,`${P1}.f1_43[0]`, `${P1}.f1_44[0]`, lines.line9TipsAndGroupLife);
+    setMoney(filler,`${P1}.f1_45[0]`, `${P1}.f1_46[0]`, lines.line10TotalAfterAdjustments);
+    setMoney(filler,`${P1}.f1_47[0]`, `${P1}.f1_48[0]`, lines.line11NonrefundableCredits);
+    setMoney(filler,`${P1}.f1_49[0]`, `${P1}.f1_50[0]`, lines.line12TotalAfterCredits);
+    setMoney(filler,`${P1}.f1_51[0]`, `${P1}.f1_52[0]`, lines.line13TotalDeposits);
+    setMoney(filler,`${P1}.f1_53[0]`, `${P1}.f1_54[0]`, lines.line14BalanceDue);
+    setMoney(filler,`${P1}.f1_55[0]`, `${P1}.f1_56[0]`, lines.line15Overpayment);
 
     // --- Page 2 header + Part 2 monthly liabilities ---
     const P2 = 'topmostSubform[0].Page2[0]';
-    setFieldSafe(form, `${P2}.Name_ReadOrder[0].f1_3[0]`, company.legalBusinessName || company.companyName);
-    setFieldSafe(form, `${P2}.EIN_Number[0].f1_1[0]`, einDigits.slice(0, 2));
-    setFieldSafe(form, `${P2}.EIN_Number[0].f1_2[0]`, einDigits.slice(2, 9));
+    filler.text(`${P2}.Name_ReadOrder[0].f1_3[0]`, company.legalBusinessName || company.companyName);
+    filler.text(`${P2}.EIN_Number[0].f1_1[0]`, einDigits.slice(0, 2));
+    filler.text(`${P2}.EIN_Number[0].f1_2[0]`, einDigits.slice(2, 9));
 
     // Line 16 — driven by Company.federalDepositSchedule. c2_1[0] is the
     // under-$2,500 box (a filer determination that also depends on the prior
@@ -377,18 +357,32 @@ export async function GET(request: NextRequest) {
     // A semiweekly depositor leaves the monthly amounts blank and attaches
     // Schedule B; filling them anyway would contradict the checked box.
     if (form941.line16.selection === 'monthly') {
-      checkFieldSafe(form, `${P2}.c2_1[1]`, true);
+      filler.check(`${P2}.c2_1[1]`, true);
       const [m1, m2, m3] = form941.monthlyLiabilities;
-      setMoney(form, `${P2}.f2_1[0]`, `${P2}.f2_2[0]`, m1.liability);
-      setMoney(form, `${P2}.f2_3[0]`, `${P2}.f2_4[0]`, m2.liability);
-      setMoney(form, `${P2}.f2_5[0]`, `${P2}.f2_6[0]`, m3.liability);
-      setMoney(form, `${P2}.f2_7[0]`, `${P2}.f2_8[0]`, form941.monthlyTotal);
+      setMoney(filler,`${P2}.f2_1[0]`, `${P2}.f2_2[0]`, m1.liability);
+      setMoney(filler,`${P2}.f2_3[0]`, `${P2}.f2_4[0]`, m2.liability);
+      setMoney(filler,`${P2}.f2_5[0]`, `${P2}.f2_6[0]`, m3.liability);
+      setMoney(filler,`${P2}.f2_7[0]`, `${P2}.f2_8[0]`, form941.monthlyTotal);
     } else if (form941.line16.selection === 'semiweekly') {
-      checkFieldSafe(form, `${P2}.c2_1[2]`, true);
+      filler.check(`${P2}.c2_1[2]`, true);
     }
 
     // Parts 3, 4 and 5 (business status, third-party designee, signature) are
     // filer declarations, not derived data, and are left blank on purpose.
+
+    filler.report('Form 941');
+    if (filler.isTotalMismatch) {
+      // Every write was rejected: this build's field names do not match the
+      // bundled template. Serving the PDF would hand the filer a blank return
+      // that looks legitimate.
+      return NextResponse.json(
+        {
+          error:
+            'Form 941 template mismatch — no form fields could be filled. The bundled template does not match this version of the app.',
+        },
+        { status: 500 }
+      );
+    }
 
     // Serialize PDF
     const pdfBytes = await pdfDoc.save();
