@@ -18,7 +18,6 @@ interface Company {
   industryType: string | null;
   fiscalYearEnd: string | null;
   defaultPayPeriod: string | null;
-  overtimeEnabled: boolean;
   overtimeMultiplier: number;
   stateUIClientId: string | null;
   stateTaxId: string | null;
@@ -534,23 +533,14 @@ function PayrollSettings({
             <input
               type="number"
               step="0.1"
+              min={1.5}
               value={company.overtimeMultiplier}
               onChange={(e) => updateField('overtimeMultiplier', parseFloat(e.target.value))}
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <p className="mt-1 text-sm text-gray-500">Typically 1.5 (time and a half)</p>
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={company.overtimeEnabled}
-                onChange={(e) => updateField('overtimeEnabled', e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="ml-2 text-sm text-gray-700">Enable overtime calculations</span>
-            </label>
+            <p className="mt-1 text-sm text-gray-500">
+              Hours past 40 in a workweek are overtime, paid at least 1.5× (time and a half). You can pay more, never less.
+            </p>
           </div>
         </div>
       </div>

@@ -225,6 +225,22 @@ const YONKERS_NONRESIDENT_RATE = 0.005; // 0.5% of wages earned in Yonkers
 const PAY_PERIODS = 52;
 
 /**
+ * Overtime is labor law, not a setting (FLSA; NY follows it for most
+ * workers): hours past 40 in the workweek, paid at no less than time and a
+ * half. There is no daily rule — a 10-hour day in a 36-hour week is all
+ * straight time. The pay period is the Sunday–Saturday workweek.
+ */
+export const WEEKLY_OVERTIME_THRESHOLD = 40;
+export const MIN_OVERTIME_MULTIPLIER = 1.5;
+
+/** Split a workweek's total hours into straight time and overtime. */
+export function splitWorkweekHours(totalHours: number): { regularHours: number; overtimeHours: number } {
+  const total = Math.max(0, totalHours);
+  const regularHours = roundCurrency(Math.min(total, WEEKLY_OVERTIME_THRESHOLD));
+  return { regularHours, overtimeHours: roundCurrency(total - regularHours) };
+}
+
+/**
  * Pre-tax deduction types offered through a Section 125 cafeteria plan.
  * They are excluded from Social Security and Medicare wages, while 401(k)
  * deferrals (and unknown "other" pre-tax types) remain FICA-taxable.
@@ -250,7 +266,9 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
 
   // Calculate gross pay
   const regularPay = input.regularHours * input.hourlyRate;
-  const overtimePay = input.overtimeHours * input.hourlyRate * input.overtimeMultiplier;
+  // Never below time and a half, whatever the company setting says.
+  const overtimeMultiplier = Math.max(input.overtimeMultiplier, MIN_OVERTIME_MULTIPLIER);
+  const overtimePay = input.overtimeHours * input.hourlyRate * overtimeMultiplier;
   const grossPay = regularPay + overtimePay;
 
   // Process pre-tax deductions first (they reduce taxable income)

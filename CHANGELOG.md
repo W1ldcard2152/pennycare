@@ -11,6 +11,10 @@
 
 ### Changed
 - New employees default to a 2020-and-later W-4.
+- Overtime follows the law instead of settings: hours past 40 in the workweek, at no less than time and a half. Time Tracking records hours per day without a daily overtime split, and the week's overtime shows in its total.
+
+### Removed
+- The "Enable overtime calculations" setting. Overtime is required by law, so it isn't something to switch off (the setting also had no effect). The overtime multiplier can no longer be set below 1.5.
 
 ### Fixed
 - Tax deposit auto-fill attributed payments to the quarter they were *made* in rather than the quarter they *pay for*. Because deposits usually land in the following quarter, the earlier quarter kept showing a balance due after it was paid and the current quarter showed less (often nothing) due. Balances are now each quarter's payroll tax less the deposits recorded for that quarter.
@@ -30,6 +34,7 @@
 - Saving Tax Settings could quietly switch an employee to a pre-2020 W-4, or set their NY filing status to single, when those fields had been blank.
 - Semi-weekly federal deposit deadlines were swapped: Wednesday–Friday paydays are due the following Wednesday and Saturday–Tuesday paydays the following Friday.
 - The Mark Paid dialog's default date rolled over to the next day after 8pm Eastern.
+- Time Tracking split each day at 8 hours and paid the rest as overtime, so long days in a short week paid overtime that wasn't owed. Payroll now splits each week's total at 40 hours, including hours entered before this fix.
 
 ## [1.1.1] — 2026-07-01
 

@@ -39,7 +39,6 @@ async function main() {
 
         // Payroll Settings
         defaultPayPeriod: 'weekly',
-        overtimeEnabled: true,
         overtimeMultiplier: 1.5,
 
         // NY State Tax IDs

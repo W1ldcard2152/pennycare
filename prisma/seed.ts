@@ -32,7 +32,6 @@ async function main() {
       industryType: 'Automotive Repair',
       fiscalYearEnd: '12-31',
       defaultPayPeriod: 'weekly',
-      overtimeEnabled: true,
       overtimeMultiplier: 1.5,
       suiRate: 2.1,
       futaRate: 0.6,

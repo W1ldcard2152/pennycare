@@ -5,6 +5,8 @@ import {
   PayrollResult,
   formatCurrency,
   roundCurrency,
+  splitWorkweekHours,
+  MIN_OVERTIME_MULTIPLIER,
 } from '@/lib/payrollCalculations';
 
 // Helper to build a standard input with sensible defaults
@@ -984,5 +986,27 @@ describe('FICA wages and Section 125', () => {
   it('carries deduction ids through to the breakdown', () => {
     const result = calculatePayroll(makeInput({ deductions }));
     expect(result.preTaxDeductions.map((d) => d.id)).toEqual(['hi', 'k']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overtime is weekly and at least time and a half — law, not a setting
+// ---------------------------------------------------------------------------
+describe('Overtime rules', () => {
+  it('splits a workweek at 40 hours', () => {
+    expect(splitWorkweekHours(46.5)).toEqual({ regularHours: 40, overtimeHours: 6.5 });
+    expect(splitWorkweekHours(36)).toEqual({ regularHours: 36, overtimeHours: 0 });
+    expect(splitWorkweekHours(40)).toEqual({ regularHours: 40, overtimeHours: 0 });
+  });
+
+  it('never pays overtime below time and a half', () => {
+    const result = calculatePayroll(makeInput({ overtimeHours: 4, overtimeMultiplier: 1.0 }));
+    expect(result.overtimePay).toBe(150); // 4 × $25 × 1.5, not × 1.0
+    expect(MIN_OVERTIME_MULTIPLIER).toBe(1.5);
+  });
+
+  it('still allows a company to pay more than time and a half', () => {
+    const result = calculatePayroll(makeInput({ overtimeHours: 4, overtimeMultiplier: 2 }));
+    expect(result.overtimePay).toBe(200);
   });
 });

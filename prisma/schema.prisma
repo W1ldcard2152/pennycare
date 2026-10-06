@@ -85,7 +85,6 @@ model Company {
 
   // Payroll Settings
   defaultPayPeriod  String?  // "weekly", "biweekly", "semimonthly", "monthly"
-  overtimeEnabled   Boolean  @default(true)
   overtimeMultiplier Float   @default(1.5)
 
   // State Tax IDs (can be expanded for multi-state)

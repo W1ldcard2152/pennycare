@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { encrypt, safeDecrypt } from '@/lib/encryption';
+import { MIN_OVERTIME_MULTIPLIER } from '@/lib/payrollCalculations';
 
 // GET /api/company - Get company settings for current company
 export async function GET() {
@@ -56,6 +57,18 @@ export async function PUT(request: NextRequest) {
     } = data;
     void _ignoreRouting;
     void _ignoreAccount;
+
+    // Overtime is labor law, not a preference: hours past 40 in a workweek are
+    // paid at no less than 1.5x (FLSA / NY). A higher multiplier is allowed.
+    if (
+      rest.overtimeMultiplier !== undefined &&
+      !(typeof rest.overtimeMultiplier === 'number' && rest.overtimeMultiplier >= MIN_OVERTIME_MULTIPLIER)
+    ) {
+      return NextResponse.json(
+        { error: `Overtime multiplier must be at least ${MIN_OVERTIME_MULTIPLIER} (time and a half).` },
+        { status: 400 }
+      );
+    }
 
     const updateData: Record<string, unknown> = { ...rest };
     if (bankRoutingNumber !== undefined) {

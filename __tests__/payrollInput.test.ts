@@ -225,3 +225,33 @@ describe('planDeductionReversal', () => {
     expect(plan.size).toBe(0);
   });
 });
+
+describe('buildPayrollInput — overtime is the week past 40', () => {
+  it('re-splits old entries that put each day past 8 hours into overtime', () => {
+    // 10, 10, 10, 6 = 36 hours, stored the old way (8 regular + 2 OT per long day)
+    const built = buildPayrollInput(
+      employee({
+        timeEntries: [
+          { hoursWorked: 8, overtimeHours: 2 },
+          { hoursWorked: 8, overtimeHours: 2 },
+          { hoursWorked: 8, overtimeHours: 2 },
+          { hoursWorked: 6, overtimeHours: 0 },
+        ],
+      }),
+      company,
+      utc('2026-05-08'),
+    );
+    expect(built.regularHours).toBe(36);
+    expect(built.overtimeHours).toBe(0);
+  });
+
+  it('pays the hours past 40 as overtime however the days were entered', () => {
+    const built = buildPayrollInput(
+      employee({ timeEntries: Array.from({ length: 5 }, () => ({ hoursWorked: 9, overtimeHours: 0 })) }),
+      company,
+      utc('2026-05-08'),
+    );
+    expect(built.regularHours).toBe(40);
+    expect(built.overtimeHours).toBe(5);
+  });
+});

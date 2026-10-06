@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { CalendarIcon, ClockIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { splitWorkweekHours } from '@/lib/payrollCalculations';
 
 interface Employee {
   id: string;
@@ -183,6 +184,8 @@ function TimeEntryRow({
   };
 
   const totalHours = timeEntries.reduce((sum, e) => sum + e.hoursWorked + e.overtimeHours, 0);
+  // Overtime is the week's hours past 40 — payroll splits the total the same way.
+  const { overtimeHours: weeklyOvertime } = splitWorkweekHours(totalHours);
 
   return (
     <tr>
@@ -200,8 +203,8 @@ function TimeEntryRow({
             {isEditing ? (
               <TimeEntryCell
                 entry={entry}
-                onSave={(regular, overtime, notes) => {
-                  onSave(employee.id, day, regular, overtime, notes);
+                onSave={(hours, notes) => {
+                  onSave(employee.id, day, hours, 0, notes);
                   setEditingDay(null);
                 }}
                 onCancel={() => setEditingDay(null)}
@@ -212,12 +215,7 @@ function TimeEntryRow({
                 className="w-full rounded border border-gray-200 px-3 py-2 text-left text-sm hover:bg-gray-50"
               >
                 {entry ? (
-                  <div>
-                    <div className="font-medium">{entry.hoursWorked + entry.overtimeHours}h</div>
-                    {entry.overtimeHours > 0 && (
-                      <div className="text-xs text-orange-600">OT: {entry.overtimeHours}h</div>
-                    )}
-                  </div>
+                  <div className="font-medium">{entry.hoursWorked + entry.overtimeHours}h</div>
                 ) : (
                   <div className="text-gray-400">-</div>
                 )}
@@ -227,7 +225,8 @@ function TimeEntryRow({
         );
       })}
       <td className="px-6 py-4 text-sm font-semibold text-gray-900">
-        {totalHours}h
+        <div>{totalHours}h</div>
+        {weeklyOvertime > 0 && <div className="text-xs font-medium text-orange-600">{weeklyOvertime}h OT</div>}
       </td>
     </tr>
   );
@@ -239,18 +238,18 @@ function TimeEntryCell({
   onCancel,
 }: {
   entry: TimeEntry | undefined;
-  onSave: (regularHours: number, overtimeHours: number, notes: string) => void;
+  onSave: (hours: number, notes: string) => void;
   onCancel: () => void;
 }) {
   // Initialize with one empty time pair
   const [timePairs, setTimePairs] = useState<TimePair[]>([{ clockIn: '', clockOut: '' }]);
   const [notes, setNotes] = useState(entry?.notes || '');
   const [manualOverride, setManualOverride] = useState(false);
-  const [manualRegular, setManualRegular] = useState(entry?.hoursWorked || 0);
-  const [manualOvertime, setManualOvertime] = useState(entry?.overtimeHours || 0);
+  const [manualHours, setManualHours] = useState((entry?.hoursWorked || 0) + (entry?.overtimeHours || 0));
 
-  // Calculate hours from time pairs
-  const calculateHoursFromPairs = (): { regular: number; overtime: number } => {
+  // Total hours from the time pairs. No daily overtime: overtime is the
+  // week's hours past 40, which payroll works out from the week's total.
+  const calculateHoursFromPairs = (): number => {
     let totalMinutes = 0;
 
     for (const pair of timePairs) {
@@ -264,11 +263,7 @@ function TimeEntryCell({
       }
     }
 
-    const totalHours = totalMinutes / 60;
-    const regular = Math.min(totalHours, 8);
-    const overtime = Math.max(0, totalHours - 8);
-
-    return { regular: Math.round(regular * 100) / 100, overtime: Math.round(overtime * 100) / 100 };
+    return Math.round((totalMinutes / 60) * 100) / 100;
   };
 
   const timeToMinutes = (time: string): number => {
@@ -276,8 +271,7 @@ function TimeEntryCell({
     return hours * 60 + minutes;
   };
 
-  const { regular: calculatedRegular, overtime: calculatedOvertime } = calculateHoursFromPairs();
-  const totalCalculatedHours = calculatedRegular + calculatedOvertime;
+  const totalCalculatedHours = calculateHoursFromPairs();
 
   const addTimePair = () => {
     setTimePairs([...timePairs, { clockIn: '', clockOut: '' }]);
@@ -296,11 +290,7 @@ function TimeEntryCell({
   };
 
   const handleSave = () => {
-    if (manualOverride) {
-      onSave(manualRegular, manualOvertime, notes);
-    } else {
-      onSave(calculatedRegular, calculatedOvertime, notes);
-    }
+    onSave(manualOverride ? manualHours : totalCalculatedHours, notes);
   };
 
   return (
@@ -355,18 +345,8 @@ function TimeEntryCell({
       {/* Calculated Hours Display */}
       {totalCalculatedHours > 0 && !manualOverride && (
         <div className="text-xs bg-gray-50 rounded p-2">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Regular:</span>
-            <span className="font-medium">{calculatedRegular}h</span>
-          </div>
-          {calculatedOvertime > 0 && (
-            <div className="flex justify-between text-orange-600">
-              <span>Overtime:</span>
-              <span className="font-medium">{calculatedOvertime}h</span>
-            </div>
-          )}
-          <div className="flex justify-between border-t mt-1 pt-1 font-semibold">
-            <span>Total:</span>
+          <div className="flex justify-between font-semibold">
+            <span>Hours:</span>
             <span>{totalCalculatedHours}h</span>
           </div>
         </div>
@@ -386,28 +366,15 @@ function TimeEntryCell({
       {/* Manual Hours Input (shown when override is checked) */}
       {manualOverride && (
         <div className="space-y-2 pt-2 border-t">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="text-xs text-gray-500">Regular</label>
-              <input
-                type="number"
-                step="0.25"
-                value={manualRegular}
-                onChange={(e) => setManualRegular(parseFloat(e.target.value) || 0)}
-                className="w-full rounded border px-2 py-1 text-sm"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="text-xs text-gray-500">Overtime</label>
-              <input
-                type="number"
-                step="0.25"
-                value={manualOvertime}
-                onChange={(e) => setManualOvertime(parseFloat(e.target.value) || 0)}
-                className="w-full rounded border px-2 py-1 text-sm"
-              />
-            </div>
-          </div>
+          <label className="text-xs text-gray-500">Hours worked</label>
+          <input
+            type="number"
+            step="0.25"
+            min="0"
+            value={manualHours}
+            onChange={(e) => setManualHours(parseFloat(e.target.value) || 0)}
+            className="w-full rounded border px-2 py-1 text-sm"
+          />
         </div>
       )}
 

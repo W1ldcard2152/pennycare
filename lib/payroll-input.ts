@@ -13,6 +13,7 @@ import {
   SECTION_125_DEDUCTION_TYPES,
   roundCurrency,
   seedAppliesToYear,
+  splitWorkweekHours,
 } from './payrollCalculations';
 
 type DeductionForPayroll = Pick<
@@ -106,8 +107,11 @@ export function buildPayrollInput(
     regularHours = 40;
     hourlyRate = weeklyPay / 40;
   } else {
-    regularHours = employee.timeEntries.reduce((sum, e) => sum + e.hoursWorked, 0);
-    overtimeHours = employee.timeEntries.reduce((sum, e) => sum + e.overtimeHours, 0);
+    // Overtime is decided by the week's TOTAL, never by how the days were
+    // entered: older time entries split each day at 8 hours, which paid
+    // overtime on long days in short weeks. Re-split the whole week at 40.
+    const totalHours = employee.timeEntries.reduce((sum, e) => sum + e.hoursWorked + e.overtimeHours, 0);
+    ({ regularHours, overtimeHours } = splitWorkweekHours(totalHours));
   }
   const skip = !isSalaried && regularHours === 0 && overtimeHours === 0;
 
