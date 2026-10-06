@@ -133,6 +133,19 @@ export async function PUT(
         overridePercentage: data.overridePercentage ? parseFloat(data.overridePercentage) : null,
         federalTaxability: data.federalTaxability || null,
         federalResidency: data.federalResidency || null,
+        // 2020+ W-4 Steps 2–4. Only update when provided, like the YTD seeds.
+        ...(data.w4Step2Checked !== undefined && {
+          w4Step2Checked: data.w4Step2Checked === 'true' || data.w4Step2Checked === true,
+        }),
+        ...(data.w4DependentsCredit !== undefined && {
+          w4DependentsCredit: Math.max(0, parseFloat(data.w4DependentsCredit) || 0),
+        }),
+        ...(data.w4OtherIncome !== undefined && {
+          w4OtherIncome: Math.max(0, parseFloat(data.w4OtherIncome) || 0),
+        }),
+        ...(data.w4Deductions !== undefined && {
+          w4Deductions: Math.max(0, parseFloat(data.w4Deductions) || 0),
+        }),
 
         // Social Security & Medicare
         socialSecurityTaxability: data.socialSecurityTaxability || null,

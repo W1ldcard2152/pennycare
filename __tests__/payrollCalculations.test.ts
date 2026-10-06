@@ -298,18 +298,18 @@ describe('NY State Income Tax', () => {
 // Local Taxes (NYC / Yonkers)
 // ---------------------------------------------------------------------------
 describe('Local Taxes', () => {
-  it('charges NYC resident tax', () => {
+  it('charges NYC resident tax on the period wages (not 1/52 of them)', () => {
     const result = calculatePayroll(makeInput({ nycResident: true }));
-    // taxableWages / 52 * 3.876%
-    expect(result.localTax).toBeGreaterThan(0);
+    // $1,000 taxable × 3.876% flat approximation
+    expect(result.localTax).toBe(38.76);
   });
 
   it('charges Yonkers resident surcharge on state tax', () => {
     const result = calculatePayroll(makeInput({ yonkersResident: true }));
-    // 16.475% of state income tax
-    expect(result.localTax).toBe(
-      roundCurrency(result.stateIncomeTax * 0.16475)
-    );
+    // 16.75% of state income tax (NYS-50-T-Y 1/26). NY single, 0 allowances:
+    // (52,000 − 7,400 = 44,600) → 586 + 5.4% × 30,700 = 2,243.80 / 52 = 43.15
+    expect(result.stateIncomeTax).toBe(43.15);
+    expect(result.localTax).toBe(7.23); // 43.15 × 0.1675 = 7.2276
   });
 
   it('does not charge local tax for non-NYC/non-Yonkers residents', () => {
@@ -322,8 +322,7 @@ describe('Local Taxes', () => {
       makeInput({ nycResident: true, yonkersResident: true })
     );
     // Since NYC is checked first in an if/else, NYC tax applies
-    const expected = roundCurrency((1000 / 52) * 0.03876);
-    expect(result.localTax).toBe(expected);
+    expect(result.localTax).toBe(roundCurrency(1000 * 0.03876));
   });
 });
 
@@ -858,5 +857,132 @@ describe('Realistic Scenario', () => {
     expect(result.totalEmployerCost).toBeGreaterThan(0);
     expect(result.suiEmployer).toBeGreaterThan(0);
     expect(result.futaEmployer).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2020+ W-4 Steps 2–4 (Pub 15-T 2026, Worksheet 1A, annual percentage method)
+// All cases: single, $1,000/week → $52,000 annualized.
+// ---------------------------------------------------------------------------
+describe('Federal withholding — 2020+ W-4 steps', () => {
+  it('baseline: Step 2 unchecked subtracts $8,600 and uses the STANDARD schedule', () => {
+    // 52,000 − 8,600 = 43,400 → 1,240 + 12% × (43,400 − 19,900) = 4,060 / 52
+    const result = calculatePayroll(makeInput({ w4FormType: '2020_later' }));
+    expect(result.federalIncomeTax).toBe(78.08);
+  });
+
+  it('Step 2 checked: no line 1g adjustment, Step 2 Checkbox schedule', () => {
+    // 52,000 → 2,900 + 22% × (52,000 − 33,250) = 7,025 / 52
+    const result = calculatePayroll(makeInput({ w4FormType: '2020_later', w4Step2Checked: true }));
+    expect(result.federalIncomeTax).toBe(135.1);
+  });
+
+  it('Step 3 dependents credit comes off per pay period', () => {
+    // 4,060 / 52 − 2,000 / 52 = 39.6154
+    const result = calculatePayroll(makeInput({ w4FormType: '2020_later', w4DependentsCredit: 2000 }));
+    expect(result.federalIncomeTax).toBe(39.62);
+  });
+
+  it('Step 3 cannot push withholding below zero, but 4(c) still applies', () => {
+    const result = calculatePayroll(
+      makeInput({ w4FormType: '2020_later', w4DependentsCredit: 10000, additionalWithholding: 10 }),
+    );
+    expect(result.federalIncomeTax).toBe(10);
+  });
+
+  it('Step 4(a) other income raises the adjusted wage', () => {
+    // 52,000 + 5,200 − 8,600 = 48,600 → 1,240 + 12% × 28,700 = 4,684 / 52
+    const result = calculatePayroll(makeInput({ w4FormType: '2020_later', w4OtherIncome: 5200 }));
+    expect(result.federalIncomeTax).toBe(90.08);
+  });
+
+  it('Step 4(b) deductions lower the adjusted wage', () => {
+    // 52,000 − 10,400 − 8,600 = 33,000 → 1,240 + 12% × 13,100 = 2,812 / 52
+    const result = calculatePayroll(makeInput({ w4FormType: '2020_later', w4Deductions: 10400 }));
+    expect(result.federalIncomeTax).toBe(54.08);
+  });
+
+  it('ignores Steps 2–4 on a pre-2020 W-4', () => {
+    // 52,000 − 0 allowances → 1,240 + 12% × 32,100 = 5,092 / 52
+    const result = calculatePayroll(
+      makeInput({ w4FormType: '2019_prior', w4DependentsCredit: 2000, w4Step2Checked: true }),
+    );
+    expect(result.federalIncomeTax).toBe(97.92);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NY withholding uses the IT-2104, not the federal W-4
+// ---------------------------------------------------------------------------
+describe('NY withholding — IT-2104', () => {
+  it('uses the IT-2104 status and allowances when entered', () => {
+    // Federal says single/0; IT-2104 says married/2.
+    // 52,000 − (7,950 + 2,000) = 42,050 → 586 + 5.4% × 28,150 = 2,106.10 / 52
+    const result = calculatePayroll(
+      makeInput({ stateFilingStatus: 'married', stateAllowances: 2 }),
+    );
+    expect(result.stateIncomeTax).toBe(40.5);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('falls back to the federal W-4 values and warns when no IT-2104 is on file', () => {
+    // single/0: 52,000 − 7,400 = 44,600 → 2,243.80 / 52
+    const result = calculatePayroll(makeInput());
+    expect(result.stateIncomeTax).toBe(43.15);
+    expect(result.warnings.some((w) => w.includes('IT-2104'))).toBe(true);
+  });
+
+  it('does not warn about the IT-2104 for a state-exempt employee', () => {
+    const result = calculatePayroll(makeInput({ stateTaxability: 'exempt' }));
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NY PFL annual cap is year-to-date
+// ---------------------------------------------------------------------------
+describe('NY PFL annual cap', () => {
+  it('takes only what is left under the $411.91 annual cap', () => {
+    const result = calculatePayroll(makeInput({ ytdPFL: 410 }));
+    expect(result.nyPFL).toBe(1.91);
+  });
+
+  it('takes nothing once the cap is reached', () => {
+    const result = calculatePayroll(makeInput({ ytdPFL: 411.91 }));
+    expect(result.nyPFL).toBe(0);
+  });
+
+  it('takes the full 0.432% when far from the cap', () => {
+    const result = calculatePayroll(makeInput({ ytdPFL: 100 }));
+    expect(result.nyPFL).toBe(4.32);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 125 deductions reduce FICA wages; 401(k) does not
+// ---------------------------------------------------------------------------
+describe('FICA wages and Section 125', () => {
+  const deductions = [
+    { id: 'hi', deductionType: 'health_insurance', name: 'Health', amountType: 'fixed' as const, amount: 100, preTax: true, ytdAmount: 0 },
+    { id: 'k', deductionType: '401k', name: '401(k)', amountType: 'fixed' as const, amount: 50, preTax: true, ytdAmount: 0 },
+  ];
+
+  it('takes health insurance out of SS/Medicare wages but leaves the 401(k) in', () => {
+    const result = calculatePayroll(makeInput({ deductions }));
+    expect(result.taxableWages).toBe(850);
+    expect(result.ficaWages).toBe(900);
+    expect(result.socialSecurityEmployee).toBe(55.8); // 900 × 6.2%
+    expect(result.medicareEmployee).toBe(13.05); // 900 × 1.45%
+  });
+
+  it('caps Social Security on YTD FICA wages', () => {
+    // 184,500 base − 184,000 YTD FICA wages = 500 taxable
+    const result = calculatePayroll(makeInput({ ytdGrossPay: 190000, ytdFicaWages: 184000 }));
+    expect(result.socialSecurityEmployee).toBe(31);
+  });
+
+  it('carries deduction ids through to the breakdown', () => {
+    const result = calculatePayroll(makeInput({ deductions }));
+    expect(result.preTaxDeductions.map((d) => d.id)).toEqual(['hi', 'k']);
   });
 });

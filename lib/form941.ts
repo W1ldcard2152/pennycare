@@ -17,7 +17,7 @@
  *    threshold.
  */
 
-import { SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, getSocialSecurityWageBase } from './payrollCalculations';
+import { SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, getSocialSecurityWageBase, seedAppliesToYear } from './payrollCalculations';
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -52,6 +52,12 @@ export interface Form941RecordInput {
   grossPay: number;
   /** grossPay less pre-tax deductions; null on pre-1.1 rows. */
   taxableWages: number | null;
+  /**
+   * Section 125 (cafeteria plan) deductions on this record — the only pre-tax
+   * deductions excluded from Social Security / Medicare wages. 401(k)
+   * deferrals stay in FICA wages. Omitted → 0 (FICA wages = gross).
+   */
+  section125Deductions?: number;
   federalTax: number;
   socialSecurity: number;
   employerSocialSecurity: number;
@@ -249,16 +255,23 @@ export function buildForm941(input: Form941Input): Form941Result {
     const employee = employeeById.get(record.employeeId);
     if (!employee) continue;
 
+    // A seed describes the year of its as-of date only (seedAppliesToYear) —
+    // same rule payroll used when it withheld against the wage base.
     if (!ytdWages.has(employee.id)) {
-      ytdWages.set(employee.id, employee.ytdGrossPaySeed || 0);
+      const seedApplies = seedAppliesToYear(employee.ytdSeedAsOfDate, year);
+      ytdWages.set(employee.id, seedApplies ? employee.ytdGrossPaySeed || 0 : 0);
     }
 
-    // Federal taxable wages — the basis for lines 2, 5a, 5c and 5d.
+    // Federal taxable wages (gross less all pre-tax deductions) — line 2.
     const wages = record.taxableWages ?? record.grossPay;
+    // Social Security / Medicare wages (gross less Section 125 only; 401(k)
+    // deferrals are FICA wages) — lines 5a, 5c, 5d and the YTD ladder. Same
+    // basis payroll withholds on (lib/payrollCalculations.ts ficaWages).
+    const ficaWages = record.grossPay - (record.section125Deductions || 0);
     const ytdBefore = ytdWages.get(employee.id)!;
     const alreadyInSeed = record.payPeriodEnd <= seedCutoff.get(employee.id)!;
     if (!alreadyInSeed) {
-      ytdWages.set(employee.id, ytdBefore + wages);
+      ytdWages.set(employee.id, ytdBefore + ficaWages);
     }
 
     const inQuarter =
@@ -270,15 +283,15 @@ export function buildForm941(input: Form941Input): Form941Result {
 
     // Line 5a — capped at the Social Security wage base, year to date.
     if (isTaxable(employee.socialSecurityTaxability)) {
-      ssWages += Math.min(wages, Math.max(0, ssWageBase - ytdBefore));
+      ssWages += Math.min(ficaWages, Math.max(0, ssWageBase - ytdBefore));
     }
 
     // Line 5c — Medicare has no wage cap.
     if (isTaxable(employee.medicareTaxability)) {
-      medicareWages += wages;
+      medicareWages += ficaWages;
 
       // Line 5d — only the portion above the threshold, year to date.
-      const overAfter = Math.max(0, ytdBefore + wages - ADDITIONAL_MEDICARE_THRESHOLD);
+      const overAfter = Math.max(0, ytdBefore + ficaWages - ADDITIONAL_MEDICARE_THRESHOLD);
       const overBefore = Math.max(0, ytdBefore - ADDITIONAL_MEDICARE_THRESHOLD);
       addlMedicareWages += overAfter - overBefore;
     }

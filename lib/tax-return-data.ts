@@ -247,6 +247,7 @@ export async function loadForm941(companyId: string, year: number, quarter: numb
     payPeriodEnd: r.payPeriodEnd,
     grossPay: r.grossPay,
     taxableWages: r.taxableWages,
+    section125Deductions: r.preTaxHealthIns + r.preTaxDental + r.preTaxVision + r.preTaxHSA + r.preTaxFSA,
     federalTax: r.federalTax,
     socialSecurity: r.socialSecurity,
     employerSocialSecurity: r.employerSocialSecurity,

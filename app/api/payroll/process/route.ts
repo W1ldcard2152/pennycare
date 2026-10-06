@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/payrollCalculations';
+import { calculatePayroll } from '@/lib/payrollCalculations';
+import {
+  buildPayrollInput,
+  deductionColumns,
+  deductionYtdUpdates,
+  payrollEmployeeInclude,
+} from '@/lib/payroll-input';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { processPayrollSchema, validateRequest } from '@/lib/validation';
 import { logAudit } from '@/lib/audit';
@@ -76,33 +82,11 @@ export async function POST(request: NextRequest) {
         companyId: companyId!,
         isActive: true,
       },
-      include: {
-        timeEntries: {
-          where: {
-            date: {
-              gte: startOfDay(startDate),
-              lte: endOfDay(endDate),
-            },
-          },
-        },
-        payrollRecords: {
-          where: {
-            payPeriodEnd: {
-              lt: periodStart,
-            },
-            status: 'active',
-          },
-          orderBy: {
-            payPeriodEnd: 'desc',
-          },
-        },
-        deductions: {
-          where: {
-            isActive: true,
-          },
-        },
-        paymentInfo: true,
-      },
+      include: payrollEmployeeInclude({
+        from: startOfDay(startDate),
+        to: endOfDay(endDate),
+        periodStart,
+      }),
     });
 
     // Phase 1 — pure calculation, no DB writes. Builds the data we'll persist
@@ -110,144 +94,20 @@ export async function POST(request: NextRequest) {
     type PreparedRecord = {
       employee: (typeof employees)[number];
       recordData: Parameters<typeof prisma.payrollRecord.create>[0]['data'];
-      deductionUpdates: Array<{ id: string; ytdAmount: number }>;
+      deductionUpdates: Array<{ id: string; ytdAmount: number; ytdYear: number }>;
       summary: { grossPay: number; netPay: number };
     };
     const prepared: PreparedRecord[] = [];
+    const taxYear = payDateParsed.getUTCFullYear();
 
     for (const employee of employees) {
-      const isSalaried = employee.payType === 'salary';
+      // Input (hours, YTD window by pay date, seeds, deductions) comes from the
+      // shared builder — identical to what the preview showed.
+      const built = buildPayrollInput(employee, company, payDateParsed);
+      if (built.skip) continue;
 
-      // For hourly employees, sum up time entries
-      let regularHours = 0;
-      let overtimeHours = 0;
-      let hourlyRate = employee.hourlyRate || 0;
-
-      if (isSalaried) {
-        const weeklyPay = (employee.annualSalary || 0) / 52;
-        regularHours = 40;
-        hourlyRate = weeklyPay / 40;
-        overtimeHours = 0;
-      } else {
-        regularHours = employee.timeEntries.reduce(
-          (sum, e) => sum + e.hoursWorked,
-          0
-        );
-        overtimeHours = employee.timeEntries.reduce(
-          (sum, e) => sum + e.overtimeHours,
-          0
-        );
-
-        if (regularHours === 0 && overtimeHours === 0) {
-          continue;
-        }
-      }
-
-      // Calculate YTD totals â€” see preview route for cutoff rationale.
-      const yearStart = new Date(Date.UTC(new Date(startDate).getUTCFullYear(), 0, 1));
-      const seedAsOf = employee.ytdSeedAsOfDate;
-      const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
-      const ytdRecords = employee.payrollRecords.filter(
-        (r) => r.payPeriodEnd > cutoff
-      );
-      const ytdGrossPay =
-        (employee.ytdGrossPaySeed || 0) +
-        ytdRecords.reduce((sum, r) => sum + r.grossPay, 0);
-      const ytdSocialSecurity =
-        (employee.ytdSocialSecuritySeed || 0) +
-        ytdRecords.reduce((sum, r) => sum + r.socialSecurity, 0);
-      const ytdMedicare =
-        (employee.ytdMedicareSeed || 0) +
-        ytdRecords.reduce((sum, r) => sum + r.medicare, 0);
-      const ytdFederalTax =
-        (employee.ytdFederalIncomeTaxSeed || 0) +
-        ytdRecords.reduce((sum, r) => sum + r.federalTax, 0);
-      const ytdStateTax =
-        (employee.ytdStateIncomeTaxSeed || 0) +
-        ytdRecords.reduce((sum, r) => sum + r.stateTax, 0);
-      const ytdNetPay = ytdRecords.reduce((sum, r) => sum + r.netPay, 0);
-
-      // Map employee deductions to calculation input format
-      const deductions: EmployeeDeductionInput[] = employee.deductions.map((d) => ({
-        deductionType: d.deductionType,
-        name: d.name,
-        amountType: d.amountType as 'fixed' | 'percentage',
-        amount: d.amount,
-        preTax: d.preTax,
-        annualLimit: d.annualLimit,
-        ytdAmount: d.ytdAmount,
-      }));
-
-      // Prepare calculation input
-      const input: PayrollInput = {
-        regularHours,
-        overtimeHours,
-        hourlyRate,
-        overtimeMultiplier: company.overtimeMultiplier,
-        w4FormType: employee.w4FormType,
-        w4FilingStatus: employee.w4FilingStatus,
-        w4Allowances: employee.w4Allowances,
-        additionalWithholding: employee.additionalWithholding,
-        federalTaxability: employee.federalTaxability,
-        stateTaxability: employee.stateTaxability,
-        socialSecurityTaxability: employee.socialSecurityTaxability,
-        medicareTaxability: employee.medicareTaxability,
-        unemploymentTaxability: employee.unemploymentTaxability,
-        disabilityTaxability: employee.disabilityTaxability,
-        paidFamilyLeaveTaxability: employee.paidFamilyLeaveTaxability,
-        nycResident: employee.nycResident || false,
-        yonkersResident: employee.yonkersResident || false,
-        taxYear: yearStart.getUTCFullYear(),
-        ytdGrossPay,
-        ytdSocialSecurity,
-        ytdMedicare,
-        suiRate: company.suiRate || 0,
-        futaRate: company.futaRate || 0.6,
-        deductions,
-      };
-
-      // Calculate payroll
-      const result = calculatePayroll(input);
-
-      // Sum up pre-tax deductions by type for storage
-      const preTax401k = result.preTaxDeductions
-        .filter((d) => d.type === '401k')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxHealthIns = result.preTaxDeductions
-        .filter((d) => d.type === 'health_insurance')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxDental = result.preTaxDeductions
-        .filter((d) => d.type === 'dental')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxVision = result.preTaxDeductions
-        .filter((d) => d.type === 'vision')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxHSA = result.preTaxDeductions
-        .filter((d) => d.type === 'hsa')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxFSA = result.preTaxDeductions
-        .filter((d) => d.type === 'fsa')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const preTaxOther = result.preTaxDeductions
-        .filter((d) => !['401k', 'health_insurance', 'dental', 'vision', 'hsa', 'fsa'].includes(d.type))
-        .reduce((sum, d) => sum + d.amount, 0);
-
-      // Sum up post-tax deductions by type
-      const postTaxRoth401k = result.postTaxDeductions
-        .filter((d) => d.type === '401k_roth')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const garnishments = result.postTaxDeductions
-        .filter((d) => d.type === 'garnishment')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const childSupport = result.postTaxDeductions
-        .filter((d) => d.type === 'child_support')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const loanRepayments = result.postTaxDeductions
-        .filter((d) => d.type === 'loan_repayment')
-        .reduce((sum, d) => sum + d.amount, 0);
-      const postTaxOther = result.postTaxDeductions
-        .filter((d) => !['401k_roth', 'garnishment', 'child_support', 'loan_repayment'].includes(d.type))
-        .reduce((sum, d) => sum + d.amount, 0);
+      const result = calculatePayroll(built.input);
+      const { ytd } = built;
 
       // Build payroll record data (persisted in the transaction below)
       const recordData = {
@@ -259,22 +119,17 @@ export async function POST(request: NextRequest) {
           payDate: payDateParsed,
 
           // Earnings
-          regularHours,
-          overtimeHours,
+          regularHours: built.regularHours,
+          overtimeHours: built.overtimeHours,
           regularPay: result.regularPay,
           overtimePay: result.overtimePay,
           otherEarnings: 0,
           grossPay: result.grossPay,
 
-          // Pre-tax deductions
-          preTax401k,
-          preTaxHealthIns,
-          preTaxDental,
-          preTaxVision,
-          preTaxHSA,
-          preTaxFSA,
-          preTaxOther,
+          // Pre-tax and post-tax deductions, by type
+          ...deductionColumns(result),
           totalPreTaxDeductions: result.totalPreTaxDeductions,
+          totalPostTaxDeductions: result.totalPostTaxDeductions,
 
           // Taxable wages
           taxableWages: result.taxableWages,
@@ -290,14 +145,6 @@ export async function POST(request: NextRequest) {
           nyPFL: result.nyPFL,
           totalTaxWithholdings: result.totalTaxWithholdings,
 
-          // Post-tax deductions
-          postTaxRoth401k,
-          garnishments,
-          childSupport,
-          loanRepayments,
-          postTaxOther,
-          totalPostTaxDeductions: result.totalPostTaxDeductions,
-
           // Totals
           totalDeductions: result.totalDeductions,
           netPay: result.netPay,
@@ -312,12 +159,12 @@ export async function POST(request: NextRequest) {
           totalEmployerCost: result.totalEmployerCost,
 
           // YTD totals (including this payroll)
-          ytdGrossPay: ytdGrossPay + result.grossPay,
-          ytdFederalTax: ytdFederalTax + result.federalIncomeTax,
-          ytdStateTax: ytdStateTax + result.stateIncomeTax,
-          ytdSocialSecurity: ytdSocialSecurity + result.socialSecurityEmployee,
-          ytdMedicare: ytdMedicare + result.medicareEmployee,
-          ytdNetPay: ytdNetPay + result.netPay,
+          ytdGrossPay: ytd.grossPay + result.grossPay,
+          ytdFederalTax: ytd.federalTax + result.federalIncomeTax,
+          ytdStateTax: ytd.stateTax + result.stateIncomeTax,
+          ytdSocialSecurity: ytd.socialSecurity + result.socialSecurityEmployee,
+          ytdMedicare: ytd.medicare + result.medicareEmployee,
+          ytdNetPay: ytd.netPay + result.netPay,
 
           // Payment info
           paymentMethod: employee.paymentInfo?.paymentMethod || 'check',
@@ -325,22 +172,10 @@ export async function POST(request: NextRequest) {
           status: 'active',
       };
 
-      const deductionUpdates: Array<{ id: string; ytdAmount: number }> = [];
-      for (const deduction of employee.deductions) {
-        const deductionResult = [...result.preTaxDeductions, ...result.postTaxDeductions]
-          .find((d) => d.type === deduction.deductionType);
-        if (deductionResult) {
-          deductionUpdates.push({
-            id: deduction.id,
-            ytdAmount: deduction.ytdAmount + deductionResult.amount,
-          });
-        }
-      }
-
       prepared.push({
         employee,
         recordData,
-        deductionUpdates,
+        deductionUpdates: deductionYtdUpdates(employee.deductions, result, taxYear),
         summary: { grossPay: result.grossPay, netPay: result.netPay },
       });
     }
@@ -379,7 +214,7 @@ export async function POST(request: NextRequest) {
         for (const upd of p.deductionUpdates) {
           await tx.employeeDeduction.update({
             where: { id: upd.id },
-            data: { ytdAmount: upd.ytdAmount },
+            data: { ytdAmount: upd.ytdAmount, ytdYear: upd.ytdYear },
           });
         }
         processedRecords.push({

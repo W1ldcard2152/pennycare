@@ -4,6 +4,7 @@ import { requireCompanyAccess } from '@/lib/api-utils';
 import { voidPayrollSchema, validateRequest } from '@/lib/validation';
 import { voidEntry } from '@/lib/journal-entry-service';
 import { logAudit } from '@/lib/audit';
+import { reverseDeductionYtd } from '@/lib/payroll-input';
 
 // POST /api/payroll/[id]/void - Void a payroll record
 export async function POST(
@@ -60,31 +61,8 @@ export async function POST(
         },
       });
 
-      // Reverse YTD deduction amounts: find deductions applied in this payroll
-      // and subtract them back.
-      const deductionTypes = new Map<string, number>();
-      if (record.preTax401k > 0) deductionTypes.set('401k', record.preTax401k);
-      if (record.preTaxHealthIns > 0) deductionTypes.set('health_insurance', record.preTaxHealthIns);
-      if (record.preTaxDental > 0) deductionTypes.set('dental', record.preTaxDental);
-      if (record.preTaxVision > 0) deductionTypes.set('vision', record.preTaxVision);
-      if (record.preTaxHSA > 0) deductionTypes.set('hsa', record.preTaxHSA);
-      if (record.preTaxFSA > 0) deductionTypes.set('fsa', record.preTaxFSA);
-      if (record.postTaxRoth401k > 0) deductionTypes.set('401k_roth', record.postTaxRoth401k);
-      if (record.garnishments > 0) deductionTypes.set('garnishment', record.garnishments);
-      if (record.childSupport > 0) deductionTypes.set('child_support', record.childSupport);
-      if (record.loanRepayments > 0) deductionTypes.set('loan_repayment', record.loanRepayments);
-
-      for (const [deductionType, amount] of deductionTypes) {
-        const employeeDeductions = await tx.employeeDeduction.findMany({
-          where: { employeeId: record.employeeId, deductionType, isActive: true },
-        });
-        for (const ded of employeeDeductions) {
-          await tx.employeeDeduction.update({
-            where: { id: ded.id },
-            data: { ytdAmount: Math.max(0, ded.ytdAmount - amount) },
-          });
-        }
-      }
+      // Take this payroll's deductions back off the deductions' YTD.
+      await reverseDeductionYtd(tx, record);
 
       // Void associated payroll journal entries via the service.
       const relatedEntries = await tx.journalEntry.findMany({

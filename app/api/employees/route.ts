@@ -108,7 +108,9 @@ export async function POST(request: NextRequest) {
 
         // Tax information
         taxIdEncrypted,
-        w4FormType: data.w4FormType || '2019_prior',
+        // New hires file the current (2020+) W-4; a pre-2020 form only exists
+        // for someone hired before 2020, and must be chosen explicitly.
+        w4FormType: data.w4FormType || '2020_later',
         w4Allowances: data.w4Allowances !== undefined ? parseInt(data.w4Allowances) : 0,
         w4FilingStatus: data.w4FilingStatus || data.filingStatus || 'single',
         additionalWithholding: data.additionalWithholding

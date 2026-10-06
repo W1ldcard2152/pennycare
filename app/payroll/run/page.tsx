@@ -238,6 +238,16 @@ export default function PayrollPage() {
                   </div>
                 </div>
 
+                {/* Setup warnings (e.g. no IT-2104, undated YTD seed) — shown
+                    without expanding, since they change the numbers above. */}
+                {employee.details?.warnings?.length > 0 && (
+                  <div className="border-t border-amber-200 bg-amber-50 px-6 py-2 text-sm text-amber-800">
+                    {employee.details.warnings.map((w, i) => (
+                      <p key={i}>⚠ {w}</p>
+                    ))}
+                  </div>
+                )}
+
                 {/* Expanded Details */}
                 {expandedEmployee === employee.employeeId && employee.details && (
                   <div className="border-t border-gray-200 px-6 py-4">

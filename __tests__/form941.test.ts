@@ -149,7 +149,30 @@ describe('Part 1 wage lines', () => {
     });
 
     expect(result.lines.line2Wages).toBe(780);
-    expect(result.lines.line5cMedicareWages).toBe(780);
+  });
+
+  it('keeps 401(k) deferrals in FICA wages and takes out only Section 125', () => {
+    // $1,000 gross, $120 401(k) + $100 health insurance pre-tax.
+    const result = buildForm941({
+      ...BASE,
+      employees: [employee()],
+      yearRecords: [record('2026-05-08', { grossPay: 1000, taxableWages: 780, section125Deductions: 100 })],
+    });
+
+    expect(result.lines.line2Wages).toBe(780);
+    expect(result.lines.line5aSocialSecurityWages).toBe(900);
+    expect(result.lines.line5cMedicareWages).toBe(900);
+  });
+
+  it('starts a new year without a prior-year YTD seed', () => {
+    // Seed as of Dec 2025 — must not consume the 2026 Social Security base.
+    const result = buildForm941({
+      ...BASE,
+      employees: [employee({ ytdGrossPaySeed: 184000, ytdSeedAsOfDate: new Date('2025-12-20T12:00:00.000Z') })],
+      yearRecords: [record('2026-05-08', { grossPay: 1000, taxableWages: 1000 })],
+    });
+
+    expect(result.lines.line5aSocialSecurityWages).toBe(1000);
   });
 
   it('falls back to gross pay when taxable wages are absent', () => {

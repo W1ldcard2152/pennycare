@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/payrollCalculations';
+import { calculatePayroll } from '@/lib/payrollCalculations';
+import { buildPayrollInput, payrollEmployeeInclude } from '@/lib/payroll-input';
 import { requireCompanyAccess } from '@/lib/api-utils';
-import { startOfDay, endOfDay } from '@/lib/date-utils';
+import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
 // GET /api/payroll/preview - Generate payroll preview
 export async function GET(request: NextRequest) {
@@ -13,8 +14,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    // The pay date picks the tax year / YTD window. Defaults to the period end,
+    // which is what Run Payroll submits when processing.
+    const payDate = searchParams.get('payDate') || endDate;
 
-    if (!startDate || !endDate) {
+    if (!startDate || !endDate || !payDate) {
       return NextResponse.json(
         { error: 'startDate and endDate are required' },
         { status: 400 }
@@ -32,134 +36,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get all active employees with their deductions
+    // Same employee load as /api/payroll/process, so preview and process
+    // compute identical numbers (preview used to count voided records in YTD).
     const employees = await prisma.employee.findMany({
       where: {
         companyId: companyId!,
         isActive: true,
       },
-      include: {
-        timeEntries: {
-          where: {
-            date: {
-              gte: startOfDay(startDate),
-              lte: endOfDay(endDate),
-            },
-          },
-        },
-        payrollRecords: {
-          where: {
-            payPeriodEnd: {
-              lt: startOfDay(startDate),
-            },
-          },
-          orderBy: {
-            payPeriodEnd: 'desc',
-          },
-        },
-        deductions: {
-          where: {
-            isActive: true,
-          },
-        },
-      },
+      include: payrollEmployeeInclude({
+        from: startOfDay(startDate),
+        to: endOfDay(endDate),
+        periodStart: parseBusinessDate(startDate),
+      }),
     });
+
+    const payDateParsed = parseBusinessDate(payDate);
 
     const preview = employees
       .map((employee) => {
         const isSalaried = employee.payType === 'salary';
+        const built = buildPayrollInput(employee, company, payDateParsed);
+        if (built.skip) return null;
 
-        // For hourly employees, sum up time entries
-        let regularHours = 0;
-        let overtimeHours = 0;
-        let hourlyRate = employee.hourlyRate || 0;
-
-        if (isSalaried) {
-          // Salaried employees: Calculate weekly pay as annualSalary / 52
-          // Use 40 hours as standard week, rate = weekly salary / 40
-          const weeklyPay = (employee.annualSalary || 0) / 52;
-          regularHours = 40; // Standard work week
-          hourlyRate = weeklyPay / 40;
-          overtimeHours = 0; // Salaried employees typically don't get OT
-        } else {
-          // Hourly employees: Use time entries
-          regularHours = employee.timeEntries.reduce(
-            (sum, e) => sum + e.hoursWorked,
-            0
-          );
-          overtimeHours = employee.timeEntries.reduce(
-            (sum, e) => sum + e.overtimeHours,
-            0
-          );
-
-          // Skip hourly employees with no hours
-          if (regularHours === 0 && overtimeHours === 0) {
-            return null;
-          }
-        }
-
-        // Calculate YTD totals for wage base limits.
-        // Records to include = records with payPeriodEnd strictly after the cutoff,
-        // where cutoff = max(ytdSeedAsOfDate, start-of-current-year). This prevents
-        // (a) double-counting wages already covered by the seed and (b) pulling in
-        // prior-year records since wage-base caps reset each January 1.
-        const yearStart = new Date(Date.UTC(new Date(startDate).getUTCFullYear(), 0, 1));
-        const seedAsOf = employee.ytdSeedAsOfDate;
-        const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
-        const ytdRecords = employee.payrollRecords.filter(
-          (r) => r.payPeriodEnd > cutoff
-        );
-        const ytdGrossPay =
-          (employee.ytdGrossPaySeed || 0) +
-          ytdRecords.reduce((sum, r) => sum + r.grossPay, 0);
-        const ytdSocialSecurity =
-          (employee.ytdSocialSecuritySeed || 0) +
-          ytdRecords.reduce((sum, r) => sum + r.socialSecurity, 0);
-        const ytdMedicare =
-          (employee.ytdMedicareSeed || 0) +
-          ytdRecords.reduce((sum, r) => sum + r.medicare, 0);
-
-        // Map employee deductions to calculation input format
-        const deductions: EmployeeDeductionInput[] = employee.deductions.map((d) => ({
-          deductionType: d.deductionType,
-          name: d.name,
-          amountType: d.amountType as 'fixed' | 'percentage',
-          amount: d.amount,
-          preTax: d.preTax,
-          annualLimit: d.annualLimit,
-          ytdAmount: d.ytdAmount,
-        }));
-
-        // Prepare calculation input
-        const input: PayrollInput = {
-          regularHours,
-          overtimeHours,
-          hourlyRate,
-          overtimeMultiplier: company.overtimeMultiplier,
-          w4FormType: employee.w4FormType,
-          w4FilingStatus: employee.w4FilingStatus,
-          w4Allowances: employee.w4Allowances,
-          additionalWithholding: employee.additionalWithholding,
-          federalTaxability: employee.federalTaxability,
-          stateTaxability: employee.stateTaxability,
-          socialSecurityTaxability: employee.socialSecurityTaxability,
-          medicareTaxability: employee.medicareTaxability,
-          unemploymentTaxability: employee.unemploymentTaxability,
-          disabilityTaxability: employee.disabilityTaxability,
-          paidFamilyLeaveTaxability: employee.paidFamilyLeaveTaxability,
-          nycResident: employee.nycResident || false,
-          yonkersResident: employee.yonkersResident || false,
-          taxYear: yearStart.getUTCFullYear(),
-          ytdGrossPay,
-          ytdSocialSecurity,
-          ytdMedicare,
-          suiRate: company.suiRate || 0,
-          futaRate: company.futaRate || 0.6,
-          deductions,
-        };
-
-        // Calculate payroll
-        const result = calculatePayroll(input);
+        const result = calculatePayroll(built.input);
+        result.warnings = [...built.warnings, ...result.warnings];
 
         return {
           employeeId: employee.id,
@@ -169,8 +69,8 @@ export async function GET(request: NextRequest) {
           payType: employee.payType,
           hourlyRate: isSalaried ? null : employee.hourlyRate,
           annualSalary: isSalaried ? employee.annualSalary : null,
-          regularHours: isSalaried ? null : regularHours,
-          overtimeHours: isSalaried ? null : overtimeHours,
+          regularHours: isSalaried ? null : built.regularHours,
+          overtimeHours: isSalaried ? null : built.overtimeHours,
           grossPay: result.grossPay,
           netPay: result.netPay,
           totalDeductions: result.totalDeductions,

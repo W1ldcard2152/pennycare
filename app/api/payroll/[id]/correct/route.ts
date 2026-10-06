@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { calculatePayroll, PayrollInput, EmployeeDeductionInput } from '@/lib/payrollCalculations';
+import { calculatePayroll } from '@/lib/payrollCalculations';
+import {
+  buildPayrollInput,
+  deductionColumns,
+  deductionYtdUpdates,
+  payrollEmployeeInclude,
+  planDeductionReversal,
+  reverseDeductionYtd,
+} from '@/lib/payroll-input';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { correctPayrollSchema, validateRequest } from '@/lib/validation';
 import { logAudit } from '@/lib/audit';
@@ -56,122 +64,29 @@ export async function POST(
 
     const employee = await prisma.employee.findUnique({
       where: { id: original.employeeId },
-      include: {
-        timeEntries: {
-          where: {
-            date: {
-              gte: original.payPeriodStart,
-              lte: original.payPeriodEnd,
-            },
-          },
-        },
-        payrollRecords: {
-          where: {
-            payPeriodEnd: { lt: original.payPeriodStart },
-            status: 'active',
-          },
-          orderBy: { payPeriodEnd: 'desc' },
-        },
-        deductions: { where: { isActive: true } },
-        paymentInfo: true,
-      },
+      include: payrollEmployeeInclude({
+        from: original.payPeriodStart,
+        to: original.payPeriodEnd,
+        periodStart: original.payPeriodStart,
+      }),
     });
 
     if (!employee) {
       return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     }
 
-    const isSalaried = employee.payType === 'salary';
-    let regularHours = 0;
-    let overtimeHours = 0;
-    let hourlyRate = employee.hourlyRate || 0;
-
-    if (isSalaried) {
-      const weeklyPay = (employee.annualSalary || 0) / 52;
-      regularHours = 40;
-      hourlyRate = weeklyPay / 40;
-    } else {
-      regularHours = employee.timeEntries.reduce((sum, e) => sum + e.hoursWorked, 0);
-      overtimeHours = employee.timeEntries.reduce((sum, e) => sum + e.overtimeHours, 0);
-    }
-
-    // YTD totals — only count records strictly after the cutoff to avoid
-    // double-counting seed history or pulling in prior-year records.
-    const yearStart = new Date(Date.UTC(original.payPeriodStart.getUTCFullYear(), 0, 1));
-    const seedAsOf = employee.ytdSeedAsOfDate;
-    const cutoff = seedAsOf && seedAsOf > yearStart ? seedAsOf : yearStart;
-    const ytdRecords = employee.payrollRecords.filter(
-      (r) => r.payPeriodEnd > cutoff
-    );
-    const ytdGrossPay =
-      (employee.ytdGrossPaySeed || 0) +
-      ytdRecords.reduce((sum, r) => sum + r.grossPay, 0);
-    const ytdSocialSecurity =
-      (employee.ytdSocialSecuritySeed || 0) +
-      ytdRecords.reduce((sum, r) => sum + r.socialSecurity, 0);
-    const ytdMedicare =
-      (employee.ytdMedicareSeed || 0) +
-      ytdRecords.reduce((sum, r) => sum + r.medicare, 0);
-    const ytdFederalTax =
-      (employee.ytdFederalIncomeTaxSeed || 0) +
-      ytdRecords.reduce((sum, r) => sum + r.federalTax, 0);
-    const ytdStateTax =
-      (employee.ytdStateIncomeTaxSeed || 0) +
-      ytdRecords.reduce((sum, r) => sum + r.stateTax, 0);
-    const ytdNetPay = ytdRecords.reduce((sum, r) => sum + r.netPay, 0);
-
-    const deductions: EmployeeDeductionInput[] = employee.deductions.map((d) => ({
-      deductionType: d.deductionType,
-      name: d.name,
-      amountType: d.amountType as 'fixed' | 'percentage',
-      amount: d.amount,
-      preTax: d.preTax,
-      annualLimit: d.annualLimit,
-      ytdAmount: d.ytdAmount,
-    }));
-
-    const input: PayrollInput = {
-      regularHours,
-      overtimeHours,
-      hourlyRate,
-      overtimeMultiplier: company.overtimeMultiplier,
-      w4FormType: employee.w4FormType,
-      w4FilingStatus: employee.w4FilingStatus,
-      w4Allowances: employee.w4Allowances,
-      additionalWithholding: employee.additionalWithholding,
-      federalTaxability: employee.federalTaxability,
-      stateTaxability: employee.stateTaxability,
-      socialSecurityTaxability: employee.socialSecurityTaxability,
-      medicareTaxability: employee.medicareTaxability,
-      unemploymentTaxability: employee.unemploymentTaxability,
-      disabilityTaxability: employee.disabilityTaxability,
-      paidFamilyLeaveTaxability: employee.paidFamilyLeaveTaxability,
-      nycResident: employee.nycResident || false,
-      yonkersResident: employee.yonkersResident || false,
-      taxYear: yearStart.getUTCFullYear(),
-      ytdGrossPay,
-      ytdSocialSecurity,
-      ytdMedicare,
-      suiRate: company.suiRate || 0,
-      futaRate: company.futaRate || 0.6,
-      deductions,
-    };
-
-    const result = calculatePayroll(input);
-
-    // Create the correction record
-    const preTax401k = result.preTaxDeductions.filter((d) => d.type === '401k').reduce((s, d) => s + d.amount, 0);
-    const preTaxHealthIns = result.preTaxDeductions.filter((d) => d.type === 'health_insurance').reduce((s, d) => s + d.amount, 0);
-    const preTaxDental = result.preTaxDeductions.filter((d) => d.type === 'dental').reduce((s, d) => s + d.amount, 0);
-    const preTaxVision = result.preTaxDeductions.filter((d) => d.type === 'vision').reduce((s, d) => s + d.amount, 0);
-    const preTaxHSA = result.preTaxDeductions.filter((d) => d.type === 'hsa').reduce((s, d) => s + d.amount, 0);
-    const preTaxFSA = result.preTaxDeductions.filter((d) => d.type === 'fsa').reduce((s, d) => s + d.amount, 0);
-    const preTaxOther = result.preTaxDeductions.filter((d) => !['401k', 'health_insurance', 'dental', 'vision', 'hsa', 'fsa'].includes(d.type)).reduce((s, d) => s + d.amount, 0);
-    const postTaxRoth401k = result.postTaxDeductions.filter((d) => d.type === '401k_roth').reduce((s, d) => s + d.amount, 0);
-    const garnishments = result.postTaxDeductions.filter((d) => d.type === 'garnishment').reduce((s, d) => s + d.amount, 0);
-    const childSupport = result.postTaxDeductions.filter((d) => d.type === 'child_support').reduce((s, d) => s + d.amount, 0);
-    const loanRepayments = result.postTaxDeductions.filter((d) => d.type === 'loan_repayment').reduce((s, d) => s + d.amount, 0);
-    const postTaxOther = result.postTaxDeductions.filter((d) => !['401k_roth', 'garnishment', 'child_support', 'loan_repayment'].includes(d.type)).reduce((s, d) => s + d.amount, 0);
+    // Same input builder as preview/process, on the original pay date. The
+    // deduction YTD on file still includes the original record's amounts;
+    // the transaction below reverses those before applying the new ones, so
+    // the builder sees deductions with the original backed out (same plan
+    // reverseDeductionYtd applies — oldest deduction first).
+    const taxYear = original.payDate.getUTCFullYear();
+    const oldestFirst = [...employee.deductions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const takeById = planDeductionReversal(oldestFirst, original);
+    const deductionsBeforeOriginal = oldestFirst.map((d) => ({ ...d, ytdAmount: d.ytdAmount - (takeById.get(d.id) || 0) }));
+    const built = buildPayrollInput({ ...employee, deductions: deductionsBeforeOriginal }, company, original.payDate);
+    const result = calculatePayroll(built.input);
+    const { ytd } = built;
 
     // Void original + reverse original YTD + create correction + apply new YTD,
     // all in one transaction.
@@ -187,29 +102,7 @@ export async function POST(
       });
 
       // Reverse YTD deduction amounts from the original
-      const deductionTypes = new Map<string, number>();
-      if (original.preTax401k > 0) deductionTypes.set('401k', original.preTax401k);
-      if (original.preTaxHealthIns > 0) deductionTypes.set('health_insurance', original.preTaxHealthIns);
-      if (original.preTaxDental > 0) deductionTypes.set('dental', original.preTaxDental);
-      if (original.preTaxVision > 0) deductionTypes.set('vision', original.preTaxVision);
-      if (original.preTaxHSA > 0) deductionTypes.set('hsa', original.preTaxHSA);
-      if (original.preTaxFSA > 0) deductionTypes.set('fsa', original.preTaxFSA);
-      if (original.postTaxRoth401k > 0) deductionTypes.set('401k_roth', original.postTaxRoth401k);
-      if (original.garnishments > 0) deductionTypes.set('garnishment', original.garnishments);
-      if (original.childSupport > 0) deductionTypes.set('child_support', original.childSupport);
-      if (original.loanRepayments > 0) deductionTypes.set('loan_repayment', original.loanRepayments);
-
-      for (const [deductionType, amount] of deductionTypes) {
-        const employeeDeductions = await tx.employeeDeduction.findMany({
-          where: { employeeId: original.employeeId, deductionType, isActive: true },
-        });
-        for (const ded of employeeDeductions) {
-          await tx.employeeDeduction.update({
-            where: { id: ded.id },
-            data: { ytdAmount: Math.max(0, ded.ytdAmount - amount) },
-          });
-        }
-      }
+      await reverseDeductionYtd(tx, original);
 
       const correctionRecord = await tx.payrollRecord.create({
       data: {
@@ -219,14 +112,15 @@ export async function POST(
         payPeriodStart: original.payPeriodStart,
         payPeriodEnd: original.payPeriodEnd,
         payDate: original.payDate,
-        regularHours,
-        overtimeHours,
+        regularHours: built.regularHours,
+        overtimeHours: built.overtimeHours,
         regularPay: result.regularPay,
         overtimePay: result.overtimePay,
         otherEarnings: 0,
         grossPay: result.grossPay,
-        preTax401k, preTaxHealthIns, preTaxDental, preTaxVision, preTaxHSA, preTaxFSA, preTaxOther,
+        ...deductionColumns(result),
         totalPreTaxDeductions: result.totalPreTaxDeductions,
+        totalPostTaxDeductions: result.totalPostTaxDeductions,
         taxableWages: result.taxableWages,
         federalTax: result.federalIncomeTax,
         stateTax: result.stateIncomeTax,
@@ -237,8 +131,6 @@ export async function POST(
         nySDI: result.nySDI,
         nyPFL: result.nyPFL,
         totalTaxWithholdings: result.totalTaxWithholdings,
-        postTaxRoth401k, garnishments, childSupport, loanRepayments, postTaxOther,
-        totalPostTaxDeductions: result.totalPostTaxDeductions,
         totalDeductions: result.totalDeductions,
         netPay: result.netPay,
         employerSocialSecurity: result.socialSecurityEmployer,
@@ -248,12 +140,12 @@ export async function POST(
         employerWorkersComp: 0,
         employerHealthIns: 0,
         totalEmployerCost: result.totalEmployerCost,
-        ytdGrossPay: ytdGrossPay + result.grossPay,
-        ytdFederalTax: ytdFederalTax + result.federalIncomeTax,
-        ytdStateTax: ytdStateTax + result.stateIncomeTax,
-        ytdSocialSecurity: ytdSocialSecurity + result.socialSecurityEmployee,
-        ytdMedicare: ytdMedicare + result.medicareEmployee,
-        ytdNetPay: ytdNetPay + result.netPay,
+        ytdGrossPay: ytd.grossPay + result.grossPay,
+        ytdFederalTax: ytd.federalTax + result.federalIncomeTax,
+        ytdStateTax: ytd.stateTax + result.stateIncomeTax,
+        ytdSocialSecurity: ytd.socialSecurity + result.socialSecurityEmployee,
+        ytdMedicare: ytd.medicare + result.medicareEmployee,
+        ytdNetPay: ytd.netPay + result.netPay,
         paymentMethod: employee.paymentInfo?.paymentMethod || 'check',
         isPaid: false,
         status: 'active',
@@ -262,16 +154,17 @@ export async function POST(
       },
       });
 
-      // Update YTD amounts on employee deductions for the new record
-      for (const ded of employee.deductions) {
-        const deductionResult = [...result.preTaxDeductions, ...result.postTaxDeductions]
-          .find((d) => d.type === ded.deductionType);
-        if (deductionResult) {
-          await tx.employeeDeduction.update({
-            where: { id: ded.id },
-            data: { ytdAmount: ded.ytdAmount + deductionResult.amount },
-          });
-        }
+      // Apply the correction's deductions on top of the reversed YTD. Re-read
+      // inside the transaction: reverseDeductionYtd just changed these rows.
+      const current = await tx.employeeDeduction.findMany({
+        where: { employeeId: employee.id, isActive: true },
+        select: { id: true, ytdAmount: true, ytdYear: true },
+      });
+      for (const upd of deductionYtdUpdates(current, result, taxYear)) {
+        await tx.employeeDeduction.update({
+          where: { id: upd.id },
+          data: { ytdAmount: upd.ytdAmount, ytdYear: upd.ytdYear },
+        });
       }
 
       return correctionRecord;

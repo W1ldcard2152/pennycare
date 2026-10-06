@@ -43,7 +43,7 @@
  * wrong return. Unknown years fall back to the nearest year present, and the
  * caller surfaces that as a warning.
  */
-import { NY_RSF_RATE, NY_SUI_WAGE_BASE_BY_YEAR, getNySuiWageBase } from './payrollCalculations';
+import { NY_RSF_RATE, NY_SUI_WAGE_BASE_BY_YEAR, getNySuiWageBase, seedAppliesToYear } from './payrollCalculations';
 
 export { NY_RSF_RATE, NY_SUI_WAGE_BASE_BY_YEAR, getNySuiWageBase };
 
@@ -239,7 +239,7 @@ export function buildNys45(input: Nys45Input): Nys45Result {
 
   // Records at or before the seed cutoff are already represented inside
   // ytdGrossPaySeed; counting them again would double-consume the wage base.
-  // Mirrors the cutoff logic in app/api/payroll/process/route.ts.
+  // Mirrors the cutoff logic in lib/payroll-input.ts.
   const yearStart = new Date(Date.UTC(year, 0, 1));
   const seedCutoff = new Map<string, Date>();
   for (const e of employees) {
@@ -252,10 +252,12 @@ export function buildNys45(input: Nys45Input): Nys45Result {
     if (!employee) continue;
 
     // Seed the ladder with wages a prior payroll service already reported this
-    // year. The seed always applies; ytdSeedAsOfDate only decides which of our
+    // year. The seed applies to the year of its as-of date (seedAppliesToYear,
+    // the same rule payroll used); ytdSeedAsOfDate also decides which of our
     // own records are additive on top of it.
     if (!ytdGross.has(employee.id)) {
-      ytdGross.set(employee.id, employee.ytdGrossPaySeed || 0);
+      const seedApplies = seedAppliesToYear(employee.ytdSeedAsOfDate, year);
+      ytdGross.set(employee.id, seedApplies ? employee.ytdGrossPaySeed || 0 : 0);
     }
 
     const covered = isUiCovered(employee.unemploymentTaxability);

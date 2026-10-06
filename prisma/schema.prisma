@@ -210,6 +210,11 @@ model Employee {
   w4FilingStatus    String?  // "single", "married", "head_of_household"
   w4Allowances      Int?     // For 2019 & prior forms
   additionalWithholding Float?
+  // 2020+ W-4 Steps 2–4 (Pub 15-T Worksheet 1A). Annual amounts as written on the form.
+  w4Step2Checked    Boolean  @default(false) // Step 2(c) multiple jobs / spouse works
+  w4DependentsCredit Float   @default(0)     // Step 3 total
+  w4OtherIncome     Float    @default(0)     // Step 4(a)
+  w4Deductions      Float    @default(0)     // Step 4(b)
   additionalWithholdingPercentage Float?
   overrideAmount    Float?
   overridePercentage Float?
@@ -372,6 +377,7 @@ model EmployeeDeduction {
   // Limits
   annualLimit   Float?   // Annual max (e.g., $23,000 for 401k in 2026)
   ytdAmount     Float    @default(0) // Year-to-date total deducted
+  ytdYear       Int?     // Calendar (pay-date) year ytdAmount belongs to; a run in a later year starts it over. Null = legacy, assumed current.
 
   // For garnishments
   caseNumber    String?  // Court case number for garnishments

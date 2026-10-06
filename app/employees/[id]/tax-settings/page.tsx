@@ -9,6 +9,10 @@ interface TaxSettings {
   w4FormType?: string;
   w4FilingStatus?: string;
   w4Allowances?: number;
+  w4Step2Checked?: boolean;
+  w4DependentsCredit?: number;
+  w4OtherIncome?: number;
+  w4Deductions?: number;
   additionalWithholding?: number;
   additionalWithholdingPercentage?: number;
   overrideAmount?: number;
@@ -66,9 +70,15 @@ export default function TaxSettingsPage() {
 
       // Populate settings from employee data
       setSettings({
-        w4FormType: data.w4FormType || '2019_prior',
+        // A blank form type is calculated as a 2020+ W-4, so show it that way;
+        // defaulting to "2019 & Prior" here silently switched the method on save.
+        w4FormType: data.w4FormType || '2020_later',
         w4FilingStatus: data.w4FilingStatus || 'single',
         w4Allowances: data.w4Allowances ?? 0,
+        w4Step2Checked: data.w4Step2Checked ?? false,
+        w4DependentsCredit: data.w4DependentsCredit ?? 0,
+        w4OtherIncome: data.w4OtherIncome ?? 0,
+        w4Deductions: data.w4Deductions ?? 0,
         additionalWithholding: data.additionalWithholding,
         additionalWithholdingPercentage: data.additionalWithholdingPercentage,
         overrideAmount: data.overrideAmount,
@@ -78,9 +88,11 @@ export default function TaxSettingsPage() {
         socialSecurityTaxability: data.socialSecurityTaxability || 'taxable',
         medicareTaxability: data.medicareTaxability || 'taxable',
 
-        stateFilingStatus: data.stateFilingStatus || 'single',
+        // No IT-2104 on file → prefill with what payroll currently uses (the
+        // federal W-4 values), so saving this page doesn't change NY withholding.
+        stateFilingStatus: data.stateFilingStatus || (data.w4FilingStatus === 'married' ? 'married' : 'single'),
         stateResidency: data.stateResidency || 'resident',
-        stateAllowances: data.stateAllowances ?? 0,
+        stateAllowances: data.stateAllowances ?? (data.stateFilingStatus ? 0 : data.w4Allowances ?? 0),
         stateTaxability: data.stateTaxability || 'taxable',
 
         unemploymentTaxability: data.unemploymentTaxability || 'taxable',
@@ -227,22 +239,83 @@ export default function TaxSettingsPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Number of Allowances
-                </label>
-                <input
-                  type="number"
-                  value={settings.w4Allowances ?? 0}
-                  onChange={(e) => setSettings({ ...settings, w4Allowances: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  min="0"
-                />
-              </div>
+              {settings.w4FormType === '2019_prior' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Total Number of Allowances
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.w4Allowances ?? 0}
+                    onChange={(e) => setSettings({ ...settings, w4Allowances: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={settings.w4Step2Checked ?? false}
+                        onChange={(e) => setSettings({ ...settings, w4Step2Checked: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      Step 2(c) checked — multiple jobs or spouse works
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Step 3 — Claim dependents (annual total)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={settings.w4DependentsCredit || ''}
+                      onChange={(e) => setSettings({ ...settings, w4DependentsCredit: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Step 4(a) — Other income (annual)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={settings.w4OtherIncome || ''}
+                      onChange={(e) => setSettings({ ...settings, w4OtherIncome: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Step 4(b) — Deductions (annual)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={settings.w4Deductions || ''}
+                      onChange={(e) => setSettings({ ...settings, w4Deductions: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Additional Amount
+                  {settings.w4FormType === '2019_prior' ? 'Additional Amount' : 'Step 4(c) — Extra withholding per pay period'}
                 </label>
                 <input
                   type="number"
@@ -333,7 +406,8 @@ export default function TaxSettingsPage() {
 
           {/* State Tax Settings */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">New York State Income Tax</h2>
+            <h2 className="text-xl font-semibold mb-1">New York State Income Tax</h2>
+            <p className="text-sm text-gray-600 mb-4">From the employee&apos;s Form IT-2104 — NY withholding uses these, not the federal W-4.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
