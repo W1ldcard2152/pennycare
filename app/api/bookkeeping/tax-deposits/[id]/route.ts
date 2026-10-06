@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
 import { voidEntry } from '@/lib/journal-entry-service';
-import { validateRequest, voidTaxDepositSchema } from '@/lib/validation';
+import { changeTaxDepositPeriodSchema, validateRequest, voidTaxDepositSchema } from '@/lib/validation';
 
 // GET /api/bookkeeping/tax-deposits/[id]
 export async function GET(
@@ -36,6 +36,65 @@ export async function GET(
   } catch (err) {
     console.error('Error fetching tax deposit:', err);
     return NextResponse.json({ error: 'Failed to fetch tax deposit' }, { status: 500 });
+  }
+}
+
+// PATCH /api/bookkeeping/tax-deposits/[id] — change the tax period a deposit
+// pays for. Body: { taxPeriodYear, taxPeriodQuarter }.
+//
+// The period decides which quarter's liability the payment counts against
+// (lib/tax-liability.ts, and line 13 / line 15 on the returns), so a deposit
+// recorded under the wrong quarter makes one quarter look unpaid and another
+// overpaid. Only the TaxDeposit row changes: its journal entry is dated when
+// the money moved and stays as booked (its memo keeps the original period).
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { error, companyId, session } = await requireCompanyAccess('BOOKKEEPER');
+    if (error) return error;
+
+    const { id } = await params;
+    const existing = await prisma.taxDeposit.findFirst({
+      where: { id, companyId: companyId! },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Tax deposit not found' }, { status: 404 });
+    }
+    if (existing.status !== 'recorded') {
+      return NextResponse.json({ error: 'Only recorded deposits can be changed' }, { status: 400 });
+    }
+
+    const validation = validateRequest(changeTaxDepositPeriodSchema, await request.json().catch(() => ({})));
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validation.errors },
+        { status: 400 }
+      );
+    }
+    const { taxPeriodYear, taxPeriodQuarter } = validation.data;
+
+    const updated = await prisma.taxDeposit.update({
+      where: { id },
+      data: { taxPeriodYear, taxPeriodQuarter },
+    });
+
+    await logAudit({
+      companyId: companyId!,
+      userId: session!.userId,
+      action: 'tax_deposit.change_period',
+      entityType: 'TaxDeposit',
+      entityId: id,
+      before: { taxPeriodYear: existing.taxPeriodYear, taxPeriodQuarter: existing.taxPeriodQuarter },
+      after: { taxPeriodYear, taxPeriodQuarter },
+      metadata: { taxAuthority: existing.taxAuthority, totalAmount: existing.totalAmount },
+    });
+
+    return NextResponse.json(updated);
+  } catch (err) {
+    console.error('Error changing tax deposit period:', err);
+    return NextResponse.json({ error: 'Failed to change tax deposit period' }, { status: 500 });
   }
 }
 

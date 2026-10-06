@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, Suspense } from 'react';
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -12,6 +12,15 @@ import {
   ExclamationTriangleIcon,
   BuildingOffice2Icon,
 } from '@heroicons/react/24/outline';
+import { FORM941_LINE_DEFS } from '@/lib/tax-return-values';
+import {
+  FileReturnModal,
+  ReturnAmount,
+  ReturnEditorBar,
+  ReturnEditorProvider,
+  useReturnEditor,
+  type EditorPayload,
+} from '@/components/tax-forms/ReturnEditor';
 
 interface Form941Data {
   company: {
@@ -101,7 +110,9 @@ interface Form941Data {
     totalLiability: number | null;
     totalDeposits: number | null;
     balanceDue: number | null;
+    adjustmentEntry: { id: string; entryNumber: number; status: string } | null;
   } | null;
+  editor: EditorPayload;
   recordCount: number;
 }
 
@@ -149,6 +160,48 @@ function formatDate(dateStr: string): string {
   });
 }
 
+/** Readable name for a line key — used by the "payroll changed since filing" note. */
+function lineLabel(key: string): string {
+  if (key.startsWith('month')) return 'line 16';
+  return key.replace('line', 'line ').replace(/(Wages|Tax)$/, '');
+}
+
+/** One Part 1 line; the amount is editable while the return is being edited. */
+function Line941({
+  line,
+  label,
+  k,
+  hint,
+  emphasis,
+}: {
+  line: string;
+  label: React.ReactNode;
+  k: string;
+  hint?: React.ReactNode;
+  emphasis?: 'blue' | 'red' | 'amber';
+}) {
+  const tone =
+    emphasis === 'blue'
+      ? 'border-t-2 border-gray-300 bg-blue-50'
+      : emphasis === 'red'
+        ? 'border-t-2 border-gray-300 bg-red-50'
+        : emphasis === 'amber'
+          ? 'border-t-2 border-gray-300 bg-amber-50'
+          : '';
+  return (
+    <tr className={tone}>
+      <td className="py-3 text-sm text-gray-500 w-20 align-top">{line}</td>
+      <td className="py-3 text-sm text-gray-900 align-top">
+        {label}
+        {hint && <div className="mt-0.5 text-xs text-gray-500">{hint}</div>}
+      </td>
+      <td className="py-3 text-right align-top whitespace-nowrap">
+        <ReturnAmount k={k} bold={emphasis !== undefined} />
+      </td>
+    </tr>
+  );
+}
+
 function Form941Content() {
   const searchParams = useSearchParams();
   const fallback = getDefaultPeriod();
@@ -161,24 +214,6 @@ function Form941Content() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilingModal, setShowFilingModal] = useState(false);
-  const [showNoDepositsWarning, setShowNoDepositsWarning] = useState(false);
-  const [acknowledgedNoDeposits, setAcknowledgedNoDeposits] = useState(false);
-
-  // Gate the Mark Filed action when the form shows a real quarterly liability
-  // but no deposits are recorded in the books — books and filing would diverge
-  // silently otherwise. See the audit trail's tax_filing.mark_filed_without_deposits
-  // action for any cases the user chose to file anyway.
-  const handleMarkFiledClick = () => {
-    if (!data) return;
-    const hasLiability = data.lines.line12TotalAfterCredits > 0;
-    const noDeposits = data.deposits.length === 0;
-    if (hasLiability && noDeposits) {
-      setShowNoDepositsWarning(true);
-    } else {
-      setAcknowledgedNoDeposits(false);
-      setShowFilingModal(true);
-    }
-  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -203,8 +238,51 @@ function Form941Content() {
     fetchData();
   }, [fetchData]);
 
+  const editor = useReturnEditor({
+    defs: FORM941_LINE_DEFS,
+    payload: data?.editor ?? null,
+    formType: '941',
+    year: selectedYear,
+    quarter: selectedQuarter,
+    onSaved: fetchData,
+  });
+  const v = editor.values;
+  const isFiled = data?.filing?.status === 'filed';
+  // Optional lines are shown when they carry an amount, or while editing so
+  // they can be entered.
+  const show = (key: string) => editor.editing || Math.abs(v[key] ?? 0) >= 0.005;
+  const monthlyMatchesLine12 = useMemo(
+    () => Math.abs((v.monthTotal ?? 0) - (v.line12 ?? 0)) < 0.01,
+    [v]
+  );
+  const scheduleBMatchesLine12 = data
+    ? Math.abs(data.scheduleB.total - (v.line12 ?? 0)) < 0.01
+    : true;
+
+  const handleUnfile = async () => {
+    if (!data?.filing) return;
+    const entry = data.filing.adjustmentEntry;
+    if (
+      !confirm(
+        `Unfile Q${selectedQuarter} ${selectedYear} Form 941? The deadline reminder will return` +
+          (entry && entry.status === 'posted'
+            ? ` and its adjusting journal entry #${entry.entryNumber} will be voided`
+            : '') +
+          '. Your edits are kept as a draft. Payments recorded with the filing are not touched — void them under Tax Deposits if needed.'
+      )
+    )
+      return;
+    const res = await fetch(`/api/tax-filings/${data.filing.id}`, { method: 'DELETE' });
+    if (res.ok) {
+      fetchData();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'Failed to unfile');
+    }
+  };
+
   const handleDownload = () => {
-    window.open(`/api/tax-forms/941?year=${selectedYear}&quarter=${selectedQuarter}`, '_blank');
+    window.open(editor.pdfUrl('/api/tax-forms/941'), '_blank');
   };
 
   const quarterInfo = quarters.find(q => q.value === selectedQuarter);
@@ -335,6 +413,7 @@ function Form941Content() {
 
       {/* Form Preview */}
       {!loading && !error && data && data.recordCount > 0 && (
+        <ReturnEditorProvider editor={editor}>
         <div className="space-y-6">
           {/* Company Info */}
           <div className="rounded-lg border bg-white shadow-sm">
@@ -405,6 +484,14 @@ function Form941Content() {
             </div>
           )}
 
+          <ReturnEditorBar
+            editor={editor}
+            formLabel="Form 941"
+            filed={isFiled}
+            onFileAgain={() => setShowFilingModal(true)}
+            lineLabel={lineLabel}
+          />
+
           {/* Form 941 Lines Preview */}
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="border-b px-6 py-4">
@@ -416,120 +503,73 @@ function Form941Content() {
             <div className="p-6">
               <table className="min-w-full">
                 <tbody className="divide-y divide-gray-200">
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500 w-20 align-top">Line 1</td>
-                    <td className="py-3 text-sm text-gray-900">
-                      Number of employees who received wages
-                      <div className="mt-0.5 text-xs text-gray-500">
+                  <Line941
+                    line="Line 1"
+                    label="Number of employees who received wages"
+                    hint={
+                      <>
                         For the pay period including {formatDate(data.line1ReferenceDate)} — not
                         everyone paid during the quarter.
-                      </div>
-                    </td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{data.lines.line1EmployeeCount}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500 align-top">Line 2</td>
-                    <td className="py-3 text-sm text-gray-900">
-                      Wages, tips, and other compensation
-                      <div className="mt-0.5 text-xs text-gray-500">Gross pay less pre-tax deductions.</div>
-                    </td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{formatCurrency(data.lines.line2Wages)}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500">Line 3</td>
-                    <td className="py-3 text-sm text-gray-900">Federal income tax withheld</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line3FederalTaxWithheld)}</td>
-                  </tr>
-                  <tr className="bg-gray-50">
-                    <td className="py-3 text-sm text-gray-500">Line 5a</td>
-                    <td className="py-3 text-sm text-gray-900">
-                      Taxable Social Security wages
-                      <span className="text-gray-500 ml-2">× 12.4%</span>
-                    </td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.lines.line5aSocialSecurityWages)} → {formatCurrency(data.lines.line5aTax)}
-                    </td>
-                  </tr>
-                  <tr className="bg-gray-50">
-                    <td className="py-3 text-sm text-gray-500">Line 5c</td>
-                    <td className="py-3 text-sm text-gray-900">
-                      Taxable Medicare wages
-                      <span className="text-gray-500 ml-2">× 2.9%</span>
-                    </td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.lines.line5cMedicareWages)} → {formatCurrency(data.lines.line5cTax)}
-                    </td>
-                  </tr>
-                  {data.lines.line5dAdditionalMedicareWages > 0 && (
-                    <tr className="bg-gray-50">
-                      <td className="py-3 text-sm text-gray-500">Line 5d</td>
-                      <td className="py-3 text-sm text-gray-900">
-                        Additional Medicare Tax
-                        <span className="text-gray-500 ml-2">× 0.9%</span>
-                      </td>
-                      <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                        {formatCurrency(data.lines.line5dAdditionalMedicareWages)} → {formatCurrency(data.lines.line5dTax)}
-                      </td>
-                    </tr>
+                      </>
+                    }
+                    k="line1"
+                  />
+                  <Line941
+                    line="Line 2"
+                    label="Wages, tips, and other compensation"
+                    hint="Gross pay less pre-tax deductions."
+                    k="line2"
+                  />
+                  <Line941 line="Line 3" label="Federal income tax withheld" k="line3" />
+                  <Line941 line="Line 5a" label="Taxable Social Security wages (column 1)" k="line5aWages" />
+                  <Line941 line="" label={<span className="text-gray-500">× 12.4% (column 2)</span>} k="line5aTax" />
+                  {(show('line5bWages') || show('line5bTax')) && (
+                    <>
+                      <Line941 line="Line 5b" label="Taxable Social Security tips (column 1)" k="line5bWages" />
+                      <Line941 line="" label={<span className="text-gray-500">× 12.4% (column 2)</span>} k="line5bTax" />
+                    </>
                   )}
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500">Line 5e</td>
-                    <td className="py-3 text-sm text-gray-900">Total Social Security and Medicare taxes</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                      {formatCurrency(data.lines.line5eTotal)}
-                    </td>
-                  </tr>
-                  <tr className="border-t-2 border-gray-300">
-                    <td className="py-3 text-sm text-gray-500">Line 6</td>
-                    <td className="py-3 text-sm text-gray-900">Total taxes before adjustments</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line6TotalBeforeAdjustments)}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500 align-top">Line 7</td>
-                    <td className="py-3 text-sm text-gray-900">
-                      Current quarter&apos;s adjustment for fractions of cents
-                      <div className="mt-0.5 text-xs text-gray-500">
-                        Difference between the rate arithmetic above and the amounts actually
-                        withheld per paycheck.
-                      </div>
-                    </td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right align-top">{formatCurrency(data.lines.line7FractionsOfCents)}</td>
-                  </tr>
-                  <tr className="border-t-2 border-gray-300 bg-blue-50">
-                    <td className="py-3 text-sm font-medium text-blue-900">Line 10</td>
-                    <td className="py-3 text-sm font-medium text-blue-900">Total taxes after adjustments</td>
-                    <td className="py-3 text-lg font-bold text-blue-900 text-right">{formatCurrency(data.lines.line10TotalAfterAdjustments)}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500">Line 12</td>
-                    <td className="py-3 text-sm text-gray-900">Total taxes after adjustments and nonrefundable credits</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line12TotalAfterCredits)}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 text-sm text-gray-500">Line 13</td>
-                    <td className="py-3 text-sm text-gray-900">Total deposits made for this quarter</td>
-                    <td className="py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(data.lines.line13TotalDeposits)}</td>
-                  </tr>
-                  {data.lines.line14BalanceDue > 0 && (
-                    <tr className="border-t-2 border-gray-300 bg-red-50">
-                      <td className="py-3 text-sm font-medium text-red-900">Line 14</td>
-                      <td className="py-3 text-sm font-medium text-red-900">Balance due</td>
-                      <td className="py-3 text-lg font-bold text-red-900 text-right">{formatCurrency(data.lines.line14BalanceDue)}</td>
-                    </tr>
+                  <Line941 line="Line 5c" label="Taxable Medicare wages & tips (column 1)" k="line5cWages" />
+                  <Line941 line="" label={<span className="text-gray-500">× 2.9% (column 2)</span>} k="line5cTax" />
+                  {(show('line5dWages') || show('line5dTax')) && (
+                    <>
+                      <Line941 line="Line 5d" label="Wages subject to Additional Medicare Tax (column 1)" k="line5dWages" />
+                      <Line941 line="" label={<span className="text-gray-500">× 0.9% (column 2)</span>} k="line5dTax" />
+                    </>
                   )}
-                  {data.lines.line15Overpayment > 0 && (
-                    <tr className="border-t-2 border-gray-300 bg-amber-50">
-                      <td className="py-3 text-sm font-medium text-amber-900">Line 15</td>
-                      <td className="py-3 text-sm font-medium text-amber-900">Overpayment</td>
-                      <td className="py-3 text-lg font-bold text-amber-900 text-right">{formatCurrency(data.lines.line15Overpayment)}</td>
-                    </tr>
+                  <Line941 line="Line 5e" label="Total Social Security and Medicare taxes" k="line5e" />
+                  {show('line5f') && (
+                    <Line941 line="Line 5f" label="Section 3121(q) Notice and Demand — tax due on unreported tips" k="line5f" />
                   )}
-                  {data.lines.line14BalanceDue === 0 && data.lines.line15Overpayment === 0 && (
-                    <tr className="border-t-2 border-gray-300 bg-green-50">
-                      <td className="py-3 text-sm font-medium text-green-900">Balance</td>
-                      <td className="py-3 text-sm font-medium text-green-900">Paid in full — no balance due</td>
-                      <td className="py-3 text-lg font-bold text-green-900 text-right">$0.00</td>
-                    </tr>
+                  <Line941 line="Line 6" label="Total taxes before adjustments" hint="Lines 3 + 5e + 5f" k="line6" />
+                  <Line941
+                    line="Line 7"
+                    label="Current quarter's adjustment for fractions of cents"
+                    hint="Difference between the rate arithmetic above and the amounts actually withheld per paycheck."
+                    k="line7"
+                  />
+                  {show('line8') && <Line941 line="Line 8" label="Current quarter's adjustment for sick pay" k="line8" />}
+                  {show('line9') && (
+                    <Line941 line="Line 9" label="Current quarter's adjustments for tips and group-term life insurance" k="line9" />
+                  )}
+                  <Line941 line="Line 10" label="Total taxes after adjustments" k="line10" emphasis="blue" />
+                  {show('line11') && <Line941 line="Line 11" label="Nonrefundable credits" k="line11" />}
+                  <Line941 line="Line 12" label="Total taxes after adjustments and nonrefundable credits" k="line12" />
+                  <Line941
+                    line="Line 13"
+                    label="Total deposits made for this quarter"
+                    hint={`Recorded deposits: ${formatCurrency(data.lines.line13TotalDeposits)}`}
+                    k="line13"
+                  />
+                  {(v.line15 ?? 0) > 0 ? (
+                    <Line941 line="Line 15" label="Overpayment" k="line15" emphasis="amber" />
+                  ) : (
+                    <Line941
+                      line="Line 14"
+                      label={(v.line14 ?? 0) > 0 ? 'Balance due' : 'Balance due — paid in full'}
+                      k="line14"
+                      emphasis={(v.line14 ?? 0) > 0 ? 'red' : 'blue'}
+                    />
                   )}
                 </tbody>
               </table>
@@ -584,8 +624,8 @@ function Form941Content() {
                       <tr key={m.month}>
                         <td className="py-3 text-sm text-gray-500 w-24">Month {m.month}</td>
                         <td className="py-3 text-sm text-gray-900">{m.monthName}</td>
-                        <td className="py-3 text-sm font-medium text-gray-900 text-right">
-                          {formatCurrency(m.liability)}
+                        <td className="py-3 text-right">
+                          <ReturnAmount k={`month${m.month}`} />
                         </td>
                       </tr>
                     ))}
@@ -593,8 +633,8 @@ function Form941Content() {
                       <td className="py-3 text-sm font-medium text-gray-900" colSpan={2}>
                         Total liability for quarter
                       </td>
-                      <td className="py-3 text-sm font-bold text-gray-900 text-right">
-                        {formatCurrency(data.monthlyTotal)}
+                      <td className="py-3 text-right">
+                        <ReturnAmount k="monthTotal" bold />
                       </td>
                     </tr>
                   </tbody>
@@ -628,12 +668,11 @@ function Form941Content() {
               </div>
             )}
 
-            {!data.scheduleB.matchesLine12 && (
+            {(data.line16.reportMonthlyLiabilities ? !monthlyMatchesLine12 : !scheduleBMatchesLine12) && (
               <div className="border-t px-6 py-3">
                 <p className="text-sm text-red-700">
-                  Total liability does not equal line 12 (
-                  {formatCurrency(data.lines.line12TotalAfterCredits)}). The IRS rejects returns
-                  where these disagree — resolve before filing.
+                  Total liability does not equal line 12 ({formatCurrency(v.line12 ?? 0)}). The IRS
+                  rejects returns where these disagree — resolve before filing.
                 </p>
               </div>
             )}
@@ -676,7 +715,7 @@ function Form941Content() {
                       </tr>
                     ))}
                     <tr className="border-t-2 border-gray-300 font-semibold">
-                      <td colSpan={3} className="py-2">Total Deposits (Line 13)</td>
+                      <td colSpan={3} className="py-2">Total Recorded Deposits</td>
                       <td className="py-2 text-right">{formatCurrency(data.lines.line13TotalDeposits)}</td>
                     </tr>
                   </tbody>
@@ -719,11 +758,11 @@ function Form941Content() {
                       </tr>
                     </tbody>
                   </table>
-                  {!data.scheduleB.matchesLine12 && (
+                  {!scheduleBMatchesLine12 && (
                     <div className="mt-3 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                       ⚠ Schedule B total ({formatCurrency(data.scheduleB.total)}) doesn&apos;t match
-                      Line 12 ({formatCurrency(data.lines.line12TotalAfterCredits)}). Review for
-                      voided payrolls or rounding.
+                      Line 12 ({formatCurrency(v.line12 ?? 0)}). Review for voided payrolls or
+                      rounding — or, if you edited the return, Schedule B must be adjusted to match.
                     </div>
                   )}
                 </>
@@ -735,7 +774,7 @@ function Form941Content() {
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="border-b px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Filing Status</h2>
-              {data.filing?.status === 'filed' ? (
+              {isFiled ? (
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-3 py-1 text-xs font-medium">
                     <CheckCircleIcon className="h-4 w-4" />
@@ -743,19 +782,7 @@ function Form941Content() {
                   </span>
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (!data.filing) return;
-                      if (!confirm(
-                        `Unfile Q${selectedQuarter} ${selectedYear} Form 941? The filing record will be removed and the deadline reminder will return. The audit trail keeps the original Mark Filed event.`
-                      )) return;
-                      const res = await fetch(`/api/tax-filings/${data.filing.id}`, { method: 'DELETE' });
-                      if (res.ok) {
-                        fetchData();
-                      } else {
-                        const body = await res.json().catch(() => ({}));
-                        alert(body.error || 'Failed to unfile');
-                      }
-                    }}
+                    onClick={handleUnfile}
                     className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
                     Unfile
@@ -764,7 +791,7 @@ function Form941Content() {
               ) : (
                 <button
                   type="button"
-                  onClick={handleMarkFiledClick}
+                  onClick={() => setShowFilingModal(true)}
                   className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white"
                 >
                   Mark Form 941 Filed
@@ -772,7 +799,7 @@ function Form941Content() {
               )}
             </div>
             <div className="p-6 text-sm">
-              {data.filing?.status === 'filed' ? (
+              {isFiled && data.filing ? (
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <dt className="text-gray-500">Filed Date</dt>
@@ -790,12 +817,28 @@ function Form941Content() {
                     <dt className="text-gray-500">Balance Due at Filing</dt>
                     <dd className="font-medium text-gray-900">{formatCurrency(data.filing.balanceDue || 0)}</dd>
                   </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-gray-500">Books adjustment</dt>
+                    <dd className="font-medium text-gray-900">
+                      {data.filing.adjustmentEntry ? (
+                        <Link
+                          href={`/bookkeeping/journal-entries/${data.filing.adjustmentEntry.id}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Journal entry #{data.filing.adjustmentEntry.entryNumber}
+                        </Link>
+                      ) : (
+                        'None needed — payroll accruals already matched the return'
+                      )}
+                    </dd>
+                  </div>
                 </dl>
               ) : (
                 <p className="text-gray-600">
                   Form 941 has not been recorded as filed for Q{selectedQuarter} {selectedYear}.
-                  Once you submit the form to the IRS, click <strong>Mark Form 941 Filed</strong> to
-                  capture the confirmation # and clear the deadline alert.
+                  Once you submit the form to the IRS, click <strong>Mark Form 941 Filed</strong>.
+                  The return is saved exactly as shown above, your federal payroll tax accounts are
+                  adjusted to match it, and you can record the balance-due payment in the same step.
                 </p>
               )}
             </div>
@@ -808,263 +851,32 @@ function Form941Content() {
               <div>
                 <h3 className="text-sm font-medium text-blue-800">Review Before Filing</h3>
                 <p className="mt-1 text-sm text-blue-700">
-                  The downloaded PDF will be pre-filled with the values shown above. Please review all information
-                  carefully and make any necessary adjustments before filing with the IRS.
+                  The downloaded PDF is filled with the values shown above, including any edits. Please
+                  review all information carefully before filing with the IRS.
                 </p>
               </div>
             </div>
           </div>
         </div>
-      )}
-
-      {showNoDepositsWarning && data && (
-        <NoDepositsWarningModal
-          year={selectedYear}
-          quarter={selectedQuarter}
-          totalLiability={data.lines.line12TotalAfterCredits}
-          onClose={() => setShowNoDepositsWarning(false)}
-          onMarkFiledAnyway={() => {
-            setShowNoDepositsWarning(false);
-            setAcknowledgedNoDeposits(true);
-            setShowFilingModal(true);
-          }}
-        />
+        </ReturnEditorProvider>
       )}
 
       {showFilingModal && data && (
-        <Mark941FiledModal
+        <FileReturnModal
+          formType="941"
+          formLabel="Form 941"
           year={selectedYear}
           quarter={selectedQuarter}
-          totalLiability={data.lines.line12TotalAfterCredits}
-          totalDeposits={data.lines.line13TotalDeposits}
-          balanceDue={data.lines.line12TotalAfterCredits - data.lines.line13TotalDeposits}
-          acknowledgedNoDeposits={acknowledgedNoDeposits}
-          onClose={() => {
-            setShowFilingModal(false);
-            setAcknowledgedNoDeposits(false);
-          }}
+          overrides={editor.overrides}
+          refile={isFiled}
+          hasRecordedDeposits={data.deposits.length > 0}
+          onClose={() => setShowFilingModal(false)}
           onSaved={() => {
             setShowFilingModal(false);
-            setAcknowledgedNoDeposits(false);
             fetchData();
           }}
         />
       )}
-    </div>
-  );
-}
-
-function NoDepositsWarningModal({
-  year,
-  quarter,
-  totalLiability,
-  onClose,
-  onMarkFiledAnyway,
-}: {
-  year: number;
-  quarter: number;
-  totalLiability: number;
-  onClose: () => void;
-  onMarkFiledAnyway: () => void;
-}) {
-  const depositsHref = `/bookkeeping/tax-deposits/new?authority=federal_941&year=${year}&quarter=Q${quarter}`;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-        <div className="flex items-start gap-3">
-          <ExclamationTriangleIcon className="h-6 w-6 flex-shrink-0 text-red-600 mt-0.5" />
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">No deposits recorded in books</h3>
-            <p className="mt-2 text-sm text-gray-700">
-              The Form 941 for <strong>Q{quarter} {year}</strong> shows a total liability of{' '}
-              <strong>{formatCurrency(totalLiability)}</strong>, but no deposit records exist
-              in the books for this quarter.
-            </p>
-            <p className="mt-2 text-sm text-gray-700">
-              If you paid the IRS via EFTPS (or any other method) without recording it here,
-              your books and your filed 941 will not agree — the 941 will show paid in full
-              while the books show the full liability still outstanding. Record the deposit(s)
-              first to keep them in sync.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <Link
-            href={depositsHref}
-            className="rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-sm font-medium text-white"
-          >
-            Record Deposits Now
-          </Link>
-          <button
-            type="button"
-            onClick={onMarkFiledAnyway}
-            className="rounded-md border border-red-300 bg-white hover:bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700"
-          >
-            Mark Filed Anyway
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Mark941FiledModal({
-  year,
-  quarter,
-  totalLiability,
-  totalDeposits,
-  balanceDue,
-  acknowledgedNoDeposits,
-  onClose,
-  onSaved,
-}: {
-  year: number;
-  quarter: number;
-  totalLiability: number;
-  totalDeposits: number;
-  balanceDue: number;
-  acknowledgedNoDeposits: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [filedDate, setFiledDate] = useState(today);
-  const [filingMethod, setFilingMethod] = useState<'EFTPS' | 'IRS e-file' | 'Mail' | 'Other'>('IRS e-file');
-  const [confirmationNumber, setConfirmationNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setErr('');
-    try {
-      const res = await fetch('/api/bookkeeping/tax-filings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          formType: '941',
-          taxPeriodYear: year,
-          taxPeriodQuarter: `Q${quarter}`,
-          filedDate,
-          filingMethod,
-          confirmationNumber: confirmationNumber || null,
-          totalLiability,
-          totalDeposits,
-          balanceDue,
-          notes: notes || null,
-          ...(acknowledgedNoDeposits && { acknowledgedNoDeposits: true }),
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Failed to save filing');
-      }
-      onSaved();
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-900">
-          Mark Form 941 filed — Q{quarter} {year}
-        </h3>
-        <p className="mt-1 text-sm text-gray-600">
-          Records the filing for audit history and clears the deadline alert.
-        </p>
-
-        {err && (
-          <div className="mt-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-            {err}
-          </div>
-        )}
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Filed Date</label>
-            <input
-              type="date"
-              value={filedDate}
-              onChange={(e) => setFiledDate(e.target.value)}
-              required
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Filing Method</label>
-            <select
-              value={filingMethod}
-              onChange={(e) => setFilingMethod(e.target.value as typeof filingMethod)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            >
-              <option value="IRS e-file">IRS e-file</option>
-              <option value="EFTPS">EFTPS</option>
-              <option value="Mail">Mail</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Confirmation # <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={confirmationNumber}
-              onChange={(e) => setConfirmationNumber(e.target.value)}
-              placeholder="e.g. submission ID from IRS"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            />
-          </div>
-          <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700 space-y-1">
-            <div className="flex justify-between"><span>Total liability (Line 10):</span><span>${totalLiability.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span>Total deposits (Line 13):</span><span>${totalDeposits.toFixed(2)}</span></div>
-            <div className="flex justify-between font-medium border-t border-gray-200 pt-1"><span>Balance due:</span><span>${balanceDue.toFixed(2)}</span></div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Notes <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save filing'}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

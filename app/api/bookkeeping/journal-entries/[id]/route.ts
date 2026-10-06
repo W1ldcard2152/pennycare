@@ -25,6 +25,13 @@ export async function GET(
             account: { select: { id: true, code: true, name: true, type: true } },
           },
         },
+        // Live reversal (at most one — see createReversingEntry), and the entry
+        // this one reverses, so the detail page can link both directions.
+        reversedBy: {
+          where: { status: { not: JE_STATUS.VOIDED } },
+          select: { id: true, entryNumber: true },
+        },
+        reversesEntry: { select: { id: true, entryNumber: true } },
       },
     });
 

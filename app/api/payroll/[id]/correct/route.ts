@@ -148,6 +148,7 @@ export async function POST(
       paidFamilyLeaveTaxability: employee.paidFamilyLeaveTaxability,
       nycResident: employee.nycResident || false,
       yonkersResident: employee.yonkersResident || false,
+      taxYear: yearStart.getUTCFullYear(),
       ytdGrossPay,
       ytdSocialSecurity,
       ytdMedicare,

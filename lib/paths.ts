@@ -22,7 +22,7 @@ export function getDataDir(): string {
  *     project root or process.cwd()
  *
  * In Electron mode the main process sets DATABASE_URL to an absolute
- * file: URL pointing at `%APPDATA%/PennyCare/<dbname>`, so the same
+ * file: URL pointing at `%APPDATA%/cvbooks/<dbname>`, so the same
  * parser handles both cases.
  */
 export function getDatabasePath(): string {

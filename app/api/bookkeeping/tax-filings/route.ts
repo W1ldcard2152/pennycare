@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
 import { parseBusinessDate } from '@/lib/date-utils';
-import { createTaxFilingSchema, validateRequest } from '@/lib/validation';
+import { createTaxFilingSchema, fileTaxReturnSchema, validateRequest } from '@/lib/validation';
+import { describeFilingError, fileReturn } from '@/lib/tax-filing-service';
 
 // Map "941" / "940" / "NYS-45" / "W-2" / "W-3" â†’ the existing TaxFiling.formType
 // values used by the reminders banner ("941", "nys45", "940", "w2"). New form
@@ -66,9 +67,13 @@ export async function GET(request: NextRequest) {
 // form filed anyway. We surface that decision in the audit trail under a
 // distinct action so divergences between books and filed returns can be found
 // later.
+//
+// Quarterly 941 / NYS-45 filings carry the filer's line overrides and go
+// through lib/tax-filing-service.ts, which saves the return as filed, trues
+// the liability accounts up to it, and optionally records the payment.
 export async function POST(request: NextRequest) {
   try {
-    const { error, companyId, session } = await requireCompanyAccess('BOOKKEEPER');
+    const { error, companyId, session, role } = await requireCompanyAccess('BOOKKEEPER');
     if (error) return error;
 
     const rawBody = await request.json();
@@ -76,6 +81,41 @@ export async function POST(request: NextRequest) {
     // Strip the flag before zod validation â€” it isn't part of the filing schema.
     const { acknowledgedNoDeposits: _ignore, ...bodyForValidation } = rawBody ?? {};
     void _ignore;
+
+    if (
+      (bodyForValidation.formType === '941' || bodyForValidation.formType === 'NYS-45') &&
+      bodyForValidation.taxPeriodQuarter
+    ) {
+      const validation = validateRequest(fileTaxReturnSchema, bodyForValidation);
+      if (!validation.success) {
+        return NextResponse.json(
+          { error: 'Validation failed', details: validation.errors },
+          { status: 400 }
+        );
+      }
+      const data = validation.data;
+      try {
+        const result = await fileReturn({ userId: session!.userId, role: role! }, companyId!, {
+          formType: data.formType === 'NYS-45' ? 'nys45' : '941',
+          year: data.taxPeriodYear,
+          quarter: quarterToInt(data.taxPeriodQuarter)!,
+          overrides: data.overrides,
+          filedDate: data.filedDate,
+          filingMethod: data.filingMethod,
+          confirmationNumber: data.confirmationNumber ?? null,
+          notes: data.notes ?? null,
+          acknowledgedNoDeposits,
+          payment: data.payment
+            ? { ...data.payment, confirmationNumber: data.payment.confirmationNumber ?? null }
+            : null,
+        });
+        return NextResponse.json(result);
+      } catch (err) {
+        const known = describeFilingError(err);
+        if (known) return NextResponse.json({ error: known.message }, { status: known.status });
+        throw err;
+      }
+    }
 
     const validation = validateRequest(createTaxFilingSchema, bodyForValidation);
     if (!validation.success) {

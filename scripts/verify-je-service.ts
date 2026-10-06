@@ -138,6 +138,17 @@ async function main() {
     check('reversal flips debit↔credit penny-exact',
       revCashLine.debit === origCashLine.credit && revCashLine.credit === origCashLine.debit);
 
+    // 5b. At most one live reversal — a second one, or voiding the reversed
+    // original, would undo the entry twice
+    await expectThrow('second reversal of the same entry rejected', () =>
+      createReversingEntry(apprActor, e1.id, { date: new Date() }));
+    await expectThrow('voiding an already-reversed original rejected', () =>
+      transition(apprActor, e1.id, JE_STATUS.VOIDED, { reason: 'double undo' }));
+    await transition(apprActor, reversal.id, JE_STATUS.VOIDED, { reason: 'undo reversal' });
+    const reversal2 = await createReversingEntry(apprActor, e1.id, { date: new Date() });
+    check('voiding the reversal frees the original to be reversed again',
+      reversal2.status === JE_STATUS.BOOKED && reversal2.reversesEntryId === e1.id);
+
     // 6. Illegal transition rejected; booked entries immutable via updateDraft
     await expectThrow('illegal transition booked→pending rejected', () =>
       transition(apprActor, e1.id, JE_STATUS.PENDING));

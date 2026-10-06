@@ -153,6 +153,11 @@ export const ACCOUNT_CATALOG: CatalogAccount[] = [
   // Expenses — Salaries and wages
   { code: '6000', name: 'Wages & Salaries', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Sch C: Wages paid', description: 'Gross pay to employees', tier: 'business_payroll', group: 'payroll' },
   { code: '6010', name: 'Payroll Tax Expense', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Taxes and licenses', description: "Employer's share of payroll taxes (SS, Medicare, FUTA, SUI)", tier: 'business_payroll', group: 'payroll' },
+  // Absorbs the difference between what payroll accrued and what a filed
+  // 941 / NYS-45 says was owed (lib/tax-filing-service.ts). Deliberately not in
+  // the payroll group: payroll runs never write to it, so it shouldn't gate
+  // them — it is auto-created the first time a filing needs it.
+  { code: '6020', name: 'Payroll Tax Adjustments', type: 'expense', accountGroup: 'Salaries and wages', taxLine: 'Taxes and licenses', description: 'Differences between accrued payroll taxes and the amounts on filed 941 / NYS-45 returns', tier: 'business_payroll' },
 ];
 
 // Functional groups expose related accounts for the onboarding UI and for

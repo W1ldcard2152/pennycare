@@ -37,6 +37,8 @@ interface JournalEntry {
   createdAt: string;
   updatedAt: string;
   lines: JournalEntryLine[];
+  reversedBy?: { id: string; entryNumber: number }[];
+  reversesEntry?: { id: string; entryNumber: number } | null;
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -51,6 +53,7 @@ const SOURCE_COLORS: Record<string, string> = {
   reconciliation: 'bg-indigo-100 text-indigo-700',
   year_end_closing: 'bg-slate-200 text-slate-700',
   tax_deposit: 'bg-cyan-100 text-cyan-700',
+  tax_filing_adjustment: 'bg-cyan-100 text-cyan-700',
   reversal: 'bg-red-100 text-red-700',
   reclassification: 'bg-amber-100 text-amber-700',
 };
@@ -67,6 +70,7 @@ const SOURCE_LABELS: Record<string, string> = {
   reconciliation: 'Reconciliation',
   year_end_closing: 'Year-End Closing',
   tax_deposit: 'Tax Deposit',
+  tax_filing_adjustment: 'Tax Filing Adjustment',
   reversal: 'Reversal',
   reclassification: 'Reclassification',
 };
@@ -285,6 +289,10 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
         return '/payroll';
       case 'opening_balance':
         return `/bookkeeping/accounts/${entry.sourceId}`;
+      case 'reversal':
+        return `/bookkeeping/journal-entries/${entry.sourceId}`;
+      case 'tax_filing_adjustment':
+        return '/bookkeeping/tax-filings';
       default:
         return null;
     }
@@ -404,6 +412,9 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const totalDebits = entry.lines.reduce((sum, l) => sum + l.debit, 0);
   const totalCredits = entry.lines.reduce((sum, l) => sum + l.credit, 0);
   const sourceLink = getSourceLink();
+  // An entry has at most one live reversal (enforced by the JE service); once
+  // it exists, reversing again or voiding would undo the entry twice.
+  const activeReversal = reverseSuccess ?? entry.reversedBy?.[0] ?? null;
 
   return (
     <div className="min-h-screen p-8">
@@ -486,7 +497,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
 
             {/* Action Buttons */}
             {/* Booked entries are immutable: correct via a reversing entry, not edit. */}
-            {entry.status === 'posted' && !editing && (
+            {entry.status === 'posted' && !editing && !activeReversal && (
               <div className="flex gap-2">
                 <button
                   onClick={openReverseModal}
@@ -525,6 +536,22 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               <Link
                 href={`/bookkeeping/journal-entries/${reverseSuccess.id}`}
                 className="text-sm font-medium text-green-700 underline"
+              >
+                View reversal
+              </Link>
+            </div>
+          )}
+
+          {/* Already reversed — point at the live reversal instead of offering actions */}
+          {activeReversal && !reverseSuccess && (
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 flex items-center justify-between">
+              <p className="text-sm text-blue-700">
+                Reversed by entry #{activeReversal.entryNumber}. To reverse or void this entry again,
+                void that reversal first.
+              </p>
+              <Link
+                href={`/bookkeeping/journal-entries/${activeReversal.id}`}
+                className="text-sm font-medium text-blue-700 underline"
               >
                 View reversal
               </Link>

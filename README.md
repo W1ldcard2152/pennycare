@@ -141,7 +141,7 @@ copy backups\cvbooks-2026-02-07.db prisma\prisma\pennycare.db
 
 ### Bookkeeping Models
 - **Account**: Chart of accounts for double-entry bookkeeping
-- **Transaction**: Financial transactions with debit/credit entries
+- **JournalEntry / JournalEntryLine**: Balanced multi-line double-entry journal entries (written only through `lib/journal-entry-service.ts`)
 - **Vendor**: Supplier and vendor information
 - **Expense**: Business expense tracking
 
@@ -191,12 +191,29 @@ testable — see `__tests__/nys45.test.ts` and `__tests__/form941.test.ts`.
 
 ### Deliberately left for the filer
 
-Fields that are declarations or depend on a prior return are never auto-filled:
-NYS-45 lines 7–12 and 14/16/18 and the quarter checkbox (printed artwork, not a
-form field); 941 Parts 3–5 and the line 16 under-$2,500 box, which also depends
-on the prior quarter's line 12. Each builder returns a `warnings` array surfaced
-above the form — including tie-out failures between derived and booked tax, which
-is how a stale wage base or a duplicated pay run gets caught before filing.
+Fields that are declarations or depend on a prior return are not derived from
+payroll: NYS-45 lines 7, 9, 14, 16 and 18 start at zero and the quarter
+checkbox is printed artwork, not a form field; 941 Parts 3–5 and the line 16
+under-$2,500 box, which also depends on the prior quarter's line 12. Each
+builder returns a `warnings` array surfaced above the form — including tie-out
+failures between derived and booked tax, which is how a stale wage base or a
+duplicated pay run gets caught before filing.
+
+### Editing a return, and what filing does to the books
+
+Every line on both form pages is editable, so the return can match what was
+actually filed (NY's online calculator, e-file software). Totals recalculate
+from the lines above them, and any total can be overridden directly. Edits can
+be saved as a draft; the PDF download always reflects what is on screen.
+
+**The filed return is the source of truth for the books.** Marking a return
+filed saves it exactly as shown and posts one journal entry, dated the last day
+of the quarter, that moves each payroll-tax liability account to the filed
+figure, with the net difference in 6020 Payroll Tax Adjustments. The payment can
+be recorded in the same step, after which each account nets to zero. Filing
+again, unfiling or voiding a filing voids that entry. See
+`lib/tax-return-values.ts` (pure, tested in `__tests__/taxReturnValues.test.ts`)
+and `lib/tax-filing-service.ts`.
 
 No Schedule B (Form 941) template ships with the app; semiweekly filers complete
 it from the daily liabilities shown on the page.

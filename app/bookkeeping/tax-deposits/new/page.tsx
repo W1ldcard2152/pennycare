@@ -5,6 +5,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeftIcon, SparklesIcon } from '@heroicons/react/24/outline';
 
+interface PeriodSummary {
+  year: number;
+  quarter: number;
+  accrued: number;
+  paid: number;
+  outstanding: number;
+}
+
+function money(n: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+
 interface Account {
   id: string;
   code: string;
@@ -57,12 +69,19 @@ function num(v: string): number {
 function NewTaxDepositContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar date — toISOString() rolls over to tomorrow after 8pm
+  // Eastern, and with it the default quarter on the last day of one.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   const [authority, setAuthority] = useState<string>(searchParams.get('authority') || 'federal_941');
-  const initialQuarter = searchParams.get('quarter');
-  const [year, setYear] = useState<string>(searchParams.get('year') || String(new Date().getUTCFullYear()));
-  const [quarter, setQuarter] = useState<string>(initialQuarter || `Q${Math.floor(new Date().getUTCMonth() / 3) + 1}`);
+  // An explicit period in the URL (e.g. from a form page) wins; otherwise the
+  // period is picked from what is actually owed once the summary loads.
+  const periodFromUrl = Boolean(searchParams.get('quarter'));
+  const [year, setYear] = useState<string>(searchParams.get('year') || String(now.getFullYear()));
+  const [quarter, setQuarter] = useState<string>(searchParams.get('quarter') || `Q${Math.floor(now.getMonth() / 3) + 1}`);
+  const [periods, setPeriods] = useState<PeriodSummary[] | null>(null);
+  const [periodTouched, setPeriodTouched] = useState(periodFromUrl);
   const [depositDate, setDepositDate] = useState(today);
   const [paymentMethod, setPaymentMethod] = useState<typeof PAYMENT_METHODS[number]>('EFTPS');
   const [confirmationNumber, setConfirmationNumber] = useState('');
@@ -76,6 +95,40 @@ function NewTaxDepositContent() {
 
   const authorityCfg = AUTHORITY_OPTIONS.find((a) => a.value === authority)!;
   const isFederal = authorityCfg.scope === 'federal';
+  const supportsSummary = authority !== 'federal_940';
+
+  // What each recent quarter owes for this authority's accounts — payments
+  // counted by the quarter they were recorded for, not the date paid.
+  useEffect(() => {
+    if (!supportsSummary) {
+      setPeriods(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/bookkeeping/tax-deposits/suggested-amount?authority=${authority}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return;
+        setPeriods(body.periods);
+        if (!periodTouched && body.suggested) {
+          setYear(String(body.suggested.year));
+          setQuarter(`Q${body.suggested.quarter}`);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // periodTouched is read, not tracked: picking a period shouldn't refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authority, supportsSummary]);
+
+  const selectPeriod = (y: number, q: number) => {
+    setPeriodTouched(true);
+    setYear(String(y));
+    setQuarter(`Q${q}`);
+    setBreakdown(ZERO_BREAKDOWN);
+  };
 
   useEffect(() => {
     fetch('/api/bookkeeping/accounts')
@@ -215,6 +268,7 @@ function NewTaxDepositContent() {
                 onChange={(e) => {
                   setAuthority(e.target.value);
                   setBreakdown(ZERO_BREAKDOWN);
+                  setPeriods(null);
                 }}
                 className="mt-1 block w-full rounded-md border-gray-300"
               >
@@ -228,7 +282,10 @@ function NewTaxDepositContent() {
               <input
                 type="number"
                 value={year}
-                onChange={(e) => setYear(e.target.value)}
+                onChange={(e) => {
+                  setPeriodTouched(true);
+                  setYear(e.target.value);
+                }}
                 required
                 className="mt-1 block w-full rounded-md border-gray-300"
               />
@@ -237,7 +294,10 @@ function NewTaxDepositContent() {
               <label className="block text-sm font-medium text-gray-700">Quarter</label>
               <select
                 value={quarter}
-                onChange={(e) => setQuarter(e.target.value)}
+                onChange={(e) => {
+                  setPeriodTouched(true);
+                  setQuarter(e.target.value);
+                }}
                 className="mt-1 block w-full rounded-md border-gray-300"
               >
                 <option value="">(annual)</option>
@@ -281,6 +341,65 @@ function NewTaxDepositContent() {
           </div>
         </div>
 
+        {/* Owed by quarter */}
+        {supportsSummary && periods && (
+          <div className="rounded-lg border bg-white shadow-sm p-6 space-y-3">
+            <div>
+              <h2 className="font-semibold text-gray-900">Owed by quarter</h2>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Each quarter&apos;s payroll tax less the deposits recorded <em>for</em> that quarter.
+                A deposit belongs to the quarter of the payroll it pays for, even when it&apos;s made
+                in the next quarter. Click a row to pay it.
+              </p>
+            </div>
+            <table className="min-w-full text-sm">
+              <thead className="text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="py-1.5 text-left font-medium">Quarter</th>
+                  <th className="py-1.5 text-right font-medium">Payroll tax</th>
+                  <th className="py-1.5 text-right font-medium">Paid for quarter</th>
+                  <th className="py-1.5 text-right font-medium">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {periods.map((p) => {
+                  const selected = year === String(p.year) && quarter === `Q${p.quarter}`;
+                  return (
+                    <tr
+                      key={`${p.year}-${p.quarter}`}
+                      onClick={() => selectPeriod(p.year, p.quarter)}
+                      className={`cursor-pointer ${selected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <td className="py-1.5 font-medium text-gray-900">
+                        Q{p.quarter} {p.year}
+                        {selected && <span className="ml-2 text-xs font-normal text-blue-700">selected</span>}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums">{money(p.accrued)}</td>
+                      <td className="py-1.5 text-right tabular-nums">{money(p.paid)}</td>
+                      <td className="py-1.5 text-right tabular-nums font-medium">
+                        {Math.abs(p.outstanding) < 0.01 ? (
+                          <span className="text-green-700">Paid</span>
+                        ) : p.outstanding > 0 ? (
+                          <span className="text-red-700">{money(p.outstanding)} owed</span>
+                        ) : (
+                          <span className="text-amber-700">{money(-p.outstanding)} overpaid</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {periods.some((p) => p.outstanding <= -0.01) && (
+              <p className="text-xs text-amber-800">
+                An overpaid quarter usually means a deposit was recorded for the wrong quarter. Fix
+                it with <strong>Change quarter</strong> on the Tax Deposits list instead of paying
+                again.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Breakdown */}
         <div className="rounded-lg border bg-white shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -292,7 +411,7 @@ function NewTaxDepositContent() {
               className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-700 disabled:opacity-50"
             >
               <SparklesIcon className="h-4 w-4" />
-              {autoFilling ? 'Loading…' : 'Auto-fill from current liability'}
+              {autoFilling ? 'Loading…' : `Auto-fill what ${quarter || 'the year'} ${year} owes`}
             </button>
           </div>
 

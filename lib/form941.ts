@@ -17,27 +17,21 @@
  *    threshold.
  */
 
+import { SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, getSocialSecurityWageBase } from './payrollCalculations';
+
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 /**
- * Social Security wage base by calendar year.
- *
- * VERIFY EACH YEAR against the SSA's annual announcement before filing — a
- * wrong value here silently misstates line 5a. Unknown years fall back to the
- * most recent entry and raise a `wage_base_estimated` warning.
- *
- * Note that lib/payrollCalculations.ts applies a single flat base regardless of
- * pay year, so for any employee near the cap the derived line 5a can diverge
- * from what payroll actually withheld. The `ss_mismatch` warning catches that.
+ * Social Security wage base by calendar year — defined in
+ * lib/payrollCalculations.ts so payroll withholds against the same cap this
+ * return reports. A wrong value there silently misstates line 5a; unknown
+ * years fall back to the nearest entry and raise a `wage_base_estimated`
+ * warning. The `ss_mismatch` warning still catches records withheld before
+ * payroll became year-aware.
  */
-export const SOCIAL_SECURITY_WAGE_BASE_BY_YEAR: Record<number, number> = {
-  2023: 160200,
-  2024: 168600,
-  2025: 176100,
-  2026: 184500,
-};
+export { SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, getSocialSecurityWageBase };
 
 export const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
 
@@ -45,15 +39,6 @@ export const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
 export const SS_RATE_COMBINED = 0.124;
 export const MEDICARE_RATE_COMBINED = 0.029;
 export const ADDITIONAL_MEDICARE_RATE = 0.009;
-
-export function getSocialSecurityWageBase(year: number): { base: number; exact: boolean } {
-  if (Object.prototype.hasOwnProperty.call(SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, year)) {
-    return { base: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[year], exact: true };
-  }
-  const known = Object.keys(SOCIAL_SECURITY_WAGE_BASE_BY_YEAR).map(Number).sort((a, b) => a - b);
-  const nearest = year < known[0] ? known[0] : known[known.length - 1];
-  return { base: SOCIAL_SECURITY_WAGE_BASE_BY_YEAR[nearest], exact: false };
-}
 
 // ---------------------------------------------------------------------------
 // Inputs

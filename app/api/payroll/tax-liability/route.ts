@@ -62,13 +62,16 @@ export async function GET(request: NextRequest) {
         fein: true,
         stateUIClientId: true,
         stateTaxId: true,
+        federalDepositSchedule: true,
       },
     });
 
-    // Get all payroll records for the date range
+    // Active payroll records for the date range — voided and corrected
+    // records are not wages paid and carry no liability.
     const records = await prisma.payrollRecord.findMany({
       where: {
         companyId: companyId!,
+        status: 'active',
         payDate: {
           gte: dateStart,
           lte: dateEnd,
@@ -240,12 +243,16 @@ export async function GET(request: NextRequest) {
       totals[key] = Math.round(totals[key] * 100) / 100;
     }
 
-    // Determine deposit schedule info
+    // Deposit schedule comes from Company.federalDepositSchedule (Settings), the
+    // same setting the reminders and Form 941 line 16 use. It is determined by
+    // the IRS lookback period, not by this period's total, so it is never
+    // inferred here.
     // Semi-weekly depositors: deposit by Wed (for Sat-Tue payrolls) or Fri (for Wed-Fri payrolls)
     // Monthly depositors: deposit by 15th of following month
+    const semiweekly = company?.federalDepositSchedule === 'semiweekly';
     const depositInfo = {
-      schedule: totals.total941Liability > 50000 ? 'Semi-Weekly' : 'Monthly',
-      nextDepositDue: getNextDepositDate(totals.total941Liability > 50000),
+      schedule: semiweekly ? 'Semi-Weekly' : 'Monthly',
+      nextDepositDue: getNextDepositDate(semiweekly),
       form941DueDate: getForm941DueDate(dateEnd),
       nys45DueDate: getNYS45DueDate(dateEnd),
     };

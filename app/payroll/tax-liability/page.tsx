@@ -128,10 +128,12 @@ export default function TaxLiabilityPage() {
     });
   };
 
-  const getQuarterName = (start: string, end: string) => {
-    const startDate = new Date(start);
-    const quarter = Math.floor(startDate.getMonth() / 3) + 1;
-    return `Q${quarter} ${startDate.getFullYear()}`;
+  // `start` is a YYYY-MM-DD business date. new Date('2026-07-01') is midnight
+  // UTC — still June 30 in US Eastern — so read it in UTC or Q3 shows as Q2.
+  const getQuarterName = (start: string) => {
+    const startDate = new Date(`${start}T12:00:00Z`);
+    const quarter = Math.floor(startDate.getUTCMonth() / 3) + 1;
+    return `Q${quarter} ${startDate.getUTCFullYear()}`;
   };
 
   return (
@@ -262,7 +264,7 @@ export default function TaxLiabilityPage() {
                   <h3 className="text-xl font-semibold text-gray-900">TAX LIABILITY SUMMARY</h3>
                   <p className="text-gray-600 mt-1">
                     {data.dateRange.period === 'quarter'
-                      ? getQuarterName(data.dateRange.start, data.dateRange.end)
+                      ? getQuarterName(data.dateRange.start)
                       : `${formatDate(data.dateRange.start)} - ${formatDate(data.dateRange.end)}`
                     }
                   </p>
@@ -652,7 +654,9 @@ function MarkNys1FiledModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar date — toISOString() is already tomorrow after 8pm Eastern.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [filedDate, setFiledDate] = useState(today);
   const [periodEndDate, setPeriodEndDate] = useState(latestPayDate || today);
   const [amountRemitted, setAmountRemitted] = useState(unfiledAmount.toFixed(2));

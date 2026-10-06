@@ -16,6 +16,7 @@ function makeInput(overrides: Partial<PayrollInput> = {}): PayrollInput {
     overtimeMultiplier: 1.5,
     w4FilingStatus: 'single',
     w4Allowances: 0,
+    taxYear: 2026,
     ytdGrossPay: 0,
     ytdSocialSecurity: 0,
     ytdMedicare: 0,
@@ -84,22 +85,36 @@ describe('Social Security', () => {
     expect(result.socialSecurityEmployer).toBe(roundCurrency(1000 * 0.062));
   });
 
-  it('stops withholding once YTD reaches wage base ($176,100)', () => {
+  it('stops withholding once YTD reaches the 2026 wage base ($184,500)', () => {
     const result = calculatePayroll(
-      makeInput({ ytdGrossPay: 176100 })
+      makeInput({ ytdGrossPay: 184500 })
     );
     expect(result.socialSecurityEmployee).toBe(0);
     expect(result.socialSecurityEmployer).toBe(0);
   });
 
   it('only taxes remaining amount when approaching wage base', () => {
-    // YTD is $175,500, gross this period is $1,000
+    // YTD is $183,900, gross this period is $1,000
     // Only $600 is taxable for SS
     const result = calculatePayroll(
-      makeInput({ ytdGrossPay: 175500 })
+      makeInput({ ytdGrossPay: 183900 })
     );
     expect(result.socialSecurityEmployee).toBe(roundCurrency(600 * 0.062));
     expect(result.socialSecurityEmployer).toBe(roundCurrency(600 * 0.062));
+  });
+
+  it('keeps withholding in 2026 past the 2025 base (regression: flat $176,100 cap)', () => {
+    const result = calculatePayroll(
+      makeInput({ ytdGrossPay: 176100 })
+    );
+    expect(result.socialSecurityEmployee).toBe(roundCurrency(1000 * 0.062));
+  });
+
+  it('uses the wage base of the tax year it is given', () => {
+    const result = calculatePayroll(
+      makeInput({ taxYear: 2025, ytdGrossPay: 175500 })
+    );
+    expect(result.socialSecurityEmployee).toBe(roundCurrency(600 * 0.062));
   });
 });
 
@@ -586,7 +601,7 @@ describe('Net Pay', () => {
 // Employer Costs
 // ---------------------------------------------------------------------------
 describe('Employer Costs', () => {
-  it('calculates SUI on wages up to $13,000 base', () => {
+  it('calculates SUI on wages below the wage base', () => {
     const result = calculatePayroll(makeInput({ suiRate: 2.1 }));
     // 1000 * (2.1 / 100) = $21
     expect(result.suiEmployer).toBe(21);
@@ -605,6 +620,15 @@ describe('Employer Costs', () => {
       makeInput({ ytdGrossPay: 17100, suiRate: 2.1 })
     );
     expect(result.suiEmployer).toBe(roundCurrency(500 * 0.021));
+  });
+
+  it('applies the 2025 SUI base ($12,800) to a 2025 payroll', () => {
+    // YTD $12,300 + $1,000 gross → only $500 is SUI-taxable under the 2025 base
+    const result = calculatePayroll(
+      makeInput({ taxYear: 2025, ytdGrossPay: 12300, suiRate: 2.1 })
+    );
+    expect(result.suiEmployer).toBe(roundCurrency(500 * 0.021));
+    expect(result.nyRSFEmployer).toBe(roundCurrency(500 * 0.00075));
   });
 
   it('calculates FUTA on wages up to $7,000 base', () => {

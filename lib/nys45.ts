@@ -36,33 +36,16 @@
  * NYS-45. Including them in line 13 would overstate reported withholding.
  */
 
-import { NY_RSF_RATE } from './payrollCalculations';
-
 /**
- * NY UI wage base by calendar year. The base is what splits line 1 into
- * lines 2 and 3, so a wrong value here produces a wrong return.
- *
- * 2026 onward the base is indexed to 18% of the state average annual wage
- * under the 2025 budget bill (which is why it jumps from 12,800 to 17,600).
- * Add each new year here as NY publishes it; unknown years fall back to the
- * highest year present, and the caller surfaces that as a warning.
+ * NY UI wage base by calendar year — defined in lib/payrollCalculations.ts so
+ * payroll accrues SUI against the same base this return reports. The base is
+ * what splits line 1 into lines 2 and 3, so a wrong value there produces a
+ * wrong return. Unknown years fall back to the nearest year present, and the
+ * caller surfaces that as a warning.
  */
-export const NY_SUI_WAGE_BASE_BY_YEAR: Record<number, number> = {
-  2023: 12300,
-  2024: 12500,
-  2025: 12800,
-  2026: 17600,
-};
+import { NY_RSF_RATE, NY_SUI_WAGE_BASE_BY_YEAR, getNySuiWageBase } from './payrollCalculations';
 
-export function getNySuiWageBase(year: number): { base: number; exact: boolean } {
-  const exact = Object.prototype.hasOwnProperty.call(NY_SUI_WAGE_BASE_BY_YEAR, year);
-  if (exact) return { base: NY_SUI_WAGE_BASE_BY_YEAR[year], exact: true };
-  const known = Object.keys(NY_SUI_WAGE_BASE_BY_YEAR).map(Number).sort((a, b) => a - b);
-  const nearest = year < known[0] ? known[0] : known[known.length - 1];
-  return { base: NY_SUI_WAGE_BASE_BY_YEAR[nearest], exact: false };
-}
-
-export { NY_RSF_RATE };
+export { NY_RSF_RATE, NY_SUI_WAGE_BASE_BY_YEAR, getNySuiWageBase };
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;

@@ -172,7 +172,7 @@ export default function TaxFilingsPage() {
                     {f.status === 'pending' && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium">
                         <ExclamationTriangleIcon className="h-3 w-3" />
-                        Pending
+                        Draft — not filed
                       </span>
                     )}
                     {f.status === 'voided' && (

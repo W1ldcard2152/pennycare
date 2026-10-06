@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, Suspense } from 'react';
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -8,11 +8,19 @@ import {
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   CheckCircleIcon,
-  ClipboardIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
+import { nys45LineDefs, nys45PartCKey, type Nys45PartCColumn } from '@/lib/tax-return-values';
+import {
+  FileReturnModal,
+  ReturnAmount,
+  ReturnEditorBar,
+  ReturnEditorProvider,
+  useReturnEditor,
+  type EditorPayload,
+} from '@/components/tax-forms/ReturnEditor';
 
 interface PartA {
   employeeCounts: [number, number, number];
@@ -96,7 +104,10 @@ interface NYS45Data {
     filedDate: string | null;
     confirmationNumber: string | null;
     filingMethod: string | null;
+    balanceDue: number | null;
+    adjustmentEntry: { id: string; entryNumber: number; status: string } | null;
   } | null;
+  editor: EditorPayload;
   recordCount: number;
 }
 
@@ -138,54 +149,30 @@ function formatDate(dateStr: string): string {
   });
 }
 
-/**
- * Amounts on this page exist to be re-typed into NY Online Services, so every
- * figure is click-to-copy as a bare number.
- */
-function CopyableAmount({ value, bold }: { value: number; bold?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value.toFixed(2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // Clipboard unavailable (non-secure context) — the number is still visible.
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      title="Copy value"
-      className={`group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 tabular-nums hover:bg-blue-50 ${
-        bold ? 'text-base font-bold' : 'text-sm font-medium'
-      } text-gray-900`}
-    >
-      {formatCurrency(value)}
-      {copied ? (
-        <CheckCircleIcon className="h-3.5 w-3.5 text-green-600" />
-      ) : (
-        <ClipboardIcon className="h-3.5 w-3.5 text-gray-300 group-hover:text-blue-500" />
-      )}
-    </button>
-  );
+/** Readable name for a line key — used by the "payroll changed since filing" note. */
+function lineLabel(key: string): string {
+  if (key.startsWith('c:')) return 'Part C';
+  if (key.startsWith('count')) return 'employee counts';
+  if (key === 'line4aRate') return 'line 4a';
+  return key.replace('line', 'line ');
 }
 
+/**
+ * One line of the return. Amounts are click-to-copy (they get re-typed into
+ * NY Online Services) and become inputs while the return is being edited.
+ */
 function FormLine({
   line,
   label,
-  value,
+  k,
   hint,
   emphasis,
-  manual,
 }: {
   line: string;
   label: string;
-  value?: number;
+  k: string;
   hint?: string;
   emphasis?: 'blue' | 'green' | 'none';
-  manual?: boolean;
 }) {
   const bg =
     emphasis === 'blue' ? 'bg-blue-50' : emphasis === 'green' ? 'bg-green-50' : '';
@@ -197,11 +184,7 @@ function FormLine({
         {hint && <div className="mt-0.5 text-xs text-gray-500">{hint}</div>}
       </td>
       <td className="py-2.5 pr-4 text-right align-top whitespace-nowrap">
-        {manual ? (
-          <span className="text-sm italic text-gray-400">enter manually</span>
-        ) : (
-          <CopyableAmount value={value ?? 0} bold={emphasis !== undefined && emphasis !== 'none'} />
-        )}
+        <ReturnAmount k={k} bold={emphasis !== undefined && emphasis !== 'none'} />
       </td>
     </tr>
   );
@@ -221,8 +204,6 @@ function NYS45Content() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilingModal, setShowFilingModal] = useState(false);
-  const [showNoDepositsWarning, setShowNoDepositsWarning] = useState(false);
-  const [acknowledgedNoDeposits, setAcknowledgedNoDeposits] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -247,28 +228,33 @@ function NYS45Content() {
     fetchData();
   }, [fetchData]);
 
-  // Total NYS-45 liability = UI subtotal (Part A line 6) + withholding (line 13).
-  // SDI and PFL are premiums owed to a carrier, not to NYS, and are excluded.
-  const totalLiability = data
-    ? data.partA.line6Subtotal + data.partB.line13TotalTaxWithheld
-    : 0;
-  const totalDeposits = data ? data.depositTotals.withholding + data.depositTotals.ui : 0;
-
-  const handleMarkFiledClick = () => {
-    if (!data) return;
-    if (totalLiability > 0 && data.deposits.length === 0) {
-      setShowNoDepositsWarning(true);
-    } else {
-      setAcknowledgedNoDeposits(false);
-      setShowFilingModal(true);
-    }
-  };
+  const defs = useMemo(
+    () => (data ? nys45LineDefs(data.partC.map((r) => r.employeeId)) : []),
+    [data]
+  );
+  const editor = useReturnEditor({
+    defs,
+    payload: data?.editor ?? null,
+    formType: 'NYS-45',
+    year: selectedYear,
+    quarter: selectedQuarter,
+    onSaved: fetchData,
+  });
+  const v = editor.values;
+  const isFiled = data?.filing?.status === 'filed';
+  const partCTotal = (col: Nys45PartCColumn) =>
+    data ? data.partC.reduce((s, e) => s + (v[nys45PartCKey(e.employeeId, col)] ?? 0), 0) : 0;
 
   const handleUnfile = async () => {
     if (!data?.filing) return;
+    const entry = data.filing.adjustmentEntry;
     if (
       !confirm(
-        `Unfile Q${selectedQuarter} ${selectedYear} NYS-45? The filing record will be removed and the deadline reminder will return.`
+        `Unfile Q${selectedQuarter} ${selectedYear} NYS-45? The deadline reminder will return` +
+          (entry && entry.status === 'posted'
+            ? ` and its adjusting journal entry #${entry.entryNumber} will be voided`
+            : '') +
+          '. Your edits are kept as a draft. Payments recorded with the filing are not touched — void them under Tax Deposits if needed.'
       )
     )
       return;
@@ -282,7 +268,7 @@ function NYS45Content() {
   };
 
   const handleDownload = () => {
-    window.open(`/api/tax-forms/nys-45?year=${selectedYear}&quarter=${selectedQuarter}`, '_blank');
+    window.open(editor.pdfUrl('/api/tax-forms/nys-45'), '_blank');
   };
 
   const quarterInfo = quarters.find((q) => q.value === selectedQuarter);
@@ -413,6 +399,7 @@ function NYS45Content() {
       )}
 
       {!loading && !error && data && data.recordCount > 0 && (
+        <ReturnEditorProvider editor={editor}>
         <div className="space-y-6">
           {/* Data-quality warnings */}
           {data.warnings.length > 0 && (
@@ -458,6 +445,14 @@ function NYS45Content() {
             </div>
           </div>
 
+          <ReturnEditorBar
+            editor={editor}
+            formLabel="NYS-45"
+            filed={isFiled}
+            onFileAgain={() => setShowFilingModal(true)}
+            lineLabel={lineLabel}
+          />
+
           {/* Part A */}
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="border-b px-6 py-4">
@@ -475,46 +470,67 @@ function NYS45Content() {
                 week — confirm it matches who was actually working.
               </p>
               <div className="mt-3 grid grid-cols-3 gap-4 max-w-md">
-                {['a. First month', 'b. Second month', 'c. Third month'].map((label, i) => (
-                  <div key={label}>
+                {(
+                  [
+                    ['a. First month', 'countA'],
+                    ['b. Second month', 'countB'],
+                    ['c. Third month', 'countC'],
+                  ] as const
+                ).map(([label, key]) => (
+                  <div key={key}>
                     <div className="text-xs text-gray-500">{label}</div>
-                    <div className="text-lg font-bold text-gray-900 tabular-nums">
-                      {data.partA.employeeCounts[i]}
-                    </div>
+                    <ReturnAmount k={key} bold />
                   </div>
                 ))}
               </div>
             </div>
             <table className="min-w-full">
               <tbody className="divide-y divide-gray-200">
-                <FormLine line="1" label="Total remuneration paid this quarter" value={data.partA.line1TotalRemuneration} />
+                <FormLine
+                  line="1"
+                  label="Total remuneration paid this quarter"
+                  hint="Total of Part C column f"
+                  k="line1"
+                />
                 <FormLine
                   line="2"
                   label="Remuneration paid this quarter in excess of the UI wage base since January 1"
                   hint={`Wages above $${data.wageBase.toLocaleString()} per employee, year to date.`}
-                  value={data.partA.line2ExcessRemuneration}
+                  k="line2"
                 />
-                <FormLine
-                  line="3"
-                  label="Wages subject to contribution"
-                  hint="Line 1 minus line 2"
-                  value={data.partA.line3WagesSubjectToContribution}
-                />
+                <FormLine line="3" label="Wages subject to contribution" hint="Line 1 minus line 2" k="line3" />
+                <FormLine line="4a" label="Your UI rate (%)" k="line4aRate" />
                 <FormLine
                   line="4"
                   label="UI contributions due"
-                  hint={`Line 3 × ${data.partA.line4aUiRate.toFixed(3)}% (line 4a)`}
-                  value={data.partA.line4UiContributionsDue}
+                  hint={`Line 3 × ${(v.line4aRate ?? 0).toFixed(3)}% (line 4a)`}
+                  k="line4"
                 />
                 <FormLine
                   line="5"
                   label="Re-employment service fund"
                   hint={`Line 3 × ${(data.rsfRate * 100).toFixed(3)}%`}
-                  value={data.partA.line5ReemploymentServiceFund}
+                  k="line5"
                 />
-                <FormLine line="6" label="Subtotal" hint="Line 4 + line 5" value={data.partA.line6Subtotal} emphasis="green" />
-                <FormLine line="7–9" label="UI previously underpaid / overpaid, with interest" manual />
-                <FormLine line="10" label="Total UI amounts due" hint="Line 6 adjusted by lines 7–9" manual />
+                <FormLine line="6" label="Subtotal" hint="Line 4 + line 5" k="line6" emphasis="green" />
+                <FormLine
+                  line="7"
+                  label="UI previously underpaid with interest"
+                  hint="From a prior quarter — CV Books can't see it, so enter it if NY shows one."
+                  k="line7"
+                />
+                <FormLine line="8" label="Total of lines 6 and 7" k="line8" />
+                <FormLine line="9" label="UI previously overpaid" k="line9" />
+                <FormLine
+                  line="10"
+                  label="Total UI amounts due"
+                  hint="Line 8 minus line 9, if more than zero"
+                  k="line10"
+                  emphasis="green"
+                />
+                {(v.line11 ?? 0) > 0 && (
+                  <FormLine line="11" label="Total UI overpaid" hint="Line 9 minus line 8" k="line11" />
+                )}
               </tbody>
             </table>
           </div>
@@ -531,39 +547,48 @@ function NYS45Content() {
                 <FormLine
                   line="13"
                   label="Total tax withheld"
-                  hint={`NYS ${formatCurrency(data.partB.nysTaxWithheld)} · NYC ${formatCurrency(
-                    data.partB.nycTaxWithheld
-                  )} · Yonkers ${formatCurrency(data.partB.yonkersTaxWithheld)}`}
-                  value={data.partB.line13TotalTaxWithheld}
+                  hint={`From Part C line 24 — NYS ${formatCurrency(partCTotal('h'))} · NYC ${formatCurrency(
+                    partCTotal('i')
+                  )} · Yonkers ${formatCurrency(partCTotal('j'))}`}
+                  k="line13"
                   emphasis="blue"
                 />
-                <FormLine line="14" label="WT credit from previous quarter's return" manual />
+                <FormLine line="14" label="WT credit from previous quarter's return" k="line14" />
                 <FormLine
                   line="15"
                   label="Form NYS-1 payments made for quarter"
-                  hint="From recorded NY withholding tax deposits"
-                  value={data.partB.line15Nys1Payments}
+                  hint="From recorded NY withholding (NYS-1) deposits"
+                  k="line15"
                 />
-                <FormLine line="16" label="WT payments made with Forms NYS-45" manual />
-                <FormLine line="17" label="Total payments" value={data.partB.line17TotalPayments} />
-                {data.partB.line21TotalWtOverpaid > 0 ? (
-                  <FormLine line="21" label="Total WT overpaid" value={data.partB.line21TotalWtOverpaid} emphasis="green" />
+                <FormLine line="16" label="WT payments made with previously filed Forms NYS-45" k="line16" />
+                <FormLine line="17" label="Total payments" hint="Lines 14 + 15 + 16" k="line17" />
+                <FormLine line="18" label="WT overpayment shown on previously filed Forms NYS-45" k="line18" />
+                <FormLine line="19" label="Line 17 minus line 18" k="line19" />
+                {(v.line21 ?? 0) > 0 ? (
+                  <FormLine line="21" label="Total WT overpaid" k="line21" emphasis="green" />
                 ) : (
-                  <FormLine line="20" label="Total WT amount due" value={data.partB.line20TotalWtDue} emphasis="blue" />
+                  <FormLine line="20" label="Total WT amount due" k="line20" emphasis="blue" />
                 )}
+                <FormLine
+                  line="22"
+                  label="Total payment due"
+                  hint="Line 10 + line 20 — one remittance to NYS Employment Contributions and Taxes"
+                  k="line22"
+                  emphasis="blue"
+                />
                 <FormLine
                   line="24"
                   label="Total of all New York State, New York City, and Yonkers tax withheld"
-                  hint="Must equal the column h + i + j totals in Part C"
-                  value={data.partB.line24TotalAllTaxWithheld}
+                  hint="Part C columns h + i + j"
+                  k="line24"
                 />
               </tbody>
             </table>
             <div className="border-t bg-gray-50 px-6 py-3 text-xs text-gray-600 flex gap-2">
               <InformationCircleIcon className="h-4 w-4 flex-shrink-0 text-gray-400" />
               <span>
-                Lines 14, 16, and 18 depend on prior-quarter returns and are not derived from your
-                payroll data. Check last quarter&apos;s NYS-45 before entering them.
+                Lines 7, 9, 14, 16, and 18 depend on prior-quarter returns and are not derived from
+                your payroll data. Check last quarter&apos;s NYS-45 before entering them.
               </span>
             </div>
           </div>
@@ -613,19 +638,19 @@ function NYS45Content() {
                       </td>
                       <td className="px-4 py-3 text-center text-gray-500">{emp.wageType}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <CopyableAmount value={emp.uiRemuneration} />
+                        <ReturnAmount k={nys45PartCKey(emp.employeeId, 'f')} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <CopyableAmount value={emp.grossFederalWages} />
+                        <ReturnAmount k={nys45PartCKey(emp.employeeId, 'g')} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <CopyableAmount value={emp.nysTaxWithheld} />
+                        <ReturnAmount k={nys45PartCKey(emp.employeeId, 'h')} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <CopyableAmount value={emp.nycTaxWithheld} />
+                        <ReturnAmount k={nys45PartCKey(emp.employeeId, 'i')} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <CopyableAmount value={emp.yonkersTaxWithheld} />
+                        <ReturnAmount k={nys45PartCKey(emp.employeeId, 'j')} />
                       </td>
                     </tr>
                   ))}
@@ -636,21 +661,19 @@ function NYS45Content() {
                       Totals (line 23)
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(data.partA.line1TotalRemuneration)}
+                      {formatCurrency(partCTotal('f'))}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(
-                        data.partC.reduce((s, e) => s + e.grossFederalWages, 0)
-                      )}
+                      {formatCurrency(partCTotal('g'))}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(data.partB.nysTaxWithheld)}
+                      {formatCurrency(partCTotal('h'))}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(data.partB.nycTaxWithheld)}
+                      {formatCurrency(partCTotal('i'))}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(data.partB.yonkersTaxWithheld)}
+                      {formatCurrency(partCTotal('j'))}
                     </td>
                   </tr>
                 </tfoot>
@@ -674,6 +697,7 @@ function NYS45Content() {
               <p className="mt-0.5 text-sm text-gray-500">
                 Not on the form — this shows how each employee&apos;s remuneration splits across
                 lines 2 and 3, and how the derived contribution compares to what payroll booked.
+                Always the calculated figures, before any edits.
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -749,7 +773,7 @@ function NYS45Content() {
           <div className="rounded-lg border bg-white shadow-sm">
             <div className="border-b px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Filing Status</h2>
-              {data.filing?.status === 'filed' ? (
+              {isFiled ? (
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-3 py-1 text-xs font-medium">
                     <CheckCircleIcon className="h-4 w-4" />
@@ -766,7 +790,7 @@ function NYS45Content() {
               ) : (
                 <button
                   type="button"
-                  onClick={handleMarkFiledClick}
+                  onClick={() => setShowFilingModal(true)}
                   className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white"
                 >
                   Mark NYS-45 Filed
@@ -774,7 +798,7 @@ function NYS45Content() {
               )}
             </div>
             <div className="p-6 text-sm">
-              {data.filing?.status === 'filed' ? (
+              {isFiled && data.filing ? (
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <dt className="text-gray-500">Filed Date</dt>
@@ -792,46 +816,54 @@ function NYS45Content() {
                       {data.filing.confirmationNumber || '—'}
                     </dd>
                   </div>
+                  <div>
+                    <dt className="text-gray-500">Total Payment Due (line 22)</dt>
+                    <dd className="font-medium text-gray-900">
+                      {formatCurrency(data.filing.balanceDue ?? 0)}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-gray-500">Books adjustment</dt>
+                    <dd className="font-medium text-gray-900">
+                      {data.filing.adjustmentEntry ? (
+                        <Link
+                          href={`/bookkeeping/journal-entries/${data.filing.adjustmentEntry.id}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Journal entry #{data.filing.adjustmentEntry.entryNumber}
+                        </Link>
+                      ) : (
+                        'None needed — payroll accruals already matched the return'
+                      )}
+                    </dd>
+                  </div>
                 </dl>
               ) : (
                 <p className="text-gray-600">
                   NYS-45 has not been recorded as filed for Q{selectedQuarter} {selectedYear}. Once
-                  you submit the form to NY DTF, click <strong>Mark NYS-45 Filed</strong> to capture
-                  the confirmation # and clear the deadline alert.
+                  you submit the form to NY DTF, click <strong>Mark NYS-45 Filed</strong>. The
+                  return is saved exactly as shown above, your UI and withholding payable accounts
+                  are adjusted to match it, and you can record the payment in the same step.
                 </p>
               )}
             </div>
           </div>
         </div>
-      )}
-
-      {showNoDepositsWarning && data && (
-        <NoDepositsWarningModalNYS45
-          year={selectedYear}
-          quarter={selectedQuarter}
-          onClose={() => setShowNoDepositsWarning(false)}
-          onMarkFiledAnyway={() => {
-            setShowNoDepositsWarning(false);
-            setAcknowledgedNoDeposits(true);
-            setShowFilingModal(true);
-          }}
-        />
+        </ReturnEditorProvider>
       )}
 
       {showFilingModal && data && (
-        <MarkNYS45FiledModal
+        <FileReturnModal
+          formType="NYS-45"
+          formLabel="NYS-45"
           year={selectedYear}
           quarter={selectedQuarter}
-          totalLiability={totalLiability}
-          totalDeposits={totalDeposits}
-          acknowledgedNoDeposits={acknowledgedNoDeposits}
-          onClose={() => {
-            setShowFilingModal(false);
-            setAcknowledgedNoDeposits(false);
-          }}
+          overrides={editor.overrides}
+          refile={isFiled}
+          hasRecordedDeposits={data.deposits.length > 0}
+          onClose={() => setShowFilingModal(false)}
           onSaved={() => {
             setShowFilingModal(false);
-            setAcknowledgedNoDeposits(false);
             fetchData();
           }}
         />
@@ -860,224 +892,6 @@ function HeaderField({
       >
         {value || (required ? 'Required — not set' : 'Not set')}
       </dd>
-    </div>
-  );
-}
-
-function NoDepositsWarningModalNYS45({
-  year,
-  quarter,
-  onClose,
-  onMarkFiledAnyway,
-}: {
-  year: number;
-  quarter: number;
-  onClose: () => void;
-  onMarkFiledAnyway: () => void;
-}) {
-  const depositsHref = `/bookkeeping/tax-deposits/new?authority=ny_withholding&year=${year}&quarter=Q${quarter}`;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-        <div className="flex items-start gap-3">
-          <ExclamationTriangleIcon className="h-6 w-6 flex-shrink-0 text-red-600 mt-0.5" />
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">No NY deposits recorded in books</h3>
-            <p className="mt-2 text-sm text-gray-700">
-              Q{quarter} {year} has NY payroll liability but no NY tax deposits (withholding, SUI,
-              SDI, or PFL) recorded in the books for this quarter.
-            </p>
-            <p className="mt-2 text-sm text-gray-700">
-              Marking NYS-45 filed without those deposits leaves your books showing the full
-              liability outstanding while the return claims it&apos;s paid. Record the deposit(s)
-              first to keep them in sync.
-            </p>
-          </div>
-        </div>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <Link
-            href={depositsHref}
-            className="rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-sm font-medium text-white"
-          >
-            Record Deposits Now
-          </Link>
-          <button
-            type="button"
-            onClick={onMarkFiledAnyway}
-            className="rounded-md border border-red-300 bg-white hover:bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700"
-          >
-            Mark Filed Anyway
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MarkNYS45FiledModal({
-  year,
-  quarter,
-  totalLiability,
-  totalDeposits,
-  acknowledgedNoDeposits,
-  onClose,
-  onSaved,
-}: {
-  year: number;
-  quarter: number;
-  totalLiability: number;
-  totalDeposits: number;
-  acknowledgedNoDeposits: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [filedDate, setFiledDate] = useState(today);
-  const [filingMethod, setFilingMethod] = useState<'NY Online Services' | 'Mail' | 'Other'>(
-    'NY Online Services'
-  );
-  const [confirmationNumber, setConfirmationNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-
-  const balanceDue = totalLiability - totalDeposits;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setErr('');
-    try {
-      const res = await fetch('/api/bookkeeping/tax-filings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          formType: 'NYS-45',
-          taxPeriodYear: year,
-          taxPeriodQuarter: `Q${quarter}`,
-          filedDate,
-          filingMethod,
-          confirmationNumber: confirmationNumber || null,
-          totalLiability,
-          totalDeposits,
-          balanceDue,
-          notes: notes || null,
-          ...(acknowledgedNoDeposits && { acknowledgedNoDeposits: true }),
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Failed to save filing');
-      }
-      onSaved();
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-900">
-          Mark NYS-45 filed — Q{quarter} {year}
-        </h3>
-        <p className="mt-1 text-sm text-gray-600">
-          Records the filing for audit history and clears the deadline alert.
-        </p>
-
-        {err && (
-          <div className="mt-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-            {err}
-          </div>
-        )}
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Filed Date</label>
-            <input
-              type="date"
-              value={filedDate}
-              onChange={(e) => setFiledDate(e.target.value)}
-              required
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Filing Method</label>
-            <select
-              value={filingMethod}
-              onChange={(e) => setFilingMethod(e.target.value as typeof filingMethod)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-            >
-              <option value="NY Online Services">NY Online Services</option>
-              <option value="Mail">Mail</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Confirmation # <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={confirmationNumber}
-              onChange={(e) => setConfirmationNumber(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700 space-y-1">
-            <div className="flex justify-between">
-              <span>NYS-45 liability (line 6 + line 13):</span>
-              <span>${totalLiability.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>NY deposits (withholding + UI):</span>
-              <span>${totalDeposits.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between font-medium border-t border-gray-200 pt-1">
-              <span>Balance due:</span>
-              <span>${balanceDue.toFixed(2)}</span>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Notes <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-            />
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-md bg-green-600 hover:bg-green-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Save filing'}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

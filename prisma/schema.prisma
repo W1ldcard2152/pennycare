@@ -664,6 +664,18 @@ model TaxFiling {
   filingMethod       String?   // "EFTPS", "IRS e-file", "NY Online Services", "Mail", "Other"
   attachmentPath     String?   // Saved PDF of the filed return
 
+  // Editable returns (941 / NYS-45). The filed return, not the payroll
+  // computation, is the source of truth for the books. JSON SavedReturn —
+  // { version, overrides, values, computed } — see lib/tax-return-values.ts.
+  // status "pending" + formDataJson = a saved draft of edits; "filed" freezes
+  // `values` as the return actually submitted.
+  formDataJson       String?
+  // System entry (source "tax_filing_adjustment") that trued the quarter's
+  // liability accounts up to the filed return. Voided when the return is
+  // re-filed, unfiled, or voided.
+  adjustmentEntryId  String?   @unique
+  adjustmentEntry    JournalEntry? @relation("TaxFilingAdjustment", fields: [adjustmentEntryId], references: [id])
+
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -779,6 +791,7 @@ model JournalEntry {
   ebaySales        EbaySale[]
   statementImports StatementImport[]
   taxDeposit       TaxDeposit?
+  taxFilingAdjustment TaxFiling? @relation("TaxFilingAdjustment")
 
   // Reconciliation relation (for adjusting entries)
   reconciliationAdjustments Reconciliation[]

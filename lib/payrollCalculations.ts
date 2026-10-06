@@ -38,6 +38,9 @@ export interface PayrollInput {
   yonkersResident?: boolean;
 
   // YTD totals for wage base limits
+  // Calendar year the YTD totals belong to. Selects the Social Security and
+  // NY SUI wage bases, so it must be the same year the caller windowed YTD on.
+  taxYear: number;
   ytdGrossPay: number;
   ytdSocialSecurity: number;
   ytdMedicare: number;
@@ -97,15 +100,65 @@ export interface PayrollResult {
   futaEmployer: number; // Federal Unemployment Tax
   totalEmployerCost: number;
 
-  // YTD wage tracking — used by the UI to show wage-base cap ratios.
-  // Caps: Social Security $176,100 / NY SUI $13,000 / FUTA $7,000 per employee per year.
+  // YTD wage tracking — used by the UI to show wage-base cap ratios against
+  // the caps this calculation actually applied (per input.taxYear).
   ytdGrossPayBefore: number;
   ytdGrossPayAfter: number;
+  ssWageBase: number;
+  suiWageBase: number;
+  futaWageBase: number;
 }
 
-// 2025 Tax Constants
+/**
+ * Social Security wage base by calendar year. Shared with the Form 941
+ * builder (re-exported from lib/form941.ts) so payroll withholds against the
+ * same cap the return reports on line 5a.
+ *
+ * VERIFY EACH YEAR against the SSA's annual announcement and add the new year
+ * before the first payroll of January. Unknown years fall back to the nearest
+ * known year (`exact: false`), which the 941 surfaces as a warning.
+ */
+export const SOCIAL_SECURITY_WAGE_BASE_BY_YEAR: Record<number, number> = {
+  2023: 160200,
+  2024: 168600,
+  2025: 176100,
+  2026: 184500,
+};
+
+/**
+ * NY UI (SUI) wage base by calendar year. Shared with the NYS-45 builder
+ * (re-exported from lib/nys45.ts), where it splits Part A line 1 into lines
+ * 2 and 3.
+ *
+ * 2026 onward the base is indexed to 18% of the state average annual wage
+ * under the 2025 budget bill (which is why it jumps from 12,800 to 17,600).
+ * Add each new year here as NY publishes it.
+ */
+export const NY_SUI_WAGE_BASE_BY_YEAR: Record<number, number> = {
+  2023: 12300,
+  2024: 12500,
+  2025: 12800,
+  2026: 17600,
+};
+
+function lookupByYear(table: Record<number, number>, year: number): { base: number; exact: boolean } {
+  if (Object.prototype.hasOwnProperty.call(table, year)) {
+    return { base: table[year], exact: true };
+  }
+  const known = Object.keys(table).map(Number).sort((a, b) => a - b);
+  const nearest = year < known[0] ? known[0] : known[known.length - 1];
+  return { base: table[nearest], exact: false };
+}
+
+export function getSocialSecurityWageBase(year: number): { base: number; exact: boolean } {
+  return lookupByYear(SOCIAL_SECURITY_WAGE_BASE_BY_YEAR, year);
+}
+
+export function getNySuiWageBase(year: number): { base: number; exact: boolean } {
+  return lookupByYear(NY_SUI_WAGE_BASE_BY_YEAR, year);
+}
+
 const SOCIAL_SECURITY_RATE = 0.062; // 6.2%
-const SOCIAL_SECURITY_WAGE_BASE = 176100; // 2025 limit
 const MEDICARE_RATE = 0.0145; // 1.45%
 const ADDITIONAL_MEDICARE_RATE = 0.009; // 0.9%
 const ADDITIONAL_MEDICARE_THRESHOLD = 200000;
@@ -117,9 +170,6 @@ const NY_SDI_ANNUAL_MAX = 31.20; // $31.20 per year max
 const NY_PFL_RATE = 0.00432; // 0.432% for 2026 (NY DFS rate decision)
 const NY_PFL_ANNUAL_MAX = 411.91; // 2026 max
 
-// NY 2026 raised the SUI wage base to $17,600 (up from $12,800 in 2025) under the
-// 2025 budget bill — wage base now permanently indexed to 18% of state avg annual wage.
-const NY_SUI_WAGE_BASE = 17600;
 // Exported so the NYS-45 builder reports the same rate on Part A line 5 that
 // payroll actually accrued (see lib/nys45.ts).
 export const NY_RSF_RATE = 0.00075; // NY Re-employment Service Fund — 0.075% of SUI-eligible wages
@@ -186,13 +236,14 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
 
   // Calculate Social Security (6.2% up to wage base) - on gross pay, not reduced by pre-tax
   const newYtdGross = input.ytdGrossPay + grossPay;
+  const ssWageBase = getSocialSecurityWageBase(input.taxYear).base;
   let socialSecurityEmployee = 0;
   let socialSecurityEmployer = 0;
 
-  if (isTaxable(input.socialSecurityTaxability) && input.ytdGrossPay < SOCIAL_SECURITY_WAGE_BASE) {
+  if (isTaxable(input.socialSecurityTaxability) && input.ytdGrossPay < ssWageBase) {
     const taxableAmount = Math.min(
       grossPay,
-      SOCIAL_SECURITY_WAGE_BASE - input.ytdGrossPay
+      ssWageBase - input.ytdGrossPay
     );
     socialSecurityEmployee = taxableAmount * SOCIAL_SECURITY_RATE;
     socialSecurityEmployer = taxableAmount * SOCIAL_SECURITY_RATE;
@@ -304,16 +355,17 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   // Net pay
   const netPay = grossPay - totalDeductions;
 
-  // Calculate employer SUI (only on first $13,000 per employee).
+  // Calculate employer SUI (only up to the year's NY UI wage base per employee).
   // The same eligible-wages calculation drives the NY Re-employment Service Fund (RSF).
   // Unemployment taxability gates SUI, RSF, and FUTA.
   const unemploymentTaxable = isTaxable(input.unemploymentTaxability);
+  const suiWageBase = getNySuiWageBase(input.taxYear).base;
   let suiEmployer = 0;
   let nyRSFEmployer = 0;
-  if (unemploymentTaxable && input.ytdGrossPay < NY_SUI_WAGE_BASE) {
+  if (unemploymentTaxable && input.ytdGrossPay < suiWageBase) {
     const suiTaxableAmount = Math.min(
       grossPay,
-      NY_SUI_WAGE_BASE - input.ytdGrossPay
+      suiWageBase - input.ytdGrossPay
     );
     suiEmployer = suiTaxableAmount * (input.suiRate / 100);
     nyRSFEmployer = suiTaxableAmount * NY_RSF_RATE;
@@ -366,6 +418,9 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     totalEmployerCost: roundCurrency(totalEmployerCost),
     ytdGrossPayBefore: roundCurrency(input.ytdGrossPay),
     ytdGrossPayAfter: roundCurrency(newYtdGross),
+    ssWageBase,
+    suiWageBase,
+    futaWageBase: FUTA_WAGE_BASE,
   };
 }
 

@@ -217,6 +217,7 @@ const SOURCE_COLORS: Record<string, string> = {
   reconciliation: 'bg-indigo-100 text-indigo-700',
   year_end_closing: 'bg-slate-200 text-slate-700',
   tax_deposit: 'bg-cyan-100 text-cyan-700',
+  tax_filing_adjustment: 'bg-cyan-100 text-cyan-700',
   reversal: 'bg-red-100 text-red-700',
   reclassification: 'bg-amber-100 text-amber-700',
 };
@@ -233,6 +234,7 @@ const SOURCE_LABELS: Record<string, string> = {
   reconciliation: 'Reconciliation',
   year_end_closing: 'Year-End Closing',
   tax_deposit: 'Tax Deposit',
+  tax_filing_adjustment: 'Tax Filing Adjustment',
   reversal: 'Reversal',
   reclassification: 'Reclassification',
 };
@@ -250,6 +252,7 @@ const SOURCE_OPTIONS = [
   { value: 'reconciliation', label: 'Reconciliation' },
   { value: 'year_end_closing', label: 'Year-End Closing' },
   { value: 'tax_deposit', label: 'Tax Deposit' },
+  { value: 'tax_filing_adjustment', label: 'Tax Filing Adjustment' },
   { value: 'reversal', label: 'Reversal' },
   { value: 'reclassification', label: 'Reclassification' },
 ];

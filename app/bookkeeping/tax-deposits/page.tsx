@@ -48,7 +48,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function TaxDepositsPage() {
-  const currentYear = new Date().getUTCFullYear();
+  const currentYear = new Date().getFullYear();
   const [year, setYear] = useState<string>(String(currentYear));
   const [quarter, setQuarter] = useState<string>('');
   const [authority, setAuthority] = useState<string>('');
@@ -86,6 +86,32 @@ export default function TaxDepositsPage() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.error || 'Failed to void deposit');
+      return;
+    }
+    fetchDeposits();
+  };
+
+  const handleChangePeriod = async (d: TaxDeposit) => {
+    const current = d.taxPeriodQuarter ? `${d.taxPeriodQuarter} ${d.taxPeriodYear}` : String(d.taxPeriodYear);
+    const answer = prompt(
+      `Which quarter does this ${formatCurrency(d.totalAmount)} deposit (paid ${formatDate(d.depositDate)}) pay for?\n` +
+        'Use the quarter of the payroll it covers, e.g. "Q2 2026".',
+      current
+    );
+    if (answer === null || answer.trim() === current) return;
+    const match = answer.trim().toUpperCase().match(/^Q([1-4])\s+(\d{4})$/);
+    if (!match) {
+      alert('Enter the quarter like "Q3 2026".');
+      return;
+    }
+    const res = await fetch(`/api/bookkeeping/tax-deposits/${d.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taxPeriodYear: parseInt(match[2]), taxPeriodQuarter: `Q${match[1]}` }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'Failed to change quarter');
       return;
     }
     fetchDeposits();
@@ -209,6 +235,15 @@ export default function TaxDepositsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {d.status === 'recorded' && d.taxPeriodQuarter && (
+                      <button
+                        type="button"
+                        onClick={() => handleChangePeriod(d)}
+                        className="mr-3 text-gray-600 hover:text-gray-900 text-xs"
+                      >
+                        Change quarter
+                      </button>
+                    )}
                     {d.status === 'recorded' && (
                       <button
                         type="button"

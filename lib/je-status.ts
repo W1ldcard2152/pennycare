@@ -54,6 +54,7 @@ export const JE_SOURCES = [
   'reconciliation',
   'year_end_closing',
   'tax_deposit',
+  'tax_filing_adjustment',
   'reversal',
   'reclassification',
 ] as const;

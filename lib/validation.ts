@@ -478,6 +478,51 @@ export const createTaxFilingSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 });
 
+// Quarterly returns with editable lines (lib/tax-filing-service.ts). The
+// server derives every total from the overrides, so the client never sends
+// liability/deposit/balance figures for these.
+const RETURN_FORM_TYPES = ['941', 'NYS-45'] as const;
+
+const returnPeriodSchema = {
+  formType: z.enum(RETURN_FORM_TYPES),
+  taxPeriodYear: z.number().int().min(2020).max(2100),
+  taxPeriodQuarter: z.enum(['Q1', 'Q2', 'Q3', 'Q4']),
+  overrides: z.record(z.string(), z.number()).default({}),
+};
+
+export const taxReturnOverridesSchema = z.object(returnPeriodSchema);
+
+export const fileTaxReturnSchema = z.object({
+  ...returnPeriodSchema,
+  filedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
+  filingMethod: z.enum(FILING_METHODS),
+  confirmationNumber: z.string().max(100).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  payment: z
+    .object({
+      bankAccountId: z.string().min(1, 'Payment account is required'),
+      depositDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
+      paymentMethod: z.enum(PAYMENT_METHODS),
+      confirmationNumber: z.string().max(100).optional().nullable(),
+      components: z.object({
+        federalIncomeTaxWithheld: z.number().min(0).default(0),
+        socialSecurityTax: z.number().min(0).default(0),
+        medicareTax: z.number().min(0).default(0),
+        stateIncomeTaxWithheld: z.number().min(0).default(0),
+        stateUnemploymentTax: z.number().min(0).default(0),
+      }),
+    })
+    .optional()
+    .nullable(),
+});
+
+// Re-assign a recorded deposit to the tax period it actually pays. Metadata
+// only — the deposit's journal entry (dated when the money moved) is unchanged.
+export const changeTaxDepositPeriodSchema = z.object({
+  taxPeriodYear: z.number().int().min(2020).max(2100),
+  taxPeriodQuarter: z.enum(['Q1', 'Q2', 'Q3', 'Q4']).nullable(),
+});
+
 export const voidTaxDepositSchema = z.object({
   reason: z.string().min(1, 'Reason is required').max(500),
 });

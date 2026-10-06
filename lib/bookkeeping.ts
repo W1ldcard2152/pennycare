@@ -275,9 +275,10 @@ export async function createOpeningBalanceEntry(
  *
  * Used by createPayrollJournalEntries so payroll-side accounts auto-materialize
  * for any company on first payroll run, regardless of whether they seeded the
- * default chart explicitly.
+ * default chart explicitly, and by the tax filing service for 6020 Payroll Tax
+ * Adjustments.
  */
-async function ensurePayrollAccounts(
+export async function ensurePayrollAccounts(
   companyId: string,
   codes: string[],
   db: Prisma.TransactionClient = prisma,
@@ -951,145 +952,8 @@ export async function createYearEndClosingEntry(
 // TAX DEPOSIT HELPERS
 // ============================================
 
-/**
- * Sum the credit balance currently sitting in the federal payroll tax liability
- * accounts. Returns positive numbers representing what's owed (credits − debits).
- * Posted journal entries only; voided entries are excluded.
- *
- * Liability accounts (credit-normal):
- *   2110 Federal Tax Payable        — federal income tax withheld
- *   2130 Social Security Payable    — combined employee + employer
- *   2140 Medicare Payable           — combined employee + employer
- *
- * Pass `sinceDate` to scope to a specific quarter; omit to read the full
- * outstanding balance through `asOfDate`.
- */
-export async function getFederalPayrollLiability(
-  companyId: string,
-  asOfDate: Date,
-  sinceDate?: Date,
-): Promise<{
-  federalIncomeTaxWithheld: number;
-  socialSecurityTax: number;
-  medicareTax: number;
-  additionalMedicareTax: number;
-  total: number;
-}> {
-  const accounts = await prisma.account.findMany({
-    where: { companyId, code: { in: ['2110', '2130', '2140'] } },
-    select: { id: true, code: true },
-  });
-  const codeById = new Map(accounts.map((a) => [a.id, a.code]));
-
-  const dateFilter: Prisma.DateTimeFilter = { lte: asOfDate };
-  if (sinceDate) dateFilter.gte = sinceDate;
-
-  const lines = await prisma.journalEntryLine.findMany({
-    where: {
-      accountId: { in: accounts.map((a) => a.id) },
-      journalEntry: {
-        companyId,
-        status: 'posted',
-        date: dateFilter,
-      },
-    },
-    select: { accountId: true, debit: true, credit: true },
-  });
-
-  // Credit balance = credits − debits (liability is credit-normal)
-  const balanceByCode = new Map<string, number>([
-    ['2110', 0],
-    ['2130', 0],
-    ['2140', 0],
-  ]);
-  for (const line of lines) {
-    const code = codeById.get(line.accountId);
-    if (!code) continue;
-    balanceByCode.set(code, (balanceByCode.get(code) || 0) + line.credit - line.debit);
-  }
-
-  // Additional Medicare lives in 2140 alongside regular Medicare in our chart;
-  // we don't have a separate account, so we report it as 0 and let the user
-  // record it in the deposit form if applicable.
-  const result = {
-    federalIncomeTaxWithheld: round2(Math.max(0, balanceByCode.get('2110') || 0)),
-    socialSecurityTax: round2(Math.max(0, balanceByCode.get('2130') || 0)),
-    medicareTax: round2(Math.max(0, balanceByCode.get('2140') || 0)),
-    additionalMedicareTax: 0,
-    total: 0,
-  };
-  result.total = round2(
-    result.federalIncomeTaxWithheld + result.socialSecurityTax + result.medicareTax + result.additionalMedicareTax
-  );
-  return result;
-}
-
-/**
- * Same as getFederalPayrollLiability but for NY State payroll tax accounts:
- *   2120 State Tax Payable          — NY income tax withheld
- *   2160 SUI Payable
- *   2170 NY SDI Payable
- *   2180 NY PFL Payable
- */
-export async function getNYStatePayrollLiability(
-  companyId: string,
-  asOfDate: Date,
-  sinceDate?: Date,
-): Promise<{
-  stateIncomeTaxWithheld: number;
-  stateUnemploymentTax: number;
-  stateDisabilityTax: number;
-  statePaidFamilyLeaveTax: number;
-  total: number;
-}> {
-  const accounts = await prisma.account.findMany({
-    where: { companyId, code: { in: ['2120', '2160', '2170', '2180'] } },
-    select: { id: true, code: true },
-  });
-  const codeById = new Map(accounts.map((a) => [a.id, a.code]));
-
-  const dateFilter: Prisma.DateTimeFilter = { lte: asOfDate };
-  if (sinceDate) dateFilter.gte = sinceDate;
-
-  const lines = await prisma.journalEntryLine.findMany({
-    where: {
-      accountId: { in: accounts.map((a) => a.id) },
-      journalEntry: {
-        companyId,
-        status: 'posted',
-        date: dateFilter,
-      },
-    },
-    select: { accountId: true, debit: true, credit: true },
-  });
-
-  const balanceByCode = new Map<string, number>([
-    ['2120', 0],
-    ['2160', 0],
-    ['2170', 0],
-    ['2180', 0],
-  ]);
-  for (const line of lines) {
-    const code = codeById.get(line.accountId);
-    if (!code) continue;
-    balanceByCode.set(code, (balanceByCode.get(code) || 0) + line.credit - line.debit);
-  }
-
-  const result = {
-    stateIncomeTaxWithheld: round2(Math.max(0, balanceByCode.get('2120') || 0)),
-    stateUnemploymentTax: round2(Math.max(0, balanceByCode.get('2160') || 0)),
-    stateDisabilityTax: round2(Math.max(0, balanceByCode.get('2170') || 0)),
-    statePaidFamilyLeaveTax: round2(Math.max(0, balanceByCode.get('2180') || 0)),
-    total: 0,
-  };
-  result.total = round2(
-    result.stateIncomeTaxWithheld +
-      result.stateUnemploymentTax +
-      result.stateDisabilityTax +
-      result.statePaidFamilyLeaveTax
-  );
-  return result;
-}
+// Outstanding liability by tax period lives in lib/tax-liability.ts — it
+// attributes payments by the period they were recorded for, not by date.
 
 /**
  * Build the journal entry for a tax deposit. Debits each populated liability

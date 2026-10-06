@@ -22,7 +22,7 @@ Wrap the existing PennyCare Next.js app in Electron so it can be installed and r
 Electron Main Process (electron/main.ts)
   │
   ├── On startup:
-  │   ├── Ensure app data directory exists (%APPDATA%/PennyCare/)
+  │   ├── Ensure app data directory exists (%APPDATA%/cvbooks/)
   │   ├── Copy default .env if first run
   │   ├── Set DATABASE_URL environment variable pointing to app data
   │   ├── Run Prisma migrations if needed (db push equivalent)
@@ -33,7 +33,7 @@ Electron Main Process (electron/main.ts)
   ├── On close:
   │   └── Kill the Next.js server, exit cleanly
   │
-  └── App data directory (%APPDATA%/PennyCare/):
+  └── App data directory (%APPDATA%/cvbooks/):
       ├── pennycare.db          ← SQLite database
       ├── uploads/              ← Employee documents, imported files
       └── .env                  ← JWT_SECRET, ENCRYPTION_KEY
@@ -71,7 +71,7 @@ import path from 'path';
 /**
  * Resolves the app data directory.
  * 
- * - In Electron production: %APPDATA%/PennyCare/
+ * - In Electron production: %APPDATA%/cvbooks/
  * - In dev / non-Electron: project root (current behavior)
  * 
  * The PENNYCARE_DATA_DIR env var is set by the Electron main process.
@@ -134,7 +134,7 @@ import net from 'net';
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
 
-// App data directory: %APPDATA%/PennyCare/ on Windows
+// App data directory: %APPDATA%/cvbooks/ on Windows
 const DATA_DIR = path.join(app.getPath('userData'));
 const DB_PATH = path.join(DATA_DIR, 'pennycare.db');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
@@ -548,7 +548,7 @@ function syncDatabase(): void {
 }
 ```
 
-This means: copy your `pennycare.db` from `prisma/pennycare.db` (current dev location) into `%APPDATA%/PennyCare/`, launch the Electron app, and it just works. If you've added new columns since the last time that database was used, Prisma adds them automatically.
+This means: copy your `pennycare.db` from `prisma/pennycare.db` (current dev location) into `%APPDATA%/cvbooks/`, launch the Electron app, and it just works. If you've added new columns since the last time that database was used, Prisma adds them automatically.
 
 ---
 
@@ -556,16 +556,16 @@ This means: copy your `pennycare.db` from `prisma/pennycare.db` (current dev loc
 
 **From dev setup → Electron:**
 1. Stop the dev server
-2. Copy `prisma/pennycare.db` to `%APPDATA%/PennyCare/pennycare.db`
-3. Copy `uploads/` folder to `%APPDATA%/PennyCare/uploads/`
-4. Copy your `.env` values (JWT_SECRET, ENCRYPTION_KEY) into `%APPDATA%/PennyCare/.env`
+2. Copy `prisma/pennycare.db` to `%APPDATA%/cvbooks/pennycare.db`
+3. Copy `uploads/` folder to `%APPDATA%/cvbooks/uploads/`
+4. Copy your `.env` values (JWT_SECRET, ENCRYPTION_KEY) into `%APPDATA%/cvbooks/.env`
 5. Launch PennyCare — done
 
 **CRITICAL**: The JWT_SECRET and ENCRYPTION_KEY **must** match what was used when the data was created. If you let the Electron app generate new secrets on first run and then copy in a database encrypted with different keys, encrypted fields (SSN, bank accounts) will be unreadable. Copy the secrets first, then the database.
 
 **From Electron → dev setup:**
 1. Close PennyCare
-2. Copy `%APPDATA%/PennyCare/pennycare.db` to `prisma/pennycare.db`
+2. Copy `%APPDATA%/cvbooks/pennycare.db` to `prisma/pennycare.db`
 3. Copy uploads back
 4. Make sure `.env` / `.env.local` has the same secrets
 5. Run `npm run dev` — done
@@ -613,7 +613,7 @@ Before the first build:
 - [ ] `electron` and `electron-builder` installed as devDependencies
 - [ ] Run `npx prisma generate` (to generate Windows binary target)
 - [ ] Run `npm run electron:build`
-- [ ] Test: install on Windows, create account, verify database at `%APPDATA%/PennyCare/`
+- [ ] Test: install on Windows, create account, verify database at `%APPDATA%/cvbooks/`
 - [ ] Test: copy existing dev database in, verify data loads correctly
 
 ## Update Flow (for future releases)
@@ -648,7 +648,7 @@ PennyCare can be packaged as a standalone Windows desktop app using Electron.
 - `PENNYCARE_DATA_DIR` env var is set by Electron main process → production/desktop mode
 - Absent → dev mode (uses project root, current behavior)
 
-**Data directory (Electron mode):** `%APPDATA%/PennyCare/`
+**Data directory (Electron mode):** `%APPDATA%/cvbooks/`
 - `pennycare.db` — SQLite database
 - `uploads/` — Employee documents
 - `.env` — Secrets (JWT_SECRET, ENCRYPTION_KEY)
@@ -661,5 +661,5 @@ npm run electron:build  # Build + package into Windows installer
 
 **Output:** `dist-electron/PennyCare-Setup-X.X.X.exe`
 
-**Database portability:** The database file is identical between dev and Electron modes. To migrate, copy the `.db` file and `.env` secrets between `prisma/` (dev) and `%APPDATA%/PennyCare/` (Electron). The app runs `prisma db push` on startup to sync schema.
+**Database portability:** The database file is identical between dev and Electron modes. To migrate, copy the `.db` file and `.env` secrets between `prisma/` (dev) and `%APPDATA%/cvbooks/` (Electron). The app runs `prisma db push` on startup to sync schema.
 ```

@@ -379,7 +379,7 @@ export default function PayrollPage() {
                           <CapStatus
                             label="SS wage base"
                             ytd={employee.details.ytdGrossPayAfter}
-                            cap={176100}
+                            cap={employee.details.ssWageBase}
                           />
                           <div className="flex justify-between">
                             <span className="text-gray-600">Employer Medicare</span>
@@ -392,7 +392,7 @@ export default function PayrollPage() {
                           <CapStatus
                             label="NY SUI wage base"
                             ytd={employee.details.ytdGrossPayAfter}
-                            cap={17600}
+                            cap={employee.details.suiWageBase}
                           />
                           <div className="flex justify-between">
                             <span className="text-gray-600">NY Re-employment Service Fund</span>
@@ -405,7 +405,7 @@ export default function PayrollPage() {
                           <CapStatus
                             label="FUTA wage base"
                             ytd={employee.details.ytdGrossPayAfter}
-                            cap={7000}
+                            cap={employee.details.futaWageBase}
                           />
                           <div className="flex justify-between border-t pt-2 font-semibold">
                             <span>Total Employer Cost</span>
@@ -468,7 +468,8 @@ export default function PayrollPage() {
 }
 
 // Wage-base cap status line — shows whether YTD wages have reached a per-employee
-// withholding cap (SS $176,100, NY SUI $13,000, FUTA $7,000) so $0 amounts above
+// withholding cap (the SS / NY SUI / FUTA bases the calculation applied for the
+// payroll's tax year) so $0 amounts above
 // don't look like a bug.
 function CapStatus({ label, ytd, cap }: { label: string; ytd: number; cap: number }) {
   const reached = ytd >= cap;

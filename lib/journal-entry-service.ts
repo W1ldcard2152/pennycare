@@ -447,6 +447,19 @@ export async function deleteDraft(actor: Actor, entryId: string, tx?: Tx) {
   });
 }
 
+/**
+ * The live (non-voided) reversing entry for `entryId`, if any. An entry has at
+ * most one: a second reversal — or voiding an original that a reversal already
+ * offsets — would undo the entry twice. Voiding the reversal frees the
+ * original to be reversed or voided again.
+ */
+async function findActiveReversal(tx: Tx, entryId: string) {
+  return tx.journalEntry.findFirst({
+    where: { reversesEntryId: entryId, status: { not: JE_STATUS.VOIDED } },
+    select: { id: true, entryNumber: true },
+  });
+}
+
 /** Error class so routes can map state-machine violations to 409s. */
 export class JournalEntryStateError extends Error {
   constructor(message: string) {
@@ -472,8 +485,8 @@ const TRANSITION_AUDIT_ACTION: Record<string, string> = {
  *    default-deny escalates to OWNER when no rule matches)
  *  - segregation of duties on pending→booked: approver ≠ creator
  *  - reasons required for reject and void
- *  - closed-period and reconciled-line guards on void — these apply to ALL
- *    voids (the pre-1.2 auto-void paths bypassed them)
+ *  - closed-period, reconciled-line, and already-reversed guards on void —
+ *    these apply to ALL voids (the pre-1.2 auto-void paths bypassed them)
  */
 export async function transition(
   actor: Actor,
@@ -558,6 +571,12 @@ export async function transition(
         if (reconciledLines.length > 0) {
           throw new JournalEntryStateError(
             'Cannot void: one or more lines have been reconciled. Reopen the reconciliation first.'
+          );
+        }
+        const reversal = await findActiveReversal(tx, entryId);
+        if (reversal) {
+          throw new JournalEntryStateError(
+            `Cannot void: this entry is already offset by reversing entry #${reversal.entryNumber}. Void the reversal first.`
           );
         }
         break;
@@ -666,6 +685,13 @@ export async function createReversingEntry(
     if (original.status !== JE_STATUS.BOOKED) {
       throw new JournalEntryStateError(
         `Only booked entries can be reversed (this entry is ${original.status})`
+      );
+    }
+
+    const existing = await findActiveReversal(tx, original.id);
+    if (existing) {
+      throw new JournalEntryStateError(
+        `JE #${original.entryNumber} is already reversed by JE #${existing.entryNumber}. Void that reversal first to reverse it again.`
       );
     }
 

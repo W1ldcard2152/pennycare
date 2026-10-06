@@ -491,7 +491,7 @@ export default function TaxSettingsPage() {
             <h2 className="text-xl font-semibold mb-2 text-amber-900">Year-to-Date Migration</h2>
             <p className="text-sm text-amber-800 mb-4">
               Enter year-to-date totals from your prior payroll service (e.g. Paychex) so wage-base caps
-              (Social Security $176,100; SUI $13,000; FUTA $7,000) calculate correctly mid-year. Use the
+              (Social Security, NY SUI, FUTA) calculate correctly mid-year. Use the
               latest pay stub or Employee Earnings Record dated <strong>before</strong> your first run in
               this app. Leave at $0 if the employee was first paid through this app.
             </p>

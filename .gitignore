@@ -55,5 +55,8 @@ backups/
 # claude code
 /.claude
 
+# scratch pad for drafting commit messages
+/gitcommit.md
+
 # graphify — regenerable from source via `python -m graphify update .`
 /graphify-out
