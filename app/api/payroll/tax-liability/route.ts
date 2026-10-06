@@ -255,7 +255,7 @@ export async function GET(request: NextRequest) {
     // same setting the reminders and Form 941 line 16 use. It is determined by
     // the IRS lookback period, not by this period's total, so it is never
     // inferred here.
-    // Semi-weekly depositors: deposit by Wed (for Sat-Tue payrolls) or Fri (for Wed-Fri payrolls)
+    // Semi-weekly depositors: Wed-Fri paydays deposit by the following Wed, Sat-Tue paydays by the following Fri
     // Monthly depositors: deposit by 15th of following month
     const semiweekly = company?.federalDepositSchedule === 'semiweekly';
     const depositInfo = {

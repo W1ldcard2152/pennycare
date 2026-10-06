@@ -259,20 +259,11 @@ export function computeDepositDeadlines(
       });
     }
   } else {
-    // Semi-weekly: deposit due Wed (for Sat-Tue paydays) or Fri (for Wed-Fri paydays)
+    // Semi-weekly: Wed-Fri paydays deposit by the following Wednesday,
+    // Sat-Tue paydays by the following Friday (Pub 15, section 11).
     for (const payDate of payDates) {
-      const dayOfWeek = payDate.getDay(); // 0=Sun, 1=Mon, ...6=Sat
       const dueDate = new Date(payDate);
-
-      if (dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2 || dayOfWeek === 6) {
-        // Sat/Sun/Mon/Tue payday -> deposit by following Wednesday
-        const daysToWed = dayOfWeek <= 2 ? (3 - dayOfWeek) : (10 - dayOfWeek);
-        dueDate.setDate(dueDate.getDate() + daysToWed);
-      } else {
-        // Wed/Thu/Fri payday -> deposit by following Friday
-        const daysToFri = 5 - dayOfWeek;
-        dueDate.setDate(dueDate.getDate() + (daysToFri <= 0 ? 7 + daysToFri : daysToFri));
-      }
+      dueDate.setDate(dueDate.getDate() + semiweeklyDepositOffsetDays(payDate.getDay()));
 
       const daysUntil = diffDays(dueDate, today);
       if (daysUntil < -14 || daysUntil > 30) continue;
@@ -301,6 +292,37 @@ export function computeDepositDeadlines(
   markDepositsAsFiled(deadlines, recordedDepositDates);
 
   return deadlines;
+}
+
+/**
+ * Days from a payday to its semi-weekly deposit deadline (IRS Pub 15, section
+ * 11): Wednesday, Thursday or Friday paydays deposit by the following
+ * Wednesday; Saturday through Tuesday paydays by the following Friday.
+ * dayOfWeek is 0 = Sunday … 6 = Saturday. (Before this helper the two halves
+ * were swapped — Wed–Fri paydays were sent to Friday.)
+ */
+export function semiweeklyDepositOffsetDays(dayOfWeek: number): number {
+  const WEDNESDAY = 3;
+  const FRIDAY = 5;
+  if (dayOfWeek >= 3 && dayOfWeek <= 5) {
+    return ((WEDNESDAY - dayOfWeek + 7) % 7) || 7;
+  }
+  return (FRIDAY - dayOfWeek + 7) % 7 || 7;
+}
+
+/**
+ * Federal (941) deposit deadline for one payday, as YYYY-MM-DD. payDate is a
+ * business date (noon UTC). Monthly depositors: the 15th of the following
+ * month. Semi-weekly: semiweeklyDepositOffsetDays. Weekend/holiday roll-forward
+ * and the $100,000 next-day rule are not modeled.
+ */
+export function federalDepositDueDate(payDate: Date, schedule: 'monthly' | 'semiweekly'): string {
+  if (schedule === 'monthly') {
+    return toISODate(new Date(Date.UTC(payDate.getUTCFullYear(), payDate.getUTCMonth() + 1, 15, 12)));
+  }
+  const due = new Date(payDate);
+  due.setUTCDate(due.getUTCDate() + semiweeklyDepositOffsetDays(payDate.getUTCDay()));
+  return toISODate(due);
 }
 
 // Re-export helpers for use in tax-liability route

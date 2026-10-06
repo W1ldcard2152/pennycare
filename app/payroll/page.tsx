@@ -378,7 +378,9 @@ function MarkPaidModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar date — toISOString() is already tomorrow after 8pm Eastern.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [paidDate, setPaidDate] = useState(today);
   const [paymentMethod, setPaymentMethod] = useState<'direct_deposit' | 'check'>('direct_deposit');
   const [checkNumber, setCheckNumber] = useState('');

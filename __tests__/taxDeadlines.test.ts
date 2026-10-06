@@ -6,6 +6,8 @@ import {
   computeFilingDeadlines,
   computeDepositDeadlines,
   FiledRecord,
+  federalDepositDueDate,
+  semiweeklyDepositOffsetDays,
 } from '@/lib/taxDeadlines';
 
 describe('classifyUrgency', () => {
@@ -203,11 +205,17 @@ describe('computeDepositDeadlines', () => {
   });
 
   it('generates semi-weekly deposit deadlines', () => {
-    // A Wednesday payday → deposit by following Friday
+    // A Wednesday payday → deposit by the following Wednesday (Pub 15 §11)
     const payDates = [new Date(2026, 1, 11)]; // Wed Feb 11
     const deadlines = computeDepositDeadlines(today, payDates, 'semiweekly');
     expect(deadlines.length).toBeGreaterThanOrEqual(1);
     expect(deadlines[0].type).toBe('deposit');
+    expect(deadlines[0].deadline).toBe('2026-02-18');
+  });
+
+  it('sends a Saturday-Tuesday payday to the following Friday', () => {
+    const deadlines = computeDepositDeadlines(today, [new Date(2026, 1, 10)], 'semiweekly'); // Tue Feb 10
+    expect(deadlines[0].deadline).toBe('2026-02-13');
   });
 
   it('filters out deposits outside the window', () => {
@@ -295,5 +303,27 @@ describe('computeDepositDeadlines', () => {
       expect(deadlines.length).toBe(1);
       expect(deadlines[0].isFiled).toBe(true);
     });
+  });
+});
+
+describe('federal deposit due date per payday', () => {
+  const biz = (iso: string) => new Date(`${iso}T12:00:00.000Z`);
+
+  it('maps every weekday to the Pub 15 semi-weekly deadline', () => {
+    // Sun..Sat → Fri(+5), Fri(+4), Fri(+3), Wed(+7), Wed(+6), Wed(+5), Fri(+6)
+    expect([0, 1, 2, 3, 4, 5, 6].map(semiweeklyDepositOffsetDays)).toEqual([5, 4, 3, 7, 6, 5, 6]);
+  });
+
+  it('dates a Friday payday to the following Wednesday', () => {
+    expect(federalDepositDueDate(biz('2026-09-25'), 'semiweekly')).toBe('2026-09-30');
+  });
+
+  it('dates a Monday payday to that Friday', () => {
+    expect(federalDepositDueDate(biz('2026-09-28'), 'semiweekly')).toBe('2026-10-02');
+  });
+
+  it('dates a monthly depositor to the 15th of the next month, across a year end', () => {
+    expect(federalDepositDueDate(biz('2026-09-27'), 'monthly')).toBe('2026-10-15');
+    expect(federalDepositDueDate(biz('2026-12-31'), 'monthly')).toBe('2027-01-15');
   });
 });
