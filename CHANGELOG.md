@@ -1,8 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.1] — 2026-10-06
+
+Upgrading from 1.1.x: back up first (Admin → Backup / Restore). The first launch updates the database automatically; your data folder is kept.
 
 ### Added
+- Form 941 and NYS-45 are rebuilt as line-accurate returns that produce usable PDFs. The NYS-45 reports Part C per-employee UI remuneration, splits Part A across the NY UI wage base, and adds lines 4–6; the 941 fills the header and the dollars/cents boxes correctly, computes line 7 (fractions of cents) and fills Part 2 from your deposit schedule. Each return shows warnings when its figures don't tie to what payroll booked.
+- User management (Admin → Users, Owner only): add users with a temporary password they must change at first login, change roles, reset passwords, and deactivate users. Roles are now Owner, Approver, Bookkeeper and Viewer.
+- Optional team approval mode: manual journal entries can require approval by role and amount before they book. Single-user mode (the default) books them immediately, as before.
+- Reverse Entry on a booked journal entry: corrections are made with a reversing entry, linked both ways, instead of editing the booked entry.
 - Form 941 and NYS-45 are editable. Every line can be changed to match the return actually filed (e.g. NY's online calculator); totals recalculate, any total can be overridden, edits can be saved as a draft, and the PDF reflects the edits.
 - Filing a 941 or NYS-45 now updates the books to the filed return: one adjusting entry, dated the last day of the quarter, brings each payroll-tax liability account to the filed figure, with the difference in a new 6020 Payroll Tax Adjustments account. The payment can be recorded in the same dialog. Re-filing, unfiling or voiding a filing voids its adjusting entry (Approver role).
 - Tax Settings takes the full 2020-and-later Form W-4: the Step 2 multiple-jobs checkbox, Step 3 dependents, and Step 4(a) other income / 4(b) deductions. Allowances only show for a pre-2020 W-4.
@@ -10,13 +16,22 @@
 - Run Payroll flags setup problems on each employee's preview card, such as no NY IT-2104 on file or a prior-provider YTD balance with no "as of" date.
 
 ### Changed
+- Booked journal entries can no longer be edited in place — reverse them instead. Drafts are still editable. An entry can have only one live reversal.
+- Voiding a booked entry requires the Approver role everywhere (eBay batch delete used to allow it at the old payroll role), and voids now respect closed periods and reconciled transactions.
+- Anyone can no longer register a new account; after the first owner is set up, users are added by an Owner.
 - New employees default to a 2020-and-later W-4.
 - Overtime follows the law instead of settings: hours past 40 in the workweek, at no less than time and a half. Time Tracking records hours per day without a daily overtime split, and the week's overtime shows in its total.
 
 ### Removed
+- The Data Integrity page (payroll journal-entry repair tool) and the legacy Transaction table.
+- SDI and PFL from the NYS-45 — they are insurance-carrier premiums, not NY withholding, and were inflating reported withholding.
 - The "Enable overtime calculations" setting. Overtime is required by law, so it isn't something to switch off (the setting also had no effect). The overtime multiplier can no longer be set below 1.5.
 
 ### Fixed
+- The NYS-45 and 941 PDFs came out blank or with amounts on the wrong lines, because the templates' field names had changed. A form that can't be filled now shows an error instead of a blank return that looks legitimate. The NYS-45 SSN column and withholding ID also print in full.
+- Voided and corrected payroll was counted as wages on the 941 and NYS-45, and the employee headcounts read 0 when no pay period covered the reference week.
+- Downloading a report PDF for a different quarter reopened the previous quarter's tab instead of generating the new one.
+- Backups could be a stale copy of the database; they now flush pending writes first.
 - Tax deposit auto-fill attributed payments to the quarter they were *made* in rather than the quarter they *pay for*. Because deposits usually land in the following quarter, the earlier quarter kept showing a balance due after it was paid and the current quarter showed less (often nothing) due. Balances are now each quarter's payroll tax less the deposits recorded for that quarter.
 - The deposit form shows what each recent quarter owes and defaults to the oldest quarter still owed. A deposit recorded under the wrong quarter can be corrected with **Change quarter** on the Tax Deposits list.
 - The Tax Liability page labelled the current quarter as the previous one in US time zones (Q3 showed as "Q2"), counted voided and corrected payroll, and guessed the federal deposit schedule from the period's total instead of using the schedule set in Settings.
