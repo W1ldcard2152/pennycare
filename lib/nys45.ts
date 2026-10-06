@@ -67,6 +67,8 @@ export interface Nys45RecordInput {
   /** Combined NYC-or-Yonkers withholding; split by employee residency flags. */
   localTax: number;
   employerSUI: number;
+  /** NY RSF payroll accrued on this record; 0 on records from before RSF was booked. */
+  employerRSF?: number;
 }
 
 export interface Nys45EmployeeInput {
@@ -159,6 +161,7 @@ export interface Nys45PartB {
 export type Nys45WarningCode =
   | 'wage_base_estimated'
   | 'sui_mismatch'
+  | 'rsf_mismatch'
   | 'local_tax_unattributed'
   | 'missing_ssn'
   | 'no_ui_rate'
@@ -179,6 +182,8 @@ export interface Nys45Result {
   partC: Nys45EmployeeRow[];
   /** Sum of employerSUI actually booked in payroll for the quarter. */
   bookedSUI: number;
+  /** Sum of employerRSF actually booked in payroll for the quarter. */
+  bookedRSF: number;
   warnings: Nys45Warning[];
 }
 
@@ -236,6 +241,7 @@ export function buildNys45(input: Nys45Input): Nys45Result {
   const rows = new Map<string, Nys45EmployeeRow>();
   const ytdGross = new Map<string, number>();
   let unattributedLocalTax = 0;
+  let bookedRSFRaw = 0;
 
   // Records at or before the seed cutoff are already represented inside
   // ytdGrossPaySeed; counting them again would double-consume the wage base.
@@ -307,6 +313,7 @@ export function buildNys45(input: Nys45Input): Nys45Result {
       row.uiExcess += excess;
     }
     row.bookedSUI += record.employerSUI || 0;
+    bookedRSFRaw += record.employerRSF || 0;
 
     // Column g — federal wages, i.e. gross less pre-tax deductions.
     row.grossFederalWages += record.taxableWages ?? record.grossPay;
@@ -424,6 +431,7 @@ export function buildNys45(input: Nys45Input): Nys45Result {
 
   // ---- Warnings -----------------------------------------------------------
   const bookedSUI = sum((r) => r.bookedSUI);
+  const bookedRSF = round2(bookedRSFRaw);
 
   if (!wageBaseIsExact) {
     warnings.push({
@@ -453,6 +461,22 @@ export function buildNys45(input: Nys45Input): Nys45Result {
           `$${line4.toFixed(2)}, but payroll booked $${bookedSUI.toFixed(2)} of SUI this quarter. ` +
           'Usually this means the SUI rate or wage base changed after payroll ran. ' +
           'Reconcile before filing.',
+      });
+    }
+  }
+
+  // Line 5 vs what payroll accrued. Quarters straddling the change (records
+  // processed before RSF was booked carry 0) show a gap the filing true-up
+  // closes through 6020 — say so rather than leave it unexplained.
+  {
+    const tolerance = Math.max(0.05, partC.length * 0.02);
+    if (line5 > 0 && Math.abs(line5 - bookedRSF) > tolerance) {
+      warnings.push({
+        code: 'rsf_mismatch',
+        message:
+          `Line 5 (Re-employment Service Fund) is ${line5.toFixed(2)}, but payroll booked ` +
+          `${bookedRSF.toFixed(2)} of RSF this quarter. Payroll runs processed before RSF was ` +
+          'booked carry none; filing the return trues the difference up through 6020.',
       });
     }
   }
@@ -512,6 +536,7 @@ export function buildNys45(input: Nys45Input): Nys45Result {
     partB,
     partC,
     bookedSUI,
+    bookedRSF,
     warnings,
   };
 }

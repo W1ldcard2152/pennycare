@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
       employerSocialSecurity: 0,
       employerMedicare: 0,
       employerSUI: 0,
+      employerRSF: 0,
       employerFUTA: 0,
       employerWorkersComp: 0,
       totalEmployerCost: 0,
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
       employerSocialSecurity: number;
       employerMedicare: number;
       employerSUI: number;
+      employerRSF: number;
       employerFUTA: number;
       employerWorkersComp: number;
       totalEmployerCost: number;
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
       costs.employerSocialSecurity += r.employerSocialSecurity || 0;
       costs.employerMedicare += r.employerMedicare || 0;
       costs.employerSUI += r.employerSUI || 0;
+      costs.employerRSF += r.employerRSF || 0;
       costs.employerFUTA += r.employerFUTA || 0;
       costs.employerWorkersComp += r.employerWorkersComp || 0;
       costs.totalEmployerCost += r.totalEmployerCost || 0;
@@ -90,7 +93,7 @@ export async function GET(request: NextRequest) {
         employeeMap[eid] = {
           employee: r.employee,
           grossPay: 0, employerSocialSecurity: 0, employerMedicare: 0,
-          employerSUI: 0, employerFUTA: 0, employerWorkersComp: 0, totalEmployerCost: 0,
+          employerSUI: 0, employerRSF: 0, employerFUTA: 0, employerWorkersComp: 0, totalEmployerCost: 0,
         };
       }
       const e = employeeMap[eid];
@@ -98,6 +101,7 @@ export async function GET(request: NextRequest) {
       e.employerSocialSecurity += r.employerSocialSecurity || 0;
       e.employerMedicare += r.employerMedicare || 0;
       e.employerSUI += r.employerSUI || 0;
+      e.employerRSF += r.employerRSF || 0;
       e.employerFUTA += r.employerFUTA || 0;
       e.employerWorkersComp += r.employerWorkersComp || 0;
       e.totalEmployerCost += r.totalEmployerCost || 0;

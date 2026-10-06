@@ -116,6 +116,7 @@ export async function GET(request: NextRequest) {
       employerSocialSecurity: 0,
       employerMedicare: 0,
       employerSUI: 0,
+      employerRSF: 0,
       employerFUTA: 0,
       totalEmployerCost: 0,
     };
@@ -155,6 +156,7 @@ export async function GET(request: NextRequest) {
       totals.employerSocialSecurity += record.employerSocialSecurity || 0;
       totals.employerMedicare += record.employerMedicare || 0;
       totals.employerSUI += record.employerSUI || 0;
+      totals.employerRSF += record.employerRSF || 0;
       totals.employerFUTA += record.employerFUTA || 0;
       totals.totalEmployerCost += record.totalEmployerCost || 0;
     }
@@ -211,6 +213,7 @@ export async function GET(request: NextRequest) {
         employerSocialSecurity: r.employerSocialSecurity,
         employerMedicare: r.employerMedicare,
         employerSUI: r.employerSUI,
+        employerRSF: r.employerRSF,
         employerFUTA: r.employerFUTA,
         totalEmployerCost: r.totalEmployerCost,
         isPaid: r.isPaid,

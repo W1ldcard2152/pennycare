@@ -31,6 +31,7 @@ interface TaxLiabilityData {
     socialSecurityEmployer: number;
     medicareEmployer: number;
     employerSUI: number;
+    employerRSF: number;
     employerFUTA: number;
     totalEmployerTaxes: number;
     totalFICA: number;
@@ -53,6 +54,7 @@ interface TaxLiabilityData {
     socialSecurityEmployer: number;
     medicareEmployer: number;
     employerSUI: number;
+    employerRSF: number;
     employerFUTA: number;
   }>;
   depositInfo: {
@@ -421,6 +423,10 @@ export default function TaxLiabilityPage() {
                       <span className="text-gray-600">NY SUI (Employer):</span>
                       <span className="font-medium">{formatCurrency(data.totals.employerSUI)}</span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">NY RSF (Employer):</span>
+                      <span className="font-medium">{formatCurrency(data.totals.employerRSF)}</span>
+                    </div>
                     <div className="flex justify-between border-t pt-2 font-semibold text-lg text-purple-900">
                       <span>Total NYS Liability:</span>
                       <span>{formatCurrency(data.totals.totalStateLiability)}</span>
@@ -534,6 +540,10 @@ export default function TaxLiabilityPage() {
                       <span className="font-medium">{formatCurrency(data.totals.employerSUI)}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-gray-600">NY RSF (0.075%):</span>
+                      <span className="font-medium">{formatCurrency(data.totals.employerRSF)}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-gray-600">FUTA:</span>
                       <span className="font-medium">{formatCurrency(data.totals.employerFUTA)}</span>
                     </div>
@@ -562,7 +572,7 @@ export default function TaxLiabilityPage() {
                         <th className="px-3 py-2 text-right font-semibold">Med (EE+ER)</th>
                         <th className="px-3 py-2 text-right font-semibold">SDI</th>
                         <th className="px-3 py-2 text-right font-semibold">PFL</th>
-                        <th className="px-3 py-2 text-right font-semibold">SUI</th>
+                        <th className="px-3 py-2 text-right font-semibold">SUI + RSF</th>
                         <th className="px-3 py-2 text-right font-semibold">FUTA</th>
                       </tr>
                     </thead>
@@ -577,7 +587,7 @@ export default function TaxLiabilityPage() {
                           <td className="px-3 py-2 text-right">{formatCurrency(pd.medicareEmployee + pd.medicareEmployer + pd.additionalMedicare)}</td>
                           <td className="px-3 py-2 text-right">{formatCurrency(pd.nySDI)}</td>
                           <td className="px-3 py-2 text-right">{formatCurrency(pd.nyPFL)}</td>
-                          <td className="px-3 py-2 text-right">{formatCurrency(pd.employerSUI)}</td>
+                          <td className="px-3 py-2 text-right">{formatCurrency(pd.employerSUI + pd.employerRSF)}</td>
                           <td className="px-3 py-2 text-right">{formatCurrency(pd.employerFUTA)}</td>
                         </tr>
                       ))}

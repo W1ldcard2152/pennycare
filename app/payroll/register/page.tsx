@@ -51,6 +51,7 @@ interface PayrollRecord {
   employerSocialSecurity: number;
   employerMedicare: number;
   employerSUI: number;
+  employerRSF: number;
   employerFUTA: number;
   totalEmployerCost: number;
   isPaid: boolean;
@@ -96,6 +97,7 @@ interface RegisterData {
     employerSocialSecurity: number;
     employerMedicare: number;
     employerSUI: number;
+  employerRSF: number;
     employerFUTA: number;
     totalEmployerCost: number;
   } | null;
@@ -433,6 +435,10 @@ export default function PayrollRegisterPage() {
                     <div className="flex justify-between">
                       <span className="text-gray-600">SUI:</span>
                       <span className="font-medium">{formatCurrency(registerData.totals?.employerSUI || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">NY RSF:</span>
+                      <span className="font-medium">{formatCurrency(registerData.totals?.employerRSF || 0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">FUTA:</span>

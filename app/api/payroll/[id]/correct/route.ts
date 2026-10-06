@@ -136,6 +136,7 @@ export async function POST(
         employerSocialSecurity: result.socialSecurityEmployer,
         employerMedicare: result.medicareEmployer,
         employerSUI: result.suiEmployer,
+        employerRSF: result.nyRSFEmployer,
         employerFUTA: result.futaEmployer,
         employerWorkersComp: 0,
         employerHealthIns: 0,

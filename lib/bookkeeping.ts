@@ -322,14 +322,14 @@ export async function ensurePayrollAccounts(
  *
  * The journal entry for a payroll run looks like:
  *   DEBIT  6000 Wages & Salaries         (gross pay)
- *   DEBIT  6010 Payroll Tax Expense       (employer taxes: SS, Medicare, FUTA, SUI)
+ *   DEBIT  6010 Payroll Tax Expense       (employer taxes: SS, Medicare, FUTA, SUI, RSF)
  *   CREDIT 2100 Payroll Liabilities       (net pay — what employees are owed)
  *   CREDIT 2110 Federal Tax Payable       (federal withholding)
  *   CREDIT 2120 State Tax Payable         (state withholding)
  *   CREDIT 2130 Social Security Payable   (employee + employer SS)
  *   CREDIT 2140 Medicare Payable          (employee + employer Medicare)
  *   CREDIT 2150 FUTA Payable              (employer FUTA)
- *   CREDIT 2160 SUI Payable               (employer SUI)
+ *   CREDIT 2160 SUI Payable               (employer SUI + NY RSF — both paid on the NYS-45)
  *   CREDIT 2170 NY SDI Payable            (employee SDI)
  *   CREDIT 2180 NY PFL Payable            (employee PFL)
  */
@@ -375,6 +375,7 @@ export async function createPayrollJournalEntries(
       acc.employerMedicare += r.employerMedicare;
       acc.employerFUTA += r.employerFUTA;
       acc.employerSUI += r.employerSUI;
+      acc.employerRSF += r.employerRSF;
       acc.totalPreTaxDeductions += r.totalPreTaxDeductions;
       acc.totalPostTaxDeductions += r.totalPostTaxDeductions;
       return acc;
@@ -384,7 +385,7 @@ export async function createPayrollJournalEntries(
       socialSecurityEmployee: 0, medicareEmployee: 0,
       nySDI: 0, nyPFL: 0, netPay: 0,
       employerSocialSecurity: 0, employerMedicare: 0,
-      employerFUTA: 0, employerSUI: 0,
+      employerFUTA: 0, employerSUI: 0, employerRSF: 0,
       totalPreTaxDeductions: 0, totalPostTaxDeductions: 0,
     }
   );
@@ -403,7 +404,7 @@ export async function createPayrollJournalEntries(
     lines.push({ accountId: acctMap.get('6000')!, description: 'Gross wages', debit: round2(totals.grossPay), credit: 0 });
   }
 
-  const employerTaxTotal = totals.employerSocialSecurity + totals.employerMedicare + totals.employerFUTA + totals.employerSUI;
+  const employerTaxTotal = totals.employerSocialSecurity + totals.employerMedicare + totals.employerFUTA + totals.employerSUI + totals.employerRSF;
   if (employerTaxTotal > 0) {
     lines.push({ accountId: acctMap.get('6010')!, description: 'Employer payroll taxes', debit: round2(employerTaxTotal), credit: 0 });
   }
@@ -431,8 +432,10 @@ export async function createPayrollJournalEntries(
   if (totals.employerFUTA > 0) {
     lines.push({ accountId: acctMap.get('2150')!, description: 'FUTA', debit: 0, credit: round2(totals.employerFUTA) });
   }
-  if (totals.employerSUI > 0) {
-    lines.push({ accountId: acctMap.get('2160')!, description: 'SUI', debit: 0, credit: round2(totals.employerSUI) });
+  // RSF rides with SUI: both are NYS-45 Part A money, and the filing service
+  // trues 2160 up to line 8 − line 9 (UI contributions + RSF).
+  if (totals.employerSUI + totals.employerRSF > 0) {
+    lines.push({ accountId: acctMap.get('2160')!, description: totals.employerRSF > 0 ? 'SUI + RSF' : 'SUI', debit: 0, credit: round2(totals.employerSUI + totals.employerRSF) });
   }
   if (totals.nySDI > 0) {
     lines.push({ accountId: acctMap.get('2170')!, description: 'NY SDI', debit: 0, credit: round2(totals.nySDI) });

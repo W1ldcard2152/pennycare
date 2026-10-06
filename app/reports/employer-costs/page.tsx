@@ -10,6 +10,7 @@ interface EmployeeCost {
   employerSocialSecurity: number;
   employerMedicare: number;
   employerSUI: number;
+  employerRSF: number;
   employerFUTA: number;
   employerWorkersComp: number;
   totalEmployerCost: number;
@@ -20,7 +21,7 @@ interface ReportData {
   dateRange: { start: string; end: string; period: string };
   costs: {
     employerSocialSecurity: number; employerMedicare: number;
-    employerSUI: number; employerFUTA: number;
+    employerSUI: number; employerRSF: number; employerFUTA: number;
     employerWorkersComp: number; totalEmployerCost: number;
   };
   grossPayroll: number;
@@ -139,8 +140,9 @@ export default function EmployerCostsReport() {
               <h3 className="mb-3 text-lg font-semibold text-gray-900">Unemployment</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-600">NYS SUI</span><span className="font-medium">{formatCurrency(data.costs.employerSUI)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-600">NY RSF (0.075%)</span><span className="font-medium">{formatCurrency(data.costs.employerRSF)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">FUTA (0.6%)</span><span className="font-medium">{formatCurrency(data.costs.employerFUTA)}</span></div>
-                <div className="flex justify-between border-t pt-2 font-semibold"><span>Total Unemployment</span><span className="text-purple-600">{formatCurrency(data.costs.employerSUI + data.costs.employerFUTA)}</span></div>
+                <div className="flex justify-between border-t pt-2 font-semibold"><span>Total Unemployment</span><span className="text-purple-600">{formatCurrency(data.costs.employerSUI + data.costs.employerRSF + data.costs.employerFUTA)}</span></div>
               </div>
             </div>
             <div className="rounded-lg bg-white p-5 shadow print:shadow-none print:border print:rounded-none">
@@ -184,7 +186,7 @@ export default function EmployerCostsReport() {
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">Gross Pay</th>
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">ER SS</th>
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">ER Med</th>
-                    <th className="px-3 py-3 text-right font-semibold text-gray-900">SUI</th>
+                    <th className="px-3 py-3 text-right font-semibold text-gray-900">SUI + RSF</th>
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">FUTA</th>
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">WC</th>
                     <th className="px-3 py-3 text-right font-semibold text-gray-900">Total ER</th>
@@ -204,7 +206,7 @@ export default function EmployerCostsReport() {
                       <td className="px-3 py-2 text-right text-blue-600">{formatCurrency(e.grossPay)}</td>
                       <td className="px-3 py-2 text-right">{formatCurrency(e.employerSocialSecurity)}</td>
                       <td className="px-3 py-2 text-right">{formatCurrency(e.employerMedicare)}</td>
-                      <td className="px-3 py-2 text-right">{formatCurrency(e.employerSUI)}</td>
+                      <td className="px-3 py-2 text-right">{formatCurrency(e.employerSUI + e.employerRSF)}</td>
                       <td className="px-3 py-2 text-right">{formatCurrency(e.employerFUTA)}</td>
                       <td className="px-3 py-2 text-right">{formatCurrency(e.employerWorkersComp)}</td>
                       <td className="px-3 py-2 text-right font-bold text-purple-600">{formatCurrency(e.totalEmployerCost)}</td>
@@ -218,7 +220,7 @@ export default function EmployerCostsReport() {
                     <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(data.grossPayroll)}</td>
                     <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerSocialSecurity)}</td>
                     <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerMedicare)}</td>
-                    <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerSUI)}</td>
+                    <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerSUI + data.costs.employerRSF)}</td>
                     <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerFUTA)}</td>
                     <td className="px-3 py-3 text-right">{formatCurrency(data.costs.employerWorkersComp)}</td>
                     <td className="px-3 py-3 text-right text-purple-600">{formatCurrency(data.costs.totalEmployerCost)}</td>

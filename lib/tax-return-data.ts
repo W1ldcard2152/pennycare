@@ -109,6 +109,7 @@ export async function loadNys45(companyId: string, year: number, quarter: number
     stateTax: r.stateTax,
     localTax: r.localTax,
     employerSUI: r.employerSUI,
+    employerRSF: r.employerRSF,
   }));
 
   const [depositRows, filing] = await Promise.all([

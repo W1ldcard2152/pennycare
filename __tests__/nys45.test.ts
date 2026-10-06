@@ -389,3 +389,28 @@ describe('buildNys45 Part B and C', () => {
     expect(result.warnings.map((w) => w.code)).toContain('part_c_overflow');
   });
 });
+
+describe('buildNys45 RSF tie-out', () => {
+  // $2,000 of SUI-subject wages: line 5 = 2,000 × 0.075% = $1.50
+  const records = [
+    record('2026-05-15', { grossPay: 1000, taxableWages: 1000, employerSUI: 16.25, employerRSF: 0.75 }),
+    record('2026-05-22', { grossPay: 1000, taxableWages: 1000, employerSUI: 16.25, employerRSF: 0.75 }),
+  ];
+
+  it('sums the RSF payroll booked and stays quiet when it matches line 5', () => {
+    const result = buildNys45({ ...BASE_INPUT, employees: [employee()], yearRecords: records });
+    expect(result.partA.line5ReemploymentServiceFund).toBe(1.5);
+    expect(result.bookedRSF).toBe(1.5);
+    expect(result.warnings.map((w) => w.code)).not.toContain('rsf_mismatch');
+  });
+
+  it('warns when payroll booked no RSF (records from before RSF was booked)', () => {
+    const result = buildNys45({
+      ...BASE_INPUT,
+      employees: [employee()],
+      yearRecords: records.map((r) => ({ ...r, employerRSF: undefined })),
+    });
+    expect(result.bookedRSF).toBe(0);
+    expect(result.warnings.map((w) => w.code)).toContain('rsf_mismatch');
+  });
+});

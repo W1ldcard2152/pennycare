@@ -473,6 +473,7 @@ model PayrollRecord {
   employerSocialSecurity Float @default(0)
   employerMedicare Float    @default(0)
   employerSUI      Float    @default(0) // NY State Unemployment Insurance
+  employerRSF      Float    @default(0) // NY Re-employment Service Fund (0.075% of SUI-subject wages); booked to 2160 with SUI
   employerFUTA     Float    @default(0) // Federal Unemployment Tax
   employerWorkersComp Float @default(0)
   employerHealthIns Float   @default(0) // Employer portion of health insurance

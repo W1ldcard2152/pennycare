@@ -97,6 +97,7 @@ export async function GET(request: NextRequest) {
         employerSocialSecurity: true,
         employerMedicare: true,
         employerSUI: true,
+        employerRSF: true,
         employerFUTA: true,
       },
     });
@@ -118,6 +119,7 @@ export async function GET(request: NextRequest) {
       socialSecurityEmployer: 0,
       medicareEmployer: 0,
       employerSUI: 0,
+      employerRSF: 0, // NY Re-employment Service Fund — paid with SUI on the NYS-45
       employerFUTA: 0,
       totalEmployerTaxes: 0,
       // Combined totals
@@ -143,6 +145,7 @@ export async function GET(request: NextRequest) {
       socialSecurityEmployer: number;
       medicareEmployer: number;
       employerSUI: number;
+      employerRSF: number;
       employerFUTA: number;
     }> = {};
 
@@ -167,6 +170,7 @@ export async function GET(request: NextRequest) {
           socialSecurityEmployer: 0,
           medicareEmployer: 0,
           employerSUI: 0,
+          employerRSF: 0,
           employerFUTA: 0,
         };
       }
@@ -184,6 +188,7 @@ export async function GET(request: NextRequest) {
       pd.socialSecurityEmployer += record.employerSocialSecurity || 0;
       pd.medicareEmployer += record.employerMedicare || 0;
       pd.employerSUI += record.employerSUI || 0;
+      pd.employerRSF += record.employerRSF || 0;
       pd.employerFUTA += record.employerFUTA || 0;
 
       // Add to totals
@@ -199,6 +204,7 @@ export async function GET(request: NextRequest) {
       totals.socialSecurityEmployer += record.employerSocialSecurity || 0;
       totals.medicareEmployer += record.employerMedicare || 0;
       totals.employerSUI += record.employerSUI || 0;
+      totals.employerRSF += record.employerRSF || 0;
       totals.employerFUTA += record.employerFUTA || 0;
     }
 
@@ -217,6 +223,7 @@ export async function GET(request: NextRequest) {
       totals.socialSecurityEmployer +
       totals.medicareEmployer +
       totals.employerSUI +
+      totals.employerRSF +
       totals.employerFUTA;
 
     // Total FICA (Social Security + Medicare, both employee and employer)
@@ -230,13 +237,14 @@ export async function GET(request: NextRequest) {
     // Form 941 Liability (Federal income tax + all FICA)
     totals.total941Liability = totals.federalTax + totals.totalFICA;
 
-    // NYS Liability (State tax + SDI + PFL + SUI)
+    // NYS Liability (State tax + SDI + PFL + SUI + RSF)
     totals.totalStateLiability =
       totals.stateTax +
       totals.localTax +
       totals.nySDI +
       totals.nyPFL +
-      totals.employerSUI;
+      totals.employerSUI +
+      totals.employerRSF;
 
     // Round all totals
     for (const key of Object.keys(totals) as (keyof typeof totals)[]) {
