@@ -13,6 +13,7 @@ Upgrading from 1.1.x: back up first (Admin → Backup / Restore). The first laun
 - Filing a 941 or NYS-45 now updates the books to the filed return: one adjusting entry, dated the last day of the quarter, brings each payroll-tax liability account to the filed figure, with the difference in a new 6020 Payroll Tax Adjustments account. The payment can be recorded in the same dialog. Re-filing, unfiling or voiding a filing voids its adjusting entry (Approver role).
 - Tax Settings takes the full 2020-and-later Form W-4: the Step 2 multiple-jobs checkbox, Step 3 dependents, and Step 4(a) other income / 4(b) deductions. Allowances only show for a pre-2020 W-4.
 - NY Re-employment Service Fund (RSF) is booked with each payroll (with SUI, in 2160) and shown on the tax liability, payroll register and employer cost reports, so filing an NYS-45 no longer has to true up line 5.
+- **Move to another quarter** on the Tax Filings list fixes a 941 or NYS-45 recorded under the wrong quarter. The filed figures move with it and the books are re-adjusted in the right quarter; two returns recorded backwards can be swapped. If the figures don't match the new quarter's payroll, it says so and links to the return to re-file.
 - Run Payroll flags setup problems on each employee's preview card, such as no NY IT-2104 on file or a prior-provider YTD balance with no "as of" date.
 
 ### Changed

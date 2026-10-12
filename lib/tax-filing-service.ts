@@ -37,6 +37,7 @@ import {
   filingTotals,
   form941ComputedValues,
   materialAdjustments,
+  parseSavedReturn,
   nys45ComputedValues,
   nys45LineDefs,
   resolveReturn,
@@ -290,11 +291,6 @@ export async function fileReturn(actor: Actor, companyId: string, input: FileRet
         await voidEntry(actor, supersedes, `Superseded: ${label} filed again with updated figures`, tx);
       }
 
-      // 2–3. True the liability accounts up to the filed return.
-      const accruals = await getQuarterAccruals(tx, companyId, formType, year, quarter);
-      const adjustments = computeFilingAdjustment(formType, values, ctx.computed, accruals);
-      const material = materialAdjustments(adjustments);
-
       const formDataJson = serialize({ version: 1, overrides, values, computed: ctx.computed });
       const filingData = {
         status: 'filed',
@@ -310,41 +306,14 @@ export async function fileReturn(actor: Actor, companyId: string, input: FileRet
         ? await tx.taxFiling.update({ where: { id: existing.id }, data: filingData })
         : await tx.taxFiling.create({ data: { companyId, formType, year, quarter, ...filingData } });
 
-      let adjustmentEntry: { id: string; entryNumber: number } | null = null;
-      if (material.length > 0) {
-        const codes = [...material.map((a) => a.code), PAYROLL_TAX_ADJUSTMENTS_CODE];
-        const accountIds = await ensurePayrollAccounts(companyId, codes, tx);
-        const lines = material.map((a) => ({
-          accountId: accountIds.get(a.code)!,
-          description: `${a.label}: filed ${a.filed.toFixed(2)} vs accrued ${a.booked.toFixed(2)} (${a.basis})`,
-          debit: a.amount < 0 ? round2(-a.amount) : 0,
-          credit: a.amount > 0 ? a.amount : 0,
-        }));
-        const net = round2(material.reduce((s, a) => s + a.amount, 0));
-        if (net !== 0) {
-          lines.push({
-            accountId: accountIds.get(PAYROLL_TAX_ADJUSTMENTS_CODE)!,
-            description: `Difference between accrued payroll taxes and filed ${FORM_LABEL[formType]}`,
-            debit: net > 0 ? net : 0,
-            credit: net < 0 ? round2(-net) : 0,
-          });
-        }
-        const entry = await createEntry(
-          actor,
-          {
-            companyId,
-            date: quarterEndDate(year, quarter),
-            memo: `${label} — adjust payroll tax liabilities to filed return`,
-            source: 'tax_filing_adjustment',
-            sourceId: filing.id,
-            lines,
-          },
-          tx
-        );
-        adjustmentEntry = { id: entry.id, entryNumber: entry.entryNumber };
+      // 2–3. True the liability accounts up to the filed return.
+      const { adjustments, entry: adjustmentEntry } = await postFilingAdjustment(
+        tx, actor, companyId, formType, year, quarter, filing.id, values, ctx.computed
+      );
+      if (adjustmentEntry) {
         filing = await tx.taxFiling.update({
           where: { id: filing.id },
-          data: { adjustmentEntryId: entry.id },
+          data: { adjustmentEntryId: adjustmentEntry.id },
         });
       }
 
@@ -387,6 +356,60 @@ export async function fileReturn(actor: Actor, companyId: string, input: FileRet
     },
     { timeout: 20000 }
   );
+}
+
+/**
+ * Measure the quarter's accrual to each liability account and post the one
+ * tax_filing_adjustment entry (dated the last day of the quarter) that moves
+ * each to the filed figure, net difference to 6020. No entry when nothing is
+ * material. Shared by filing and by moving a filing to another quarter.
+ */
+async function postFilingAdjustment(
+  tx: Tx,
+  actor: Actor,
+  companyId: string,
+  formType: ReturnFormType,
+  year: number,
+  quarter: number,
+  filingId: string,
+  values: ReturnValues,
+  computed: ReturnValues
+): Promise<{ adjustments: AdjustmentLine[]; entry: { id: string; entryNumber: number } | null }> {
+  const accruals = await getQuarterAccruals(tx, companyId, formType, year, quarter);
+  const adjustments = computeFilingAdjustment(formType, values, computed, accruals);
+  const material = materialAdjustments(adjustments);
+  if (material.length === 0) return { adjustments, entry: null };
+
+  const codes = [...material.map((a) => a.code), PAYROLL_TAX_ADJUSTMENTS_CODE];
+  const accountIds = await ensurePayrollAccounts(companyId, codes, tx);
+  const lines = material.map((a) => ({
+    accountId: accountIds.get(a.code)!,
+    description: `${a.label}: filed ${a.filed.toFixed(2)} vs accrued ${a.booked.toFixed(2)} (${a.basis})`,
+    debit: a.amount < 0 ? round2(-a.amount) : 0,
+    credit: a.amount > 0 ? a.amount : 0,
+  }));
+  const net = round2(material.reduce((s, a) => s + a.amount, 0));
+  if (net !== 0) {
+    lines.push({
+      accountId: accountIds.get(PAYROLL_TAX_ADJUSTMENTS_CODE)!,
+      description: `Difference between accrued payroll taxes and filed ${FORM_LABEL[formType]}`,
+      debit: net > 0 ? net : 0,
+      credit: net < 0 ? round2(-net) : 0,
+    });
+  }
+  const entry = await createEntry(
+    actor,
+    {
+      companyId,
+      date: quarterEndDate(year, quarter),
+      memo: `${FORM_LABEL[formType]} Q${quarter} ${year} — adjust payroll tax liabilities to filed return`,
+      source: 'tax_filing_adjustment',
+      sourceId: filingId,
+      lines,
+    },
+    tx
+  );
+  return { adjustments, entry: { id: entry.id, entryNumber: entry.entryNumber } };
 }
 
 async function recordReturnPayment(
@@ -545,6 +568,169 @@ export async function withdrawFiling(
       });
 
       return result;
+    },
+    { timeout: 20000 }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Move to another quarter
+// ---------------------------------------------------------------------------
+
+export interface MoveFilingInput {
+  year: number;
+  quarter: number;
+  /** The target quarter already has a filed return: trade places with it. */
+  swap?: boolean;
+}
+
+export interface MovedFiling {
+  id: string;
+  from: { year: number; quarter: number };
+  to: { year: number; quarter: number };
+  /** Lines where the filed figures differ from the new quarter's payroll. */
+  differsFromPayroll: string[];
+  adjustmentEntry: { id: string; entryNumber: number } | null;
+}
+
+/**
+ * Move a filed 941 / NYS-45 that was recorded under the wrong quarter.
+ *
+ * The filed figures go with it — they are what was submitted. For a return
+ * filed through the editable-return flow, the old quarter's adjusting entry
+ * is voided and a new one is posted at the end of the new quarter against
+ * THAT quarter's payroll, so each quarter's books match the return that was
+ * actually filed for it. Older status-only filings just change quarter.
+ *
+ * A target quarter holding a filed return is refused unless `swap` is set
+ * (two quarters recorded backwards); a draft or voided record there is
+ * replaced. Payments recorded with a return keep their period — they're
+ * moved with Change quarter on Tax Deposits, since a deposit can't be told
+ * apart from an ordinary one reliably.
+ */
+export async function moveFiling(actor: Actor, companyId: string, filingId: string, input: MoveFilingInput) {
+  const { year: toYear, quarter: toQuarter } = input;
+  if (!Number.isInteger(toYear) || !Number.isInteger(toQuarter) || toQuarter < 1 || toQuarter > 4) {
+    throw new TaxFilingError('Choose a year and a quarter (1–4)');
+  }
+
+  const filing = await prisma.taxFiling.findFirst({ where: { id: filingId, companyId } });
+  if (!filing) throw new TaxFilingError('Tax filing not found', 404);
+  const formType = filing.formType as ReturnFormType;
+  if (!(formType in FORM_LABEL) || filing.quarter == null) {
+    throw new TaxFilingError('Only a quarterly Form 941 or NYS-45 can be moved to another quarter');
+  }
+  if (filing.status !== 'filed') {
+    throw new TaxFilingError('Only a filed return can be moved — open the quarter you want and file it there');
+  }
+  if (filing.year === toYear && filing.quarter === toQuarter) {
+    throw new TaxFilingError(`This ${FORM_LABEL[formType]} is already recorded for Q${toQuarter} ${toYear}`);
+  }
+
+  const occupant = await prisma.taxFiling.findFirst({
+    where: { companyId, formType, year: toYear, quarter: toQuarter },
+  });
+  // Only a draft or a voided record may be replaced; anything else is a real filing.
+  const swapping = !!occupant && !['pending', 'voided'].includes(occupant.status);
+  if (swapping && !input.swap) {
+    throw new TaxFilingError(
+      `Q${toQuarter} ${toYear} already has a filed ${FORM_LABEL[formType]}. If the two were recorded backwards, swap them.`,
+      409
+    );
+  }
+
+  // Each quarter's payroll figures, loaded before the transaction (the loaders
+  // use the global client, which would deadlock inside it).
+  const from = { year: filing.year, quarter: filing.quarter };
+  const to = { year: toYear, quarter: toQuarter };
+  const computedTo = (await loadContext(companyId, formType, to.year, to.quarter)).computed;
+  const computedFrom = swapping ? (await loadContext(companyId, formType, from.year, from.quarter)).computed : null;
+
+  return prisma.$transaction(
+    async (tx) => {
+      const legs: Array<{ row: typeof filing; target: { year: number; quarter: number }; computed: ReturnValues }> = [
+        { row: filing, target: to, computed: computedTo },
+      ];
+      if (swapping) legs.push({ row: occupant!, target: from, computed: computedFrom! });
+
+      // 1. Void each moving filing's adjusting entry (APPROVER+, closed-year guard).
+      for (const leg of legs) {
+        const live = await liveAdjustmentEntryId(tx, leg.row.adjustmentEntryId);
+        if (live) {
+          await voidEntry(
+            actor,
+            live,
+            `${FORM_LABEL[formType]} recorded for Q${leg.row.quarter} ${leg.row.year} belongs to Q${leg.target.quarter} ${leg.target.year} — moved`,
+            tx
+          );
+        }
+      }
+
+      // 2. Clear the target slot: a draft or voided record there is replaced.
+      if (occupant && !swapping) {
+        await tx.taxFiling.delete({ where: { id: occupant.id } });
+      }
+
+      // 3. Re-key. Park the first row on a null quarter while swapping so the
+      //    (company, form, year, quarter) unique key never collides.
+      if (swapping) {
+        await tx.taxFiling.update({ where: { id: filing.id }, data: { quarter: null, adjustmentEntryId: null } });
+        await tx.taxFiling.update({
+          where: { id: occupant!.id },
+          data: { year: from.year, quarter: from.quarter, adjustmentEntryId: null },
+        });
+      }
+      await tx.taxFiling.update({
+        where: { id: filing.id },
+        data: { year: to.year, quarter: to.quarter, adjustmentEntryId: null },
+      });
+
+      // 4. True each moved return up against its new quarter's payroll.
+      const moved: MovedFiling[] = [];
+      for (const leg of legs) {
+        const saved = parseSavedReturn(leg.row.formDataJson);
+        let adjustmentEntry: MovedFiling['adjustmentEntry'] = null;
+        let differsFromPayroll: string[] = [];
+        if (saved) {
+          ({ entry: adjustmentEntry } = await postFilingAdjustment(
+            tx, actor, companyId, formType, leg.target.year, leg.target.quarter, leg.row.id, saved.values, leg.computed
+          ));
+          differsFromPayroll = changedKeys(saved.values, leg.computed);
+          await tx.taxFiling.update({
+            where: { id: leg.row.id },
+            data: {
+              formDataJson: serialize({ ...saved, computed: leg.computed }),
+              adjustmentEntryId: adjustmentEntry?.id ?? null,
+            },
+          });
+        }
+        moved.push({
+          id: leg.row.id,
+          from: { year: leg.row.year, quarter: leg.row.quarter! },
+          to: leg.target,
+          differsFromPayroll,
+          adjustmentEntry,
+        });
+
+        await logAudit({
+          tx,
+          companyId,
+          userId: actor.userId,
+          action: 'tax_filing.move',
+          entityType: 'TaxFiling',
+          entityId: leg.row.id,
+          before: { year: leg.row.year, quarter: leg.row.quarter, adjustmentEntryId: leg.row.adjustmentEntryId },
+          after: { year: leg.target.year, quarter: leg.target.quarter, adjustmentEntryId: adjustmentEntry?.id ?? null },
+          metadata: {
+            formType,
+            swapped: swapping,
+            replacedRecord: occupant && !swapping ? { id: occupant.id, status: occupant.status } : null,
+            differsFromPayroll,
+          },
+        });
+      }
+
+      return { moved, swapped: swapping };
     },
     { timeout: 20000 }
   );
