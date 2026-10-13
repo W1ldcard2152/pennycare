@@ -11,6 +11,7 @@ import {
   UsersIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  BuildingLibraryIcon,
 } from '@heroicons/react/24/outline';
 import { formatCurrency } from '@/lib/payrollCalculations';
 
@@ -141,6 +142,13 @@ export default function PayrollDashboardPage() {
           title="Mark Payroll Paid"
           description={unpaid.length > 0 ? `${unpaid.length} record${unpaid.length !== 1 ? 's' : ''} awaiting` : 'All caught up'}
           onClick={() => document.getElementById('unpaid')?.scrollIntoView({ behavior: 'smooth' })}
+        />
+        <DashboardCard
+          href="/bookkeeping/tax-deposits/new"
+          icon={<BuildingLibraryIcon className="h-6 w-6" />}
+          color="bg-teal-500"
+          title="Record Tax Deposit"
+          description="Federal 941 or NY payment — shows what each quarter still owes"
         />
         <DashboardCard
           href="/payroll/tax-liability"

@@ -1,11 +1,27 @@
 import { prisma } from '@/lib/db';
 import { addBusinessDays, formatDate, startOfDay, endOfDay } from '@/lib/date-utils';
 
-// File NYS-1 within 5 business days of any payroll once quarterly NY income
-// tax withheld reaches $700. (3 business days for federal semi-weekly depositors;
-// monthly depositors get 5.)
+// File NYS-1 within 3 or 5 business days of the payroll that brings the
+// quarter's accumulated NY withholding to $700 (tax.ny.gov, withholding due
+// dates). 3 days if the employer withheld $15,000+ in the calendar year
+// before last; otherwise 5. New employers start as 5-day filers.
 const NYS1_THRESHOLD = 700;
-const NYS1_BUSINESS_DAYS = 5;
+export const NYS1_THREE_DAY_LOOKBACK_THRESHOLD = 15000;
+
+/**
+ * Which NYS-1 deadline applies. The law decides it from the lookback year's
+ * withholding, but CV Books only sees the payroll recorded in it, so its
+ * figure is a floor: reaching $15,000 proves 3-day status; falling short
+ * proves nothing (earlier payroll may have run elsewhere), and the company
+ * setting — what NY's notice says — decides.
+ */
+export function nys1FilerDays(
+  knownLookbackWithholding: number,
+  setting: number
+): { days: 3 | 5; basis: 'lookback' | 'setting' } {
+  if (knownLookbackWithholding >= NYS1_THREE_DAY_LOOKBACK_THRESHOLD) return { days: 3, basis: 'lookback' };
+  return { days: setting === 3 ? 3 : 5, basis: 'setting' };
+}
 
 // Small employers may also file monthly even below the threshold for predictability.
 // We trigger the monthly cadence reminder when the EARLIEST unfiled payroll has been
@@ -26,13 +42,19 @@ export interface Nys1Alert {
   earliestUnfiledPayDate: string | null;
   /** Most recent payDate among unfiled payrolls. */
   latestUnfiledPayDate: string | null;
-  /** Hard legal deadline = latestUnfiledPayDate + 5 business days. Only meaningful
+  /** Hard legal deadline = latestUnfiledPayDate + filerDays business days. Only meaningful
    *  once threshold is reached, but we compute it whenever an unfiled payroll exists. */
   legalDeadline: string | null;
   lastFiledDate: string | null;
   daysSinceLastFiling: number | null;
   /** How many days the oldest unfiled payroll has been unfiled. */
   daysSinceEarliestUnfiledPayroll: number | null;
+  /** 3 or 5 business days, and whether the app proved it or the setting chose it. */
+  filerDays: 3 | 5;
+  filerBasis: 'lookback' | 'setting';
+  lookbackYear: number;
+  /** NY withholding CV Books has on record for the lookback year (a floor). */
+  lookbackWithholding: number;
 }
 
 function quarterRange(now: Date): { start: Date; end: Date } {
@@ -60,6 +82,34 @@ function quarterRange(now: Date): { start: Date; end: Date } {
  */
 export async function computeNys1Alert(companyId: string, now: Date = new Date()): Promise<Nys1Alert> {
   const { start: qStart, end: qEnd } = quarterRange(now);
+
+  // 3- or 5-day filer: NY withholding in the calendar year before last.
+  const lookbackYear = now.getUTCFullYear() - 2;
+  const [company, lookbackRecords, lookbackSeeds] = await Promise.all([
+    prisma.company.findUnique({ where: { id: companyId }, select: { nys1FilerDays: true } }),
+    prisma.payrollRecord.aggregate({
+      where: {
+        companyId,
+        status: 'active',
+        payDate: { gte: startOfDay(`${lookbackYear}-01-01`), lte: endOfDay(`${lookbackYear}-12-31`) },
+      },
+      _sum: { stateTax: true, localTax: true },
+    }),
+    // Prior-provider YTD seeds dated in the lookback year cover payroll
+    // before CV Books took over that year.
+    prisma.employee.aggregate({
+      where: {
+        companyId,
+        ytdSeedAsOfDate: { gte: startOfDay(`${lookbackYear}-01-01`), lte: endOfDay(`${lookbackYear}-12-31`) },
+      },
+      _sum: { ytdStateIncomeTaxSeed: true },
+    }),
+  ]);
+  const lookbackWithholding =
+    Math.round(
+      ((lookbackRecords._sum.stateTax ?? 0) + (lookbackRecords._sum.localTax ?? 0) + (lookbackSeeds._sum.ytdStateIncomeTaxSeed ?? 0)) * 100
+    ) / 100;
+  const filer = nys1FilerDays(lookbackWithholding, company?.nys1FilerDays ?? 5);
 
   // Most recent filing for this company (if any). The cutoff for "unfiled
   // withholding" is the later of (last filing's periodEndDate) and (quarter start).
@@ -119,10 +169,14 @@ export async function computeNys1Alert(companyId: string, now: Date = new Date()
     earliestUnfiledPayDate: earliestUnfiledPayDate ? formatDate(earliestUnfiledPayDate) : null,
     latestUnfiledPayDate: latestUnfiledPayDate ? formatDate(latestUnfiledPayDate) : null,
     legalDeadline: latestUnfiledPayDate
-      ? formatDate(addBusinessDays(latestUnfiledPayDate, NYS1_BUSINESS_DAYS))
+      ? formatDate(addBusinessDays(latestUnfiledPayDate, filer.days))
       : null,
     lastFiledDate: lastFiling ? formatDate(lastFiling.filedDate) : null,
     daysSinceLastFiling,
     daysSinceEarliestUnfiledPayroll,
+    filerDays: filer.days,
+    filerBasis: filer.basis,
+    lookbackYear,
+    lookbackWithholding,
   };
 }

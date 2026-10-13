@@ -112,6 +112,11 @@ model Company {
 
   // Tax Deposit & Reminder Settings
   federalDepositSchedule String  @default("monthly") // "monthly" or "semiweekly"
+  // NYS-1 due within 3 or 5 business days of the payroll that reaches $700.
+  // NY assigns it from withholding two calendar years back ($15,000+ = 3-day);
+  // new employers are 5-day. lib/nys1.ts overrides this to 3 whenever the
+  // app's own records already prove the $15,000.
+  nys1FilerDays          Int     @default(5)
   reminderLeadDays       Int     @default(7)          // Days before deadline to show warnings
 
   // PTO/Leave Policies

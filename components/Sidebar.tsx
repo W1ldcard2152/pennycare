@@ -34,6 +34,8 @@ import {
   ChevronRightIcon,
   LockClosedIcon,
   ChatBubbleLeftRightIcon,
+  ReceiptPercentIcon,
+  ChartPieIcon,
 } from '@heroicons/react/24/outline';
 
 interface NavItem {
@@ -77,7 +79,17 @@ const sections: NavSection[] = [
       { name: 'Journal Entries', href: '/bookkeeping/journal-entries', icon: PencilSquareIcon },
       { name: 'Reconciliation', href: '/bookkeeping/reconciliation', icon: CheckBadgeIcon },
       { name: 'Vendors', href: '/bookkeeping/vendors', icon: BuildingStorefrontIcon },
+    ],
+  },
+  {
+    // The quarterly / annual tax loop, in order: what's owed → pay it →
+    // prepare the return → the record of what was filed.
+    name: 'Taxes',
+    icon: ReceiptPercentIcon,
+    items: [
+      { name: 'Tax Liability', href: '/payroll/tax-liability', icon: ChartPieIcon },
       { name: 'Tax Deposits', href: '/bookkeeping/tax-deposits', icon: BuildingLibraryIcon },
+      { name: 'Tax Forms', href: '/tax-forms', icon: DocumentTextIcon },
       { name: 'Tax Filings', href: '/bookkeeping/tax-filings', icon: DocumentDuplicateIcon },
     ],
   },
@@ -90,7 +102,6 @@ const sections: NavSection[] = [
       { name: 'Trial Balance', href: '/bookkeeping/reports/trial-balance', icon: CalculatorIcon },
       { name: 'General Ledger', href: '/bookkeeping/reports/general-ledger', icon: BookOpenIcon },
       { name: 'Payroll Reports', href: '/reports', icon: DocumentTextIcon },
-      { name: 'Tax Forms', href: '/tax-forms', icon: DocumentDuplicateIcon },
     ],
   },
   {
@@ -121,13 +132,32 @@ function getDefaultExpandedState(): Record<string, boolean> {
   }, {} as Record<string, boolean>);
 }
 
-function isPathActive(pathname: string, href: string): boolean {
+function matchesPath(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
   return pathname === href || pathname.startsWith(href + '/');
 }
 
+// The one nav item the current page belongs to: the most specific (longest)
+// matching href. Prefix matching alone lit up several items at once —
+// /payroll/run matched both Payroll Dashboard (/payroll) and Run Payroll,
+// and /payroll/tax-liability would open Payroll as well as Taxes.
+function activeHref(pathname: string): string | null {
+  let best: string | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (matchesPath(pathname, item.href) && (!best || item.href.length > best.length)) best = item.href;
+    }
+  }
+  return best;
+}
+
+function isPathActive(pathname: string, href: string): boolean {
+  return activeHref(pathname) === href;
+}
+
 function isSectionActive(pathname: string, section: NavSection): boolean {
-  return section.items.some(item => isPathActive(pathname, item.href));
+  const active = activeHref(pathname);
+  return active !== null && section.items.some(item => item.href === active);
 }
 
 export default function Sidebar() {

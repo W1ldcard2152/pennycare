@@ -38,6 +38,7 @@ interface Company {
   sickAccrualHoursWorked: number | null;
   sickAnnualCapHours: number | null;
   federalDepositSchedule: string;
+  nys1FilerDays: number;
   reminderLeadDays: number;
   ebayImportEnabled: boolean;
 }
@@ -102,6 +103,7 @@ export default function SettingsPage() {
         sickAccrualHoursWorked: data.sickAccrualHoursWorked ?? 30,
         sickAnnualCapHours: data.sickAnnualCapHours ?? 40,
         federalDepositSchedule: data.federalDepositSchedule || 'monthly',
+        nys1FilerDays: data.nys1FilerDays === 3 ? 3 : 5,
         reminderLeadDays: data.reminderLeadDays ?? 7,
         ebayImportEnabled: data.ebayImportEnabled ?? false,
       };
@@ -972,6 +974,25 @@ function TaxRemindersSettings({
             <p className="mt-1 text-sm text-gray-500">
               Also drives Form 941 Part 2 line 16: monthly enters the three monthly amounts,
               semi-weekly marks the semi-weekly box and requires a Schedule B attachment.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              NYS-1 Filing Deadline
+            </label>
+            <select
+              value={company.nys1FilerDays === 3 ? 3 : 5}
+              onChange={(e) => updateField('nys1FilerDays', parseInt(e.target.value))}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value={5}>5-day filer (5 business days after payroll)</option>
+              <option value={3}>3-day filer (3 business days after payroll)</option>
+            </select>
+            <p className="mt-1 text-sm text-gray-500">
+              NY assigns this from your NY withholding two calendar years back: $15,000 or more makes you a 3-day
+              filer; new employers start as 5-day filers. Use what NY&apos;s notice says. If CV Books' own payroll
+              records already show $15,000 for that year, it uses 3 days regardless.
             </p>
           </div>
 

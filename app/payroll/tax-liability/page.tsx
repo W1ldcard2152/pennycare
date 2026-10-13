@@ -71,6 +71,8 @@ interface TaxLiabilityData {
     earliestUnfiledPayDate: string | null;
     latestUnfiledPayDate: string | null;
     legalDeadline: string | null;
+    filerDays?: 3 | 5;
+    filerBasis?: 'lookback' | 'setting';
     lastFiledDate: string | null;
     daysSinceLastFiling: number | null;
     daysSinceEarliestUnfiledPayroll: number | null;
@@ -294,6 +296,10 @@ export default function TaxLiabilityPage() {
                           NYS-1 filing required — unfiled NY income tax withheld
                           ({formatCurrency(data.nys1Alert.unfiledWithholding)}) is at or above the{' '}
                           {formatCurrency(data.nys1Alert.threshold)} threshold.
+                          {data.nys1Alert.filerDays && (
+                            <> Due within {data.nys1Alert.filerDays} business days ({data.nys1Alert.filerDays}-day filer
+                              {data.nys1Alert.filerBasis === 'lookback' ? ', from your withholding two years back' : ', per Settings'}).</>
+                          )}
                         </p>
                         <p className="mt-1 text-red-800">
                           File Form NYS-1 and remit within{' '}

@@ -17,6 +17,7 @@ Upgrading from 1.1.x: back up first (Admin → Backup / Restore). The first laun
 - Run Payroll flags setup problems on each employee's preview card, such as no NY IT-2104 on file or a prior-provider YTD balance with no "as of" date.
 
 ### Changed
+- New **Taxes** section in the sidebar keeps the whole cycle together — Tax Liability (now in the sidebar), Tax Deposits, Tax Forms and Tax Filings — instead of spread across Books and Reports. The Payroll Dashboard gets a **Record Tax Deposit** card.
 - Booked journal entries can no longer be edited in place — reverse them instead. Drafts are still editable. An entry can have only one live reversal.
 - Voiding a booked entry requires the Approver role everywhere (eBay batch delete used to allow it at the old payroll role), and voids now respect closed periods and reconciled transactions.
 - Anyone can no longer register a new account; after the first owner is set up, users are added by an Owner.
@@ -50,6 +51,8 @@ Upgrading from 1.1.x: back up first (Admin → Backup / Restore). The first laun
 - Saving Tax Settings could quietly switch an employee to a pre-2020 W-4, or set their NY filing status to single, when those fields had been blank.
 - Semi-weekly federal deposit deadlines were swapped: Wednesday–Friday paydays are due the following Wednesday and Saturday–Tuesday paydays the following Friday.
 - The Mark Paid dialog's default date rolled over to the next day after 8pm Eastern.
+- The NYS-1 deadline was always 5 business days after payroll. 3-day filers (NY withholding of $15,000 or more two calendar years back) owe it in 3. Set your status in Settings → Reminder Settings; when CV Books' own records already show $15,000 for that year, it uses 3 days automatically.
+- The sidebar highlighted more than one item on some pages (e.g. Run Payroll also lit up Payroll Dashboard).
 - Time Tracking split each day at 8 hours and paid the rest as overtime, so long days in a short week paid overtime that wasn't owed. Payroll now splits each week's total at 40 hours, including hours entered before this fix.
 
 ## [1.1.1] — 2026-07-01

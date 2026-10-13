@@ -70,6 +70,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    if (rest.nys1FilerDays !== undefined && rest.nys1FilerDays !== 3 && rest.nys1FilerDays !== 5) {
+      return NextResponse.json({ error: 'NYS-1 filer status must be 3 or 5 business days.' }, { status: 400 });
+    }
+
     const updateData: Record<string, unknown> = { ...rest };
     if (bankRoutingNumber !== undefined) {
       updateData.bankRoutingNumberEncrypted = bankRoutingNumber
