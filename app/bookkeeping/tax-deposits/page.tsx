@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import QuarterPicker from '@/components/QuarterPicker';
 import {
   PlusIcon,
   CheckCircleIcon,
@@ -54,6 +55,7 @@ export default function TaxDepositsPage() {
   const [authority, setAuthority] = useState<string>('');
   const [deposits, setDeposits] = useState<TaxDeposit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [changing, setChanging] = useState<TaxDeposit | null>(null);
 
   const fetchDeposits = useCallback(async () => {
     setLoading(true);
@@ -86,32 +88,6 @@ export default function TaxDepositsPage() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.error || 'Failed to void deposit');
-      return;
-    }
-    fetchDeposits();
-  };
-
-  const handleChangePeriod = async (d: TaxDeposit) => {
-    const current = d.taxPeriodQuarter ? `${d.taxPeriodQuarter} ${d.taxPeriodYear}` : String(d.taxPeriodYear);
-    const answer = prompt(
-      `Which quarter does this ${formatCurrency(d.totalAmount)} deposit (paid ${formatDate(d.depositDate)}) pay for?\n` +
-        'Use the quarter of the payroll it covers, e.g. "Q2 2026".',
-      current
-    );
-    if (answer === null || answer.trim() === current) return;
-    const match = answer.trim().toUpperCase().match(/^Q([1-4])\s+(\d{4})$/);
-    if (!match) {
-      alert('Enter the quarter like "Q3 2026".');
-      return;
-    }
-    const res = await fetch(`/api/bookkeeping/tax-deposits/${d.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taxPeriodYear: parseInt(match[2]), taxPeriodQuarter: `Q${match[1]}` }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      alert(body.error || 'Failed to change quarter');
       return;
     }
     fetchDeposits();
@@ -238,7 +214,7 @@ export default function TaxDepositsPage() {
                     {d.status === 'recorded' && d.taxPeriodQuarter && (
                       <button
                         type="button"
-                        onClick={() => handleChangePeriod(d)}
+                        onClick={() => setChanging(d)}
                         className="mr-3 text-gray-600 hover:text-gray-900 text-xs"
                       >
                         Change quarter
@@ -268,6 +244,93 @@ export default function TaxDepositsPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {changing && (
+        <ChangeQuarterModal
+          deposit={changing}
+          onClose={() => setChanging(null)}
+          onSaved={() => {
+            setChanging(null);
+            fetchDeposits();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChangeQuarterModal({
+  deposit,
+  onClose,
+  onSaved,
+}: {
+  deposit: TaxDeposit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [period, setPeriod] = useState({
+    year: deposit.taxPeriodYear,
+    quarter: parseInt((deposit.taxPeriodQuarter || 'Q1').slice(1)),
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const unchanged = period.year === deposit.taxPeriodYear && `Q${period.quarter}` === deposit.taxPeriodQuarter;
+
+  const save = async () => {
+    setSaving(true);
+    setErr('');
+    try {
+      const res = await fetch(`/api/bookkeeping/tax-deposits/${deposit.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taxPeriodYear: period.year, taxPeriodQuarter: `Q${period.quarter}` }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to change quarter');
+      }
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to change quarter');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900">Change quarter</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Which quarter does this {formatCurrency(deposit.totalAmount)} deposit (paid {formatDate(deposit.depositDate)}) pay for?
+          Choose the quarter of the payroll it covers — June's withholding paid in July is a Q2 deposit.
+        </p>
+
+        {err && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
+
+        <div className="mt-4">
+          <QuarterPicker year={period.year} quarter={period.quarter} onChange={setPeriod} />
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving || unchanged}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : `Move to Q${period.quarter} ${period.year}`}
+          </button>
+        </div>
       </div>
     </div>
   );

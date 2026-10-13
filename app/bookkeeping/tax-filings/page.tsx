@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import QuarterPicker from '@/components/QuarterPicker';
 import {
   CheckCircleIcon,
   XCircleIcon,
@@ -294,36 +295,16 @@ function MoveFilingModal({
 
         {err && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
-        <div className="mt-4 flex gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Year</label>
-            <input
-              type="number"
-              value={year}
-              onChange={(e) => {
-                setYear(parseInt(e.target.value) || filing.year);
-                setNeedsSwap(null);
-              }}
-              className="mt-1 w-28 rounded-md border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Quarter</label>
-            <select
-              value={quarter}
-              onChange={(e) => {
-                setQuarter(parseInt(e.target.value));
-                setNeedsSwap(null);
-              }}
-              className="mt-1 rounded-md border border-gray-300 px-3 py-2"
-            >
-              {[1, 2, 3, 4].map((q) => (
-                <option key={q} value={q}>
-                  Q{q}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="mt-4">
+          <QuarterPicker
+            year={year}
+            quarter={quarter}
+            onChange={(next) => {
+              setYear(next.year);
+              setQuarter(next.quarter);
+              setNeedsSwap(null);
+            }}
+          />
         </div>
 
         <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-gray-600">
