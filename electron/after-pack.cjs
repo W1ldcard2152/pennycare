@@ -32,7 +32,7 @@ module.exports = async function afterPack(context) {
     return;
   }
 
-  await rcedit(exePath, {
+  const options = {
     icon: iconPath,
     'version-string': {
       ProductName: context.packager.appInfo.productName,
@@ -42,7 +42,24 @@ module.exports = async function afterPack(context) {
     },
     'file-version': context.packager.appInfo.buildVersion,
     'product-version': context.packager.appInfo.version,
-  });
+  };
+
+  // The freshly written ~225 MB .exe is often held open for a moment by
+  // Windows Defender's scan (or another indexer), and rcedit's final write
+  // then fails with "Unable to commit changes". That failure happens at
+  // EndUpdateResource, before anything is written, so retrying is safe.
+  const attempts = 6;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rcedit(exePath, options);
+      break;
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      const waitMs = attempt * 2000;
+      console.warn(`[after-pack] rcedit attempt ${attempt} failed (${String(err.message || err).split('\n').pop().trim()}) — the .exe is probably being scanned; retrying in ${waitMs / 1000}s`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
 
   console.log(`[after-pack] embedded icon + version metadata into ${exePath}`);
 };
