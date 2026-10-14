@@ -14,9 +14,12 @@
 import { prisma } from '../lib/db';
 import { createPayrollJournalEntries } from '../lib/bookkeeping';
 import { JE_STATUS } from '../lib/je-status';
-import type { Actor } from '../lib/journal-entry-service';
+import { voidEntry, type Actor } from '../lib/journal-entry-service';
 import {
   fileReturn,
+  listReturnPayments,
+  recordFilingPayment,
+  updateFilingDetails,
   getQuarterAccruals,
   previewFiling,
   saveReturnDraft,
@@ -164,6 +167,10 @@ async function main() {
 
     const saved = parseSavedReturn((await prisma.taxFiling.findUnique({ where: { id: filed.filing.id } }))!.formDataJson);
     check('filed values frozen with overrides', saved?.values.line6 === 52.1 && saved?.overrides.line6 === 52.1);
+    const beforeRefile = await previewFiling(company.id, 'nys45', 2026, 2, ny);
+    check('preview reports the payment already recorded with the return (so File again leaves it off)',
+      beforeRefile.returnPayments.length === 1 && beforeRefile.returnPayments[0].depositDate === '2026-07-20'
+        && beforeRefile.returnPayments[0].totalAmount === deposit?.totalAmount, beforeRefile.returnPayments);
 
     // Drafts are refused once filed.
     await expectThrow('save draft on a filed return is refused', () =>
@@ -188,6 +195,34 @@ async function main() {
     const refileAudit = await prisma.auditLog.findFirst({ where: { companyId: company.id, action: 'tax_filing.refile' } });
     check('re-file audited', refileAudit !== null);
 
+    // Edit details: the filed date changes, the books do not.
+    const entriesBefore = await prisma.journalEntry.count({ where: { companyId: company.id } });
+    await updateFilingDetails(clerkActor, company.id, filed.filing.id, { filedDate: '2026-07-31', confirmationNumber: 'NY-2' });
+    const detailed = await prisma.taxFiling.findUnique({ where: { id: filed.filing.id } });
+    check('edit details sets the filed date (business date) and confirmation #',
+      detailed?.filedDate?.toISOString() === '2026-07-31T12:00:00.000Z' && detailed.confirmationNumber === 'NY-2', detailed?.filedDate);
+    check('edit details leaves the adjusting entry and the books alone',
+      detailed?.adjustmentEntryId === refiled.adjustmentEntry!.id
+        && (await prisma.journalEntry.count({ where: { companyId: company.id } })) === entriesBefore);
+    check('edit details audited', (await prisma.auditLog.count({ where: { companyId: company.id, action: 'tax_filing.update_details' } })) === 1);
+
+    // A payment recorded later, without filing again (a $1.25 UI balance).
+    const later = await recordFilingPayment(clerkActor, company.id, filed.filing.id, {
+      bankAccountId: bank.id, depositDate: '2026-07-31', paymentMethod: 'NY Online Services', confirmationNumber: null,
+      components: { federalIncomeTaxWithheld: 0, socialSecurityTax: 0, medicareTax: 0, stateIncomeTaxWithheld: 0, stateUnemploymentTax: 1.25 },
+    });
+    const laterRow = await prisma.taxDeposit.findUnique({ where: { id: later.id } });
+    let listed = await listReturnPayments(prisma, company.id, 'nys45', 2026, 2);
+    check('later payment recorded with its own date and journal entry',
+      listed.some((p) => p.id === later.id && p.depositDate === '2026-07-31' && p.status === 'recorded')
+        && laterRow?.journalEntryId != null, listed);
+    // Void it the way Tax Deposits does (deposit + its entry); it stays listed, struck through.
+    await voidEntry(ownerActor, laterRow!.journalEntryId!, 'verify: recorded in error');
+    await prisma.taxDeposit.update({ where: { id: later.id }, data: { status: 'voided' } });
+    listed = await listReturnPayments(prisma, company.id, 'nys45', 2026, 2);
+    check('voided payment still listed as voided', listed.some((p) => p.id === later.id && p.status === 'voided'));
+    check('filing status untouched by payments', (await prisma.taxFiling.findUnique({ where: { id: filed.filing.id } }))?.status === 'filed');
+
     // Unfile: entry voided, edits kept as a draft, payment untouched.
     await withdrawFiling(ownerActor, company.id, filed.filing.id, 'unfile');
     const afterUnfile = await prisma.taxFiling.findUnique({ where: { id: filed.filing.id } });
@@ -198,6 +233,29 @@ async function main() {
     check('draft save works once unfiled', parseSavedReturn((await prisma.taxFiling.findUnique({ where: { id: filed.filing.id } }))!.formDataJson)?.overrides.line6 === 49);
     const relook = await previewFiling(company.id, 'nys45', 2026, 2, {});
     check('payment with return is not counted as an NYS-1 payment (line 15)', relook.values.line15 === 0, relook.values.line15);
+
+    // Switched providers mid-quarter: the filed return also covers an old-provider
+    // paycheck that withheld 50, which the old provider deposited on an NYS-1.
+    const switched = { line13: 170, line15: 50 };
+    const withoutPrior = await previewFiling(company.id, 'nys45', 2026, 2, switched);
+    check('without the prior-provider split, 2120 would be credited the old provider\'s 50',
+      withoutPrior.adjustments.find((a) => a.code === '2120')?.amount === 50, withoutPrior.adjustments);
+    await expectThrow('prior-provider deposits above line 15 refused', () =>
+      previewFiling(company.id, 'nys45', 2026, 2, { ...switched, priorLine15: 60 }), /line 15/);
+    const priorFiled = await fileReturn(ownerActor, company.id, {
+      ...nys, overrides: { ...switched, priorLine15: 50 }, filedDate: '2026-07-22', filingMethod: 'Other', confirmationNumber: null, notes: null,
+    });
+    const adj3 = await prisma.journalEntry.findUnique({
+      where: { id: priorFiled.adjustmentEntry!.id },
+      include: { lines: { include: { account: true } } },
+    });
+    check('prior-provider deposits leave 2120 out of the adjusting entry',
+      !adj3?.lines.some((l) => l.account.code === '2120'), adj3?.lines.map((l) => [l.account.code, l.debit, l.credit]));
+    const wtLines = await prisma.journalEntryLine.findMany({
+      where: { account: { companyId: company.id, code: '2120' }, journalEntry: { status: JE_STATUS.BOOKED } },
+    });
+    check('2120 still nets to zero (payroll accrual − payment of line 20)', r2(wtLines.reduce((s, l) => s + l.credit - l.debit, 0)) === 0);
+    await withdrawFiling(ownerActor, company.id, priorFiled.filing.id, 'unfile');
 
     // ---- Form 941 -----------------------------------------------------------
     const fed = await previewFiling(company.id, '941', 2026, 2, {});

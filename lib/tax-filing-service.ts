@@ -38,6 +38,7 @@ import {
   form941ComputedValues,
   materialAdjustments,
   parseSavedReturn,
+  priorProviderError,
   nys45ComputedValues,
   nys45LineDefs,
   resolveReturn,
@@ -79,6 +80,9 @@ export function describeFilingError(err: unknown): { status: number; message: st
 
 export const FORM_LABEL: Record<ReturnFormType, string> = { '941': 'Form 941', nys45: 'NYS-45' };
 
+/** TaxDeposit.formReference of a payment recorded with the return (recordReturnPayment). */
+const RETURN_PAYMENT_FORM_REFERENCE: Record<ReturnFormType, string> = { '941': 'Form 941', nys45: 'NYS-45' };
+
 interface ReturnContext {
   defs: ReturnLineDef[];
   computed: ReturnValues;
@@ -118,6 +122,12 @@ function resolveOverrides(ctx: ReturnContext, raw: unknown): { overrides: Return
   return { overrides: result.overrides, values: resolveReturn(ctx.defs, ctx.computed, result.overrides) };
 }
 
+/** Checks that only matter once the return is complete (drafts may be mid-edit). */
+function assertFileable(formType: ReturnFormType, values: ReturnValues) {
+  const error = priorProviderError(formType, values);
+  if (error) throw new TaxFilingError(error);
+}
+
 /**
  * Net credit each liability account the return settles received over the
  * quarter — see getPeriodAccruals for what counts as an accrual.
@@ -151,6 +161,8 @@ export interface FilingPreview {
   /** Entry from a previous filing of this return that filing again will void. */
   supersedesEntryId: string | null;
   payment: ReturnType<typeof suggestedPayment>;
+  /** Payments already recorded with this return — filing again would add another. */
+  returnPayments: Array<{ id: string; depositDate: string; totalAmount: number }>;
 }
 
 /** What filing with these overrides would do to the books — nothing is written. */
@@ -163,9 +175,13 @@ export async function previewFiling(
 ): Promise<FilingPreview> {
   const ctx = await loadContext(companyId, formType, year, quarter);
   const { values } = resolveOverrides(ctx, rawOverrides);
+  assertFileable(formType, values);
   const supersedes = await liveAdjustmentEntryId(prisma, ctx.filing?.adjustmentEntryId ?? null);
   const accruals = await getQuarterAccruals(prisma, companyId, formType, year, quarter, supersedes);
   const adjustments = computeFilingAdjustment(formType, values, ctx.computed, accruals);
+  const returnPayments = (await listReturnPayments(prisma, companyId, formType, year, quarter)).filter(
+    (d) => d.status === 'recorded'
+  );
   return {
     values,
     computed: ctx.computed,
@@ -173,7 +189,48 @@ export async function previewFiling(
     adjustments,
     supersedesEntryId: supersedes,
     payment: suggestedPayment(formType, values, adjustments, ctx.recordedDeposits),
+    returnPayments: returnPayments.map(({ id, depositDate, totalAmount }) => ({ id, depositDate, totalAmount })),
   };
+}
+
+export interface ReturnPayment {
+  id: string;
+  depositDate: string;
+  totalAmount: number;
+  paymentMethod: string;
+  confirmationNumber: string | null;
+  status: string;
+}
+
+/**
+ * Payments recorded with a return (recordReturnPayment) for its quarter,
+ * voided ones included — the form page lists both.
+ */
+export async function listReturnPayments(
+  db: Tx | typeof prisma,
+  companyId: string,
+  formType: ReturnFormType,
+  year: number,
+  quarter: number
+): Promise<ReturnPayment[]> {
+  const rows = await db.taxDeposit.findMany({
+    where: {
+      companyId,
+      formReference: RETURN_PAYMENT_FORM_REFERENCE[formType],
+      taxPeriodYear: year,
+      taxPeriodQuarter: `Q${quarter}`,
+    },
+    select: {
+      id: true,
+      depositDate: true,
+      totalAmount: true,
+      paymentMethod: true,
+      confirmationNumber: true,
+      status: true,
+    },
+    orderBy: { depositDate: 'asc' },
+  });
+  return rows.map((d) => ({ ...d, depositDate: formatDate(d.depositDate) }));
 }
 
 async function liveAdjustmentEntryId(db: Tx, entryId: string | null): Promise<string | null> {
@@ -259,6 +316,7 @@ export async function fileReturn(actor: Actor, companyId: string, input: FileRet
   const { formType, year, quarter } = input;
   const ctx = await loadContext(companyId, formType, year, quarter);
   const { overrides, values } = resolveOverrides(ctx, input.overrides);
+  assertFileable(formType, values);
   const label = `${FORM_LABEL[formType]} Q${quarter} ${year}`;
   const totals = filingTotals(formType, values);
 
@@ -448,7 +506,7 @@ async function recordReturnPayment(
     data: {
       companyId,
       taxAuthority: isNy ? 'ny_sui' : 'federal_941',
-      formReference: isNy ? 'NYS-45' : 'Form 941',
+      formReference: RETURN_PAYMENT_FORM_REFERENCE[formType],
       taxPeriodYear: year,
       taxPeriodQuarter: `Q${quarter}`,
       depositDate: parseBusinessDate(payment.depositDate),
@@ -568,6 +626,87 @@ export async function withdrawFiling(
       });
 
       return result;
+    },
+    { timeout: 20000 }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Filing details and later payments (no re-file)
+// ---------------------------------------------------------------------------
+
+async function findFiledReturn(db: Tx | typeof prisma, companyId: string, filingId: string) {
+  const filing = await db.taxFiling.findFirst({ where: { id: filingId, companyId } });
+  if (!filing) throw new TaxFilingError('Tax filing not found', 404);
+  const formType = filing.formType as ReturnFormType;
+  if (!(formType in FORM_LABEL) || filing.quarter == null) {
+    throw new TaxFilingError('Only a quarterly Form 941 or NYS-45 is handled here');
+  }
+  if (filing.status !== 'filed') throw new TaxFilingError('This return is not filed');
+  return { filing, formType, quarter: filing.quarter };
+}
+
+export interface FilingDetailsInput {
+  filedDate?: string;
+  filingMethod?: string | null;
+  confirmationNumber?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Correct when/how a return was filed. The figures and the books are
+ * untouched, so this never needs File again.
+ */
+export async function updateFilingDetails(
+  actor: Actor,
+  companyId: string,
+  filingId: string,
+  input: FilingDetailsInput
+) {
+  const { filing } = await findFiledReturn(prisma, companyId, filingId);
+  const data = {
+    ...(input.filedDate !== undefined && { filedDate: parseBusinessDate(input.filedDate) }),
+    ...(input.filingMethod !== undefined && { filingMethod: input.filingMethod }),
+    ...(input.confirmationNumber !== undefined && { confirmationNumber: input.confirmationNumber }),
+    ...(input.notes !== undefined && { notes: input.notes }),
+  };
+  const updated = await prisma.taxFiling.update({ where: { id: filing.id }, data });
+
+  const pick = (f: typeof filing) => ({
+    filedDate: f.filedDate ? formatDate(f.filedDate) : null,
+    filingMethod: f.filingMethod,
+    confirmationNumber: f.confirmationNumber,
+    notes: f.notes,
+  });
+  await logAudit({
+    companyId,
+    userId: actor.userId,
+    action: 'tax_filing.update_details',
+    entityType: 'TaxFiling',
+    entityId: filing.id,
+    before: pick(filing),
+    after: pick(updated),
+    metadata: { formType: filing.formType, year: filing.year, quarter: filing.quarter },
+  });
+  return updated;
+}
+
+/**
+ * Record a payment for a return that is already filed — the original
+ * remittance if it wasn't recorded at filing time, or a later one (an
+ * amended return's balance, a notice). Payments are separate dated events;
+ * an earlier one is never edited into this one.
+ */
+export async function recordFilingPayment(
+  actor: Actor,
+  companyId: string,
+  filingId: string,
+  payment: NonNullable<FileReturnInput['payment']>
+) {
+  return prisma.$transaction(
+    async (tx) => {
+      const { filing, formType, quarter } = await findFiledReturn(tx, companyId, filingId);
+      return recordReturnPayment(tx, actor, companyId, formType, filing.year, quarter, payment);
     },
     { timeout: 20000 }
   );

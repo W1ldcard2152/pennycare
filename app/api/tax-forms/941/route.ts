@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { prisma } from '@/lib/db';
+import { listReturnPayments } from '@/lib/tax-filing-service';
 import { PDFDocument } from 'pdf-lib';
 import { formatDate } from '@/lib/date-utils';
 import { line1ReferenceDate } from '@/lib/form941';
@@ -150,6 +152,8 @@ export async function GET(request: NextRequest) {
               totalDeposits: filing.totalDeposits,
               balanceDue: filing.balanceDue,
               adjustmentEntry: filing.adjustmentEntry,
+              notes: filing.notes,
+              payments: await listReturnPayments(prisma, companyId!, '941', year, quarter),
             }
           : null,
         // Editable return — the page recomputes with lib/tax-return-values.

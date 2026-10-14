@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { parseBusinessDate } from '@/lib/date-utils';
 import { describeFilingError, withdrawFiling } from '@/lib/tax-filing-service';
 
 // 941 / NYS-45 filings are tied to an adjusting journal entry; their status is
@@ -39,7 +40,7 @@ export async function PUT(
       where: { id },
       data: {
         ...(status !== undefined && { status }),
-        ...(filedDate !== undefined && { filedDate: filedDate ? new Date(filedDate) : null }),
+        ...(filedDate !== undefined && { filedDate: filedDate ? parseBusinessDate(filedDate) : null }),
         ...(confirmationNumber !== undefined && { confirmationNumber }),
         ...(notes !== undefined && { notes }),
       },

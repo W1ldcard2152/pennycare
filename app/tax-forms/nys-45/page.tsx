@@ -12,14 +12,23 @@ import {
   ExclamationTriangleIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
-import { nys45LineDefs, nys45PartCKey, type Nys45PartCColumn } from '@/lib/tax-return-values';
+import {
+  PRIOR_PROVIDER_KEYS,
+  nys45LineDefs,
+  nys45PartCKey,
+  type Nys45PartCColumn,
+} from '@/lib/tax-return-values';
 import {
   FileReturnModal,
   ReturnAmount,
   ReturnEditorBar,
   ReturnEditorProvider,
   useReturnEditor,
+  EditFilingDetailsModal,
+  RecordReturnPaymentModal,
+  ReturnPaymentsSummary,
   type EditorPayload,
+  type ReturnPaymentRow,
 } from '@/components/tax-forms/ReturnEditor';
 
 interface PartA {
@@ -106,6 +115,8 @@ interface NYS45Data {
     filingMethod: string | null;
     balanceDue: number | null;
     adjustmentEntry: { id: string; entryNumber: number; status: string } | null;
+    notes: string | null;
+    payments: ReturnPaymentRow[];
   } | null;
   editor: EditorPayload;
   recordCount: number;
@@ -204,6 +215,7 @@ function NYS45Content() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilingModal, setShowFilingModal] = useState(false);
+  const [filingDialog, setFilingDialog] = useState<'details' | 'payment' | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -239,6 +251,7 @@ function NYS45Content() {
     year: selectedYear,
     quarter: selectedQuarter,
     onSaved: fetchData,
+    autoEdit: searchParams.get('edit') === '1',
   });
   const v = editor.values;
   const isFiled = data?.filing?.status === 'filed';
@@ -560,6 +573,14 @@ function NYS45Content() {
                   hint="From recorded NY withholding (NYS-1) deposits"
                   k="line15"
                 />
+                {(editor.editing || (v[PRIOR_PROVIDER_KEYS.nys45.withholding] ?? 0) > 0) && (
+                  <FormLine
+                    line=""
+                    label="Of line 15: paid by a prior payroll provider"
+                    hint="Not on the form. If you switched payroll services this quarter, the NYS-1 deposits your old provider made — they never went through your books, so the withholding adjustment leaves them out."
+                    k={PRIOR_PROVIDER_KEYS.nys45.withholding}
+                  />
+                )}
                 <FormLine line="16" label="WT payments made with previously filed Forms NYS-45" k="line16" />
                 <FormLine line="17" label="Total payments" hint="Lines 14 + 15 + 16" k="line17" />
                 <FormLine line="18" label="WT overpayment shown on previously filed Forms NYS-45" k="line18" />
@@ -781,6 +802,13 @@ function NYS45Content() {
                   </span>
                   <button
                     type="button"
+                    onClick={() => setFilingDialog('details')}
+                    className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Edit details
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleUnfile}
                     className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
@@ -837,6 +865,13 @@ function NYS45Content() {
                       )}
                     </dd>
                   </div>
+                  <div className="sm:col-span-2 border-t border-gray-100 pt-4">
+                    <ReturnPaymentsSummary
+                      payments={data.filing.payments}
+                      balanceDue={data.filing.balanceDue ?? 0}
+                      onRecordPayment={() => setFilingDialog('payment')}
+                    />
+                  </div>
                 </dl>
               ) : (
                 <p className="text-gray-600">
@@ -860,10 +895,43 @@ function NYS45Content() {
           quarter={selectedQuarter}
           overrides={editor.overrides}
           refile={isFiled}
+          existing={isFiled ? data.filing : null}
           hasRecordedDeposits={data.deposits.length > 0}
           onClose={() => setShowFilingModal(false)}
           onSaved={() => {
             setShowFilingModal(false);
+            fetchData();
+          }}
+        />
+      )}
+
+      {filingDialog === 'details' && data?.filing && (
+        <EditFilingDetailsModal
+          formType="NYS-45"
+          formLabel="NYS-45"
+          year={selectedYear}
+          quarter={selectedQuarter}
+          filingId={data.filing.id}
+          existing={data.filing}
+          onClose={() => setFilingDialog(null)}
+          onSaved={() => {
+            setFilingDialog(null);
+            fetchData();
+          }}
+        />
+      )}
+
+      {filingDialog === 'payment' && data?.filing && (
+        <RecordReturnPaymentModal
+          formType="NYS-45"
+          formLabel="NYS-45"
+          year={selectedYear}
+          quarter={selectedQuarter}
+          filingId={data.filing.id}
+          overrides={editor.overrides}
+          onClose={() => setFilingDialog(null)}
+          onSaved={() => {
+            setFilingDialog(null);
             fetchData();
           }}
         />

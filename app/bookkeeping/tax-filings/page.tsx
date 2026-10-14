@@ -23,7 +23,7 @@ interface TaxFiling {
   balanceDue: number | null;
 }
 
-// Quarterly returns that can be moved to another quarter, and their form pages.
+// Quarterly returns that can be edited or moved to another quarter, and their form pages.
 const MOVABLE_FORMS: Record<string, string> = { '941': '/tax-forms/941', nys45: '/tax-forms/nys-45' };
 
 interface MoveResult {
@@ -209,15 +209,25 @@ export default function TaxFilingsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {f.status === 'filed' && f.quarter && MOVABLE_FORMS[f.formType] && (
-                      <button
-                        type="button"
-                        onClick={() => setMoving(f)}
-                        className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                      >
-                        Move to another quarter
-                      </button>
-                    )}
+                    <div className="flex flex-col items-end gap-1 whitespace-nowrap">
+                      {f.quarter && MOVABLE_FORMS[f.formType] && f.status !== 'voided' && (
+                        <Link
+                          href={`${MOVABLE_FORMS[f.formType]}?year=${f.year}&quarter=${f.quarter}&edit=1`}
+                          className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          {f.status === 'filed' ? 'Edit return' : 'Open draft'}
+                        </Link>
+                      )}
+                      {f.status === 'filed' && f.quarter && MOVABLE_FORMS[f.formType] && (
+                        <button
+                          type="button"
+                          onClick={() => setMoving(f)}
+                          className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          Move to another quarter
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

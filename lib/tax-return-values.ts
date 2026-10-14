@@ -163,6 +163,50 @@ export function currentReturn(
 }
 
 // ---------------------------------------------------------------------------
+// Prior payroll provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Lines that are not on the form: how much of the return's deposits line a
+ * prior payroll service paid. A company that switches providers mid-quarter
+ * files one return for the whole quarter, so its liability lines include
+ * paychecks the old provider ran and its deposits line includes the old
+ * provider's deposits — none of which went through CV Books. The true-up
+ * leaves those deposits out of each liability account's target (filed
+ * liability − prior-provider deposits), so the payments recorded in CV Books
+ * clear the account exactly. Whatever the old provider withheld but did not
+ * deposit is still owed on this return, which is why the deposits — not the
+ * old provider's share of the liability lines — are what the books subtract.
+ *
+ * Stored with the return like any other line. Returns saved before these
+ * existed lack the keys, so readers default them to 0.
+ */
+export const PRIOR_PROVIDER_KEYS = {
+  /** Portion of NYS-45 line 15 (NYS-1 payments). */
+  nys45: { withholding: 'priorLine15' },
+  /** Portion of 941 line 13 (deposits), by the account each one cleared. */
+  '941': {
+    federalIncomeTax: 'priorLine13Fit',
+    socialSecurity: 'priorLine13Ss',
+    medicare: 'priorLine13Medicare',
+  },
+} as const;
+
+const prior = (v: ReturnValues, key: string) => v[key] ?? 0;
+
+/** Prior-provider amounts must be non-negative and fit inside their deposits line. */
+export function priorProviderError(formType: ReturnFormType, v: ReturnValues): string | null {
+  const keys = Object.values(PRIOR_PROVIDER_KEYS[formType]) as string[];
+  if (keys.some((k) => prior(v, k) < 0)) return 'Prior payroll provider amounts cannot be negative';
+  const total = round2(keys.reduce((s, k) => s + prior(v, k), 0));
+  const [line, label] = formType === 'nys45' ? ['line15', 'line 15 (NYS-1 payments)'] : ['line13', 'line 13 (deposits)'];
+  if (total > round2(v[line] ?? 0)) {
+    return `Deposits by a prior payroll provider (${total.toFixed(2)}) are more than ${label} — enter the filed ${label} first`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // NYS-45
 // ---------------------------------------------------------------------------
 
@@ -212,6 +256,7 @@ export function nys45LineDefs(employeeIds: string[]): ReturnLineDef[] {
     { key: 'line13', kind: 'money', derive: (v) => v.line24 },
     { key: 'line14', kind: 'money' },
     { key: 'line15', kind: 'money' },
+    { key: PRIOR_PROVIDER_KEYS.nys45.withholding, kind: 'money' },
     { key: 'line16', kind: 'money' },
     { key: 'line17', kind: 'money', derive: (v) => v.line14 + v.line15 + v.line16 },
     { key: 'line18', kind: 'money' },
@@ -253,6 +298,7 @@ export function nys45ComputedValues(r: Nys45Result): ReturnValues {
     line13: partB.line13TotalTaxWithheld,
     line14: 0,
     line15: partB.line15Nys1Payments,
+    [PRIOR_PROVIDER_KEYS.nys45.withholding]: 0,
     line16: 0,
     line17: partB.line17TotalPayments,
     line18: 0,
@@ -294,6 +340,9 @@ export const FORM941_LINE_DEFS: ReturnLineDef[] = [
   { key: 'line11', kind: 'money' },
   { key: 'line12', kind: 'money', derive: (v) => v.line10 - v.line11 },
   { key: 'line13', kind: 'money' },
+  { key: PRIOR_PROVIDER_KEYS['941'].federalIncomeTax, kind: 'money' },
+  { key: PRIOR_PROVIDER_KEYS['941'].socialSecurity, kind: 'money' },
+  { key: PRIOR_PROVIDER_KEYS['941'].medicare, kind: 'money' },
   { key: 'line14', kind: 'money', derive: (v) => Math.max(0, v.line12 - v.line13) },
   { key: 'line15', kind: 'money', derive: (v) => Math.max(0, v.line13 - v.line12) },
   // Part 2 line 16 — monthly liabilities (monthly depositors only).
@@ -327,6 +376,9 @@ export function form941ComputedValues(r: Form941Result): ReturnValues {
     line11: l.line11NonrefundableCredits,
     line12: l.line12TotalAfterCredits,
     line13: l.line13TotalDeposits,
+    [PRIOR_PROVIDER_KEYS['941'].federalIncomeTax]: 0,
+    [PRIOR_PROVIDER_KEYS['941'].socialSecurity]: 0,
+    [PRIOR_PROVIDER_KEYS['941'].medicare]: 0,
     line14: l.line14BalanceDue,
     line15: l.line15Overpayment,
     month1: r.monthlyLiabilities[0]?.liability ?? 0,
@@ -372,6 +424,10 @@ export interface AdjustmentLine {
  * definition reconcile the rate arithmetic to what was actually withheld —
  * do not churn pennies between 2130 and 2140. Changes the filer made to the
  * Social Security lines (5a/5b) go to 2130; the rest of the pool goes to 2140.
+ *
+ * Deposits a prior payroll provider made (PRIOR_PROVIDER_KEYS) come off each
+ * account's target. On a 941 the old provider's paychecks show up as an edit to
+ * 5a, so its Social Security deposits offset that edit on 2130.
  */
 export function computeFilingAdjustment(
   formType: ReturnFormType,
@@ -389,21 +445,35 @@ export function computeFilingAdjustment(
     basis,
   });
 
+  const lessPrior = (basis: string, amount: number, what: string) =>
+    amount ? `${basis}, less ${what} paid by prior payroll provider` : basis;
+
   if (formType === 'nys45') {
+    const priorWt = prior(values, PRIOR_PROVIDER_KEYS.nys45.withholding);
     return [
       line('2160', 'NY UI contributions + RSF', values.line8 - values.line9, 'Part A line 8 − line 9'),
-      line('2120', 'NY / NYC / Yonkers tax withheld', values.line13, 'Part B line 13'),
+      line(
+        '2120',
+        'NY / NYC / Yonkers tax withheld',
+        values.line13 - priorWt,
+        lessPrior('Part B line 13', priorWt, 'NYS-1')
+      ),
     ];
   }
 
-  const fit = line('2110', 'Federal income tax withheld', values.line3, 'Line 3');
-  const poolFiled = round2(values.line12 - values.line3);
+  const keys = PRIOR_PROVIDER_KEYS['941'];
+  const priorFit = prior(values, keys.federalIncomeTax);
+  const priorSs = prior(values, keys.socialSecurity);
+  const priorMed = prior(values, keys.medicare);
+
+  const fit = line('2110', 'Federal income tax withheld', values.line3 - priorFit, lessPrior('Line 3', priorFit, 'deposits'));
+  const poolFiled = round2(values.line12 - values.line3 - priorSs - priorMed);
   const poolDiff = round2(poolFiled - acc('2130') - acc('2140'));
   const ssEdit = round2(
     values.line5aTax + values.line5bTax - (computed.line5aTax ?? 0) - (computed.line5bTax ?? 0)
   );
-  const ssAmount = ssEdit;
-  const medAmount = round2(poolDiff - ssEdit);
+  const ssAmount = round2(ssEdit - priorSs);
+  const medAmount = round2(poolDiff - ssAmount);
   return [
     fit,
     {
@@ -412,7 +482,7 @@ export function computeFilingAdjustment(
       booked: acc('2130'),
       filed: round2(acc('2130') + ssAmount),
       amount: ssAmount,
-      basis: 'Lines 5a + 5b as filed',
+      basis: lessPrior('Lines 5a + 5b as filed', priorSs, 'deposits'),
     },
     {
       code: '2140',
@@ -420,7 +490,7 @@ export function computeFilingAdjustment(
       booked: acc('2140'),
       filed: round2(acc('2140') + medAmount),
       amount: medAmount,
-      basis: 'Line 12 − line 3, less Social Security',
+      basis: lessPrior('Line 12 − line 3, less Social Security', priorMed, 'Medicare deposits'),
     },
   ];
 }

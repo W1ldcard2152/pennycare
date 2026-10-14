@@ -12,14 +12,20 @@ import {
   ExclamationTriangleIcon,
   BuildingOffice2Icon,
 } from '@heroicons/react/24/outline';
-import { FORM941_LINE_DEFS } from '@/lib/tax-return-values';
+import { FORM941_LINE_DEFS, PRIOR_PROVIDER_KEYS } from '@/lib/tax-return-values';
+
+const PRIOR_941 = PRIOR_PROVIDER_KEYS['941'];
 import {
   FileReturnModal,
   ReturnAmount,
   ReturnEditorBar,
   ReturnEditorProvider,
   useReturnEditor,
+  EditFilingDetailsModal,
+  RecordReturnPaymentModal,
+  ReturnPaymentsSummary,
   type EditorPayload,
+  type ReturnPaymentRow,
 } from '@/components/tax-forms/ReturnEditor';
 
 interface Form941Data {
@@ -111,6 +117,8 @@ interface Form941Data {
     totalDeposits: number | null;
     balanceDue: number | null;
     adjustmentEntry: { id: string; entryNumber: number; status: string } | null;
+    notes: string | null;
+    payments: ReturnPaymentRow[];
   } | null;
   editor: EditorPayload;
   recordCount: number;
@@ -214,6 +222,7 @@ function Form941Content() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilingModal, setShowFilingModal] = useState(false);
+  const [filingDialog, setFilingDialog] = useState<'details' | 'payment' | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -245,6 +254,7 @@ function Form941Content() {
     year: selectedYear,
     quarter: selectedQuarter,
     onSaved: fetchData,
+    autoEdit: searchParams.get('edit') === '1',
   });
   const v = editor.values;
   const isFiled = data?.filing?.status === 'filed';
@@ -561,6 +571,18 @@ function Form941Content() {
                     hint={`Recorded deposits: ${formatCurrency(data.lines.line13TotalDeposits)}`}
                     k="line13"
                   />
+                  {(show(PRIOR_941.federalIncomeTax) || show(PRIOR_941.socialSecurity) || show(PRIOR_941.medicare)) && (
+                    <>
+                      <Line941
+                        line=""
+                        label="Of line 13: deposited by a prior payroll provider — federal income tax"
+                        hint="Not on the form. If you switched payroll services this quarter, the deposits your old provider made, split as its tax report shows them. They never went through your books, so the adjustment leaves them out."
+                        k={PRIOR_941.federalIncomeTax}
+                      />
+                      <Line941 line="" label={<span className="text-gray-500">— Social Security</span>} k={PRIOR_941.socialSecurity} />
+                      <Line941 line="" label={<span className="text-gray-500">— Medicare</span>} k={PRIOR_941.medicare} />
+                    </>
+                  )}
                   {(v.line15 ?? 0) > 0 ? (
                     <Line941 line="Line 15" label="Overpayment" k="line15" emphasis="amber" />
                   ) : (
@@ -782,6 +804,13 @@ function Form941Content() {
                   </span>
                   <button
                     type="button"
+                    onClick={() => setFilingDialog('details')}
+                    className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Edit details
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleUnfile}
                     className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
@@ -832,6 +861,13 @@ function Form941Content() {
                       )}
                     </dd>
                   </div>
+                  <div className="sm:col-span-2 border-t border-gray-100 pt-4">
+                    <ReturnPaymentsSummary
+                      payments={data.filing.payments}
+                      balanceDue={data.filing.balanceDue ?? 0}
+                      onRecordPayment={() => setFilingDialog('payment')}
+                    />
+                  </div>
                 </dl>
               ) : (
                 <p className="text-gray-600">
@@ -869,10 +905,43 @@ function Form941Content() {
           quarter={selectedQuarter}
           overrides={editor.overrides}
           refile={isFiled}
+          existing={isFiled ? data.filing : null}
           hasRecordedDeposits={data.deposits.length > 0}
           onClose={() => setShowFilingModal(false)}
           onSaved={() => {
             setShowFilingModal(false);
+            fetchData();
+          }}
+        />
+      )}
+
+      {filingDialog === 'details' && data?.filing && (
+        <EditFilingDetailsModal
+          formType="941"
+          formLabel="Form 941"
+          year={selectedYear}
+          quarter={selectedQuarter}
+          filingId={data.filing.id}
+          existing={data.filing}
+          onClose={() => setFilingDialog(null)}
+          onSaved={() => {
+            setFilingDialog(null);
+            fetchData();
+          }}
+        />
+      )}
+
+      {filingDialog === 'payment' && data?.filing && (
+        <RecordReturnPaymentModal
+          formType="941"
+          formLabel="Form 941"
+          year={selectedYear}
+          quarter={selectedQuarter}
+          filingId={data.filing.id}
+          overrides={editor.overrides}
+          onClose={() => setFilingDialog(null)}
+          onSaved={() => {
+            setFilingDialog(null);
             fetchData();
           }}
         />

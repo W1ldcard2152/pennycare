@@ -492,26 +492,36 @@ const returnPeriodSchema = {
 
 export const taxReturnOverridesSchema = z.object(returnPeriodSchema);
 
+/** A payment remitted with (or after) a 941 / NYS-45. */
+export const returnPaymentSchema = z.object({
+  bankAccountId: z.string().min(1, 'Payment account is required'),
+  depositDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+  paymentMethod: z.enum(PAYMENT_METHODS),
+  confirmationNumber: z.string().max(100).optional().nullable(),
+  components: z.object({
+    federalIncomeTaxWithheld: z.number().min(0).default(0),
+    socialSecurityTax: z.number().min(0).default(0),
+    medicareTax: z.number().min(0).default(0),
+    stateIncomeTaxWithheld: z.number().min(0).default(0),
+    stateUnemploymentTax: z.number().min(0).default(0),
+  }),
+});
+
+/** Corrections to when/how a filed return was filed — never its figures. */
+export const filingDetailsSchema = z.object({
+  filedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
+  filingMethod: z.enum(FILING_METHODS).optional(),
+  confirmationNumber: z.string().max(100).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
 export const fileTaxReturnSchema = z.object({
   ...returnPeriodSchema,
   filedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
   filingMethod: z.enum(FILING_METHODS),
   confirmationNumber: z.string().max(100).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
-  payment: z
-    .object({
-      bankAccountId: z.string().min(1, 'Payment account is required'),
-      depositDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Date must be YYYY-MM-DD'),
-      paymentMethod: z.enum(PAYMENT_METHODS),
-      confirmationNumber: z.string().max(100).optional().nullable(),
-      components: z.object({
-        federalIncomeTaxWithheld: z.number().min(0).default(0),
-        socialSecurityTax: z.number().min(0).default(0),
-        medicareTax: z.number().min(0).default(0),
-        stateIncomeTaxWithheld: z.number().min(0).default(0),
-        stateUnemploymentTax: z.number().min(0).default(0),
-      }),
-    })
+  payment: returnPaymentSchema
     .optional()
     .nullable(),
 });

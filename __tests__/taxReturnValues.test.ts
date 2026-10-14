@@ -12,6 +12,8 @@ import {
   nys45ComputedValues,
   nys45LineDefs,
   nys45PartCKey,
+  PRIOR_PROVIDER_KEYS,
+  priorProviderError,
   resolveReturn,
   sanitizeOverrides,
   suggestedPayment,
@@ -302,6 +304,87 @@ describe('computeFilingAdjustment — 941', () => {
       ['2110', -1],
       ['2140', 0.5],
     ]);
+  });
+});
+
+describe('prior payroll provider deposits', () => {
+  const P45 = PRIOR_PROVIDER_KEYS.nys45.withholding;
+  const P941 = PRIOR_PROVIDER_KEYS['941'];
+
+  it("NYS-45: leaves the old provider's withholding out of 2120 when it deposited all of it", () => {
+    const { defs, computed } = nys45();
+    // Filed for the whole quarter: the old provider ran a paycheck that
+    // withheld 50 and made a 50 NYS-1 deposit for it.
+    const values = resolveReturn(defs, computed, {
+      line13: computed.line13 + 50,
+      line15: computed.line15 + 50,
+      [P45]: 50,
+    });
+    const lines = computeFilingAdjustment('nys45', values, computed, { '2160': 51, '2120': 120 });
+    const wt = lines.find((l) => l.code === '2120')!;
+    expect(wt.filed).toBe(120);
+    expect(wt.amount).toBe(0);
+    expect(wt.basis).toMatch(/prior payroll provider/);
+    expect(values.line20).toBe(computed.line20); // balance due unchanged
+  });
+
+  it('NYS-45: keeps what the old provider withheld but did not deposit, since this return pays it', () => {
+    const { defs, computed } = nys45();
+    const values = resolveReturn(defs, computed, {
+      line13: computed.line13 + 50,
+      line15: computed.line15 + 40,
+      [P45]: 40,
+    });
+    const wt = computeFilingAdjustment('nys45', values, computed, { '2160': 51, '2120': 120 }).find(
+      (l) => l.code === '2120'
+    )!;
+    expect(wt.amount).toBe(10);
+    // 2120 then clears exactly: 120 accrued + 10 − 100 NYS-1 recorded − line 20.
+    expect(Math.round((120 + wt.amount - 100 - values.line20) * 100) / 100).toBe(0);
+  });
+
+  it('941: posts nothing when the old provider deposited exactly what its paycheck owed', () => {
+    const { result, computed } = form941();
+    // One paycheck run by the old provider: 1000 wages, 80 FIT, SS 124, Medicare 29.
+    const values = resolveReturn(FORM941_LINE_DEFS, computed, {
+      line2: computed.line2 + 1000,
+      line3: computed.line3 + 80,
+      line5aWages: computed.line5aWages + 1000,
+      line5cWages: computed.line5cWages + 1000,
+      line13: computed.line13 + 80 + 124 + 29,
+      [P941.federalIncomeTax]: 80,
+      [P941.socialSecurity]: 124,
+      [P941.medicare]: 29,
+    });
+    const accruals = {
+      '2110': result.lines.line3FederalTaxWithheld,
+      '2130': Math.round(result.booked.socialSecurity * 100) / 100,
+      '2140': Math.round((result.booked.medicare + result.booked.additionalMedicare) * 100) / 100,
+    };
+    const lines = computeFilingAdjustment('941', values, computed, accruals);
+    expect(materialAdjustments(lines)).toEqual([]);
+    expect(values.line14).toBe(computed.line14);
+  });
+
+  it('treats returns saved before the prior-provider lines existed as zero', () => {
+    const { defs, computed } = nys45();
+    const values = resolveReturn(defs, computed, {});
+    delete values[P45];
+    const wt = computeFilingAdjustment('nys45', values, computed, { '2160': 0, '2120': 0 }).find(
+      (l) => l.code === '2120'
+    )!;
+    expect(wt.filed).toBe(values.line13);
+  });
+
+  it('rejects negative amounts and more than the deposits line', () => {
+    const { defs, computed } = nys45();
+    expect(priorProviderError('nys45', resolveReturn(defs, computed, { [P45]: 100 }))).toBeNull();
+    expect(priorProviderError('nys45', resolveReturn(defs, computed, { [P45]: 100.01 }))).toMatch(/line 15/);
+    expect(priorProviderError('nys45', resolveReturn(defs, computed, { [P45]: -1 }))).toMatch(/negative/);
+    const fed = form941().computed;
+    expect(
+      priorProviderError('941', resolveReturn(FORM941_LINE_DEFS, fed, { [P941.socialSecurity]: 300, [P941.medicare]: 201 }))
+    ).toMatch(/line 13/);
   });
 });
 
