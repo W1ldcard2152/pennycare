@@ -12,6 +12,7 @@ import { processPayrollSchema, validateRequest } from '@/lib/validation';
 import { logAudit } from '@/lib/audit';
 import { createPayrollJournalEntries } from '@/lib/bookkeeping';
 import { parseBusinessDate, startOfDay, endOfDay } from '@/lib/date-utils';
+import { PayrollAccountError } from '@/lib/payroll-accounts';
 
 // Thrown by the in-transaction duplicate-period re-check so the catch can map
 // it to a 409 (the pre-transaction check returns 409 too).
@@ -297,7 +298,7 @@ export async function POST(request: NextRequest) {
       records: processedRecords,
     });
   } catch (error) {
-    if (error instanceof DuplicatePayrollError) {
+    if (error instanceof DuplicatePayrollError || error instanceof PayrollAccountError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error('Error processing payroll:', error);

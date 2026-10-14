@@ -53,10 +53,17 @@ export async function PUT(request: NextRequest) {
       bankAccountNumber,
       bankRoutingNumberEncrypted: _ignoreRouting,
       bankAccountNumberEncrypted: _ignoreAccount,
+      // Payroll account mapping is validated and audited by /api/payroll/accounts.
+      payrollWagesAccountId: _ignoreWages,
+      payrollTaxExpenseAccountId: _ignoreTaxExpense,
+      payrollTaxAdjustmentsAccountId: _ignoreTaxAdjustments,
       ...rest
     } = data;
     void _ignoreRouting;
     void _ignoreAccount;
+    void _ignoreWages;
+    void _ignoreTaxExpense;
+    void _ignoreTaxAdjustments;
 
     // Overtime is labor law, not a preference: hours past 40 in a workweek are
     // paid at no less than 1.5x (FLSA / NY). A higher multiplier is allowed.

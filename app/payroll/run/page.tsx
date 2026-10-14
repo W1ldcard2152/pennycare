@@ -521,6 +521,7 @@ function ProcessPayrollDialog({
   const [filedForms, setFiledForms] = useState<string[]>([]);
   const [laterPayroll, setLaterPayroll] = useState(false);
   const [totals, setTotals] = useState<RunTotals | null>(null);
+  const [accountProblems, setAccountProblems] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -529,6 +530,25 @@ function ProcessPayrollDialog({
   const payQ = validDate ? quarterOf(payDate) : null;
   const workQ = quarterOf(periodEnd);
   const crossesQuarter = !!payQ && (payQ.year !== workQ.year || payQ.quarter !== workQ.quarter);
+
+  // Payroll can't post if its wage / employer-tax account is wrong — say so up front.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/payroll/accounts')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { roles: Array<{ role: string; status: string; message?: string }> } | null) => {
+        if (cancelled || !body) return;
+        setAccountProblems(
+          body.roles
+            .filter((r) => (r.role === 'wages' || r.role === 'employerTaxes') && r.status === 'problem')
+            .map((r) => r.message ?? '')
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Context for the chosen date: returns already filed for its quarter, and
   // payroll already processed after it (its YTD won't include this run).
@@ -615,6 +635,20 @@ function ProcessPayrollDialog({
 
         {err && (
           <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+        )}
+
+        {accountProblems.length > 0 && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {accountProblems.map((m) => (
+              <p key={m}>{m}</p>
+            ))}
+            <p className="mt-1">
+              <a href="/settings" className="font-medium underline">
+                Open Settings
+              </a>{' '}
+              → Payroll tab → Payroll Accounts.
+            </p>
+          </div>
         )}
 
         {step === 'date' ? (
@@ -728,7 +762,7 @@ function ProcessPayrollDialog({
             <button
               type="button"
               onClick={goToConfirm}
-              disabled={busy || !validDate || beforePeriod}
+              disabled={busy || !validDate || beforePeriod || accountProblems.length > 0}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {busy ? 'Calculating…' : 'Next'}

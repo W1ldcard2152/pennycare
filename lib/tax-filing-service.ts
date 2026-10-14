@@ -28,9 +28,9 @@ import { createTaxDepositJournalEntry, ensurePayrollAccounts } from './bookkeepi
 import { parseBusinessDate, formatDate } from './date-utils';
 import { quarterBounds } from './nys45';
 import { loadForm941, loadNys45 } from './tax-return-data';
+import { PayrollAccountError, describePayrollExpenseAccounts, resolvePayrollExpenseAccounts } from './payroll-accounts';
 import {
   FORM941_LINE_DEFS,
-  PAYROLL_TAX_ADJUSTMENTS_CODE,
   RETURN_LIABILITY_CODES,
   changedKeys,
   computeFilingAdjustment,
@@ -71,6 +71,7 @@ export class TaxFilingError extends Error {
 export function describeFilingError(err: unknown): { status: number; message: string } | null {
   if (err instanceof TaxFilingError) return { status: err.status, message: err.message };
   if (err instanceof JournalEntryStateError) return { status: 409, message: err.message };
+  if (err instanceof PayrollAccountError) return { status: 409, message: err.message };
   // createEntry's closed-period guard throws a plain Error.
   if (err instanceof Error && err.message.startsWith('Cannot create journal entry')) {
     return { status: 409, message: err.message };
@@ -161,6 +162,8 @@ export interface FilingPreview {
   /** Entry from a previous filing of this return that filing again will void. */
   supersedesEntryId: string | null;
   payment: ReturnType<typeof suggestedPayment>;
+  /** Where the net difference posts ("6020 Payroll Tax Adjustments"), or why it can't. */
+  adjustmentsAccount: { label: string; problem: string | null };
   /** Payments already recorded with this return — filing again would add another. */
   returnPayments: Array<{ id: string; depositDate: string; totalAmount: number }>;
 }
@@ -182,9 +185,17 @@ export async function previewFiling(
   const returnPayments = (await listReturnPayments(prisma, companyId, formType, year, quarter)).filter(
     (d) => d.status === 'recorded'
   );
+  const adj = (await describePayrollExpenseAccounts(companyId)).find((r) => r.role === 'taxAdjustments')!;
+  const adjustmentsAccount =
+    adj.status === 'problem'
+      ? { label: 'Payroll Tax Adjustments', problem: adj.message }
+      : adj.status === 'will_create'
+        ? { label: `${adj.code} ${adj.name} (created on filing)`, problem: null }
+        : { label: `${adj.account.code} ${adj.account.name}`, problem: null };
   return {
     values,
     computed: ctx.computed,
+    adjustmentsAccount,
     changedLines: changedKeys(values, ctx.computed),
     adjustments,
     supersedesEntryId: supersedes,
@@ -438,8 +449,8 @@ async function postFilingAdjustment(
   const material = materialAdjustments(adjustments);
   if (material.length === 0) return { adjustments, entry: null };
 
-  const codes = [...material.map((a) => a.code), PAYROLL_TAX_ADJUSTMENTS_CODE];
-  const accountIds = await ensurePayrollAccounts(companyId, codes, tx);
+  const accountIds = await ensurePayrollAccounts(companyId, material.map((a) => a.code), tx);
+  const { taxAdjustments } = await resolvePayrollExpenseAccounts(companyId, ['taxAdjustments'], tx);
   const lines = material.map((a) => ({
     accountId: accountIds.get(a.code)!,
     description: `${a.label}: filed ${a.filed.toFixed(2)} vs accrued ${a.booked.toFixed(2)} (${a.basis})`,
@@ -449,7 +460,7 @@ async function postFilingAdjustment(
   const net = round2(material.reduce((s, a) => s + a.amount, 0));
   if (net !== 0) {
     lines.push({
-      accountId: accountIds.get(PAYROLL_TAX_ADJUSTMENTS_CODE)!,
+      accountId: taxAdjustments,
       description: `Difference between accrued payroll taxes and filed ${FORM_LABEL[formType]}`,
       debit: net > 0 ? net : 0,
       credit: net < 0 ? round2(-net) : 0,

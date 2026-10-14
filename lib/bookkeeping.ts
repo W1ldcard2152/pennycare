@@ -6,6 +6,7 @@ import type { AccountType, DefaultAccount } from './default-chart-of-accounts';
 import { ACCOUNT_CATALOG, getAccountsForTier, getCatalogAccount, resolveDependencies } from './account-catalog';
 import type { Tier } from './account-catalog';
 import type { Account, Prisma } from '@prisma/client';
+import { PayrollAccountError, resolvePayrollExpenseAccounts } from './payroll-accounts';
 
 // Re-export for backward compatibility
 export { DEFAULT_CHART_OF_ACCOUNTS, ACCOUNT_GROUPS, GROUP_CODE_RANGES, ACCOUNT_TYPE_LABELS };
@@ -273,10 +274,13 @@ export async function createOpeningBalanceEntry(
  * in the default chart (i.e. the caller asked for an account this helper
  * doesn't know how to create).
  *
- * Used by createPayrollJournalEntries so payroll-side accounts auto-materialize
- * for any company on first payroll run, regardless of whether they seeded the
- * default chart explicitly, and by the tax filing service for 6020 Payroll Tax
- * Adjustments.
+ * Used for the payroll LIABILITY codes (2100–2180, a range reserved for
+ * payroll) by createPayrollJournalEntries and the tax filing service, so they
+ * auto-materialize on first use. An existing account at one of these codes
+ * must be the same type as the catalog's (a liability) — otherwise this throws
+ * PayrollAccountError rather than post to it. Expense accounts (wages,
+ * employer taxes, tax adjustments) are resolved by lib/payroll-accounts.ts,
+ * because those codes aren't reserved and charts reuse them.
  */
 export async function ensurePayrollAccounts(
   companyId: string,
@@ -285,8 +289,17 @@ export async function ensurePayrollAccounts(
 ): Promise<Map<string, string>> {
   const existing = await db.account.findMany({
     where: { companyId, code: { in: codes } },
-    select: { id: true, code: true },
+    select: { id: true, code: true, name: true, type: true },
   });
+  for (const a of existing) {
+    const def = DEFAULT_CHART_OF_ACCOUNTS.find((d) => d.code === a.code);
+    if (def && def.type !== a.type) {
+      throw new PayrollAccountError(
+        `Payroll posts ${def.name} to account ${a.code}, but ${a.code} is "${a.name}" (${a.type}, not ${def.type}). ` +
+          `Codes ${a.code.slice(0, 2)}00–${a.code.slice(0, 2)}99 are reserved for payroll — renumber that account in the Chart of Accounts.`
+      );
+    }
+  }
   const acctMap = new Map(existing.map((a) => [a.code, a.id]));
 
   const missing = codes.filter((c) => !acctMap.has(c));
@@ -320,7 +333,8 @@ export async function ensurePayrollAccounts(
  *
  * For cash basis: We record the full payroll expense and liabilities when payroll is processed.
  *
- * The journal entry for a payroll run looks like:
+ * The journal entry for a payroll run looks like (expense accounts are the
+ * standard codes unless Settings → Payroll maps them — lib/payroll-accounts.ts):
  *   DEBIT  6000 Wages & Salaries         (gross pay)
  *   DEBIT  6010 Payroll Tax Expense       (employer taxes: SS, Medicare, FUTA, SUI, RSF)
  *   CREDIT 2100 Payroll Liabilities       (net pay — what employees are owed)
@@ -390,23 +404,25 @@ export async function createPayrollJournalEntries(
     }
   );
 
-  // Look up account IDs by code; auto-create any missing payroll accounts from
-  // the default chart so payroll JE creation works even for companies that
-  // never seeded defaults or are mid-migration.
-  const accountCodes = ['6000', '6010', '2100', '2110', '2120', '2130', '2140', '2150', '2160', '2170', '2180'];
+  // Liabilities by their reserved codes; auto-create any missing ones from the
+  // default chart so payroll JE creation works even for companies that never
+  // seeded defaults or are mid-migration. Expense accounts are resolved by
+  // role, refusing a standard code that holds an unrelated account.
+  const accountCodes = ['2100', '2110', '2120', '2130', '2140', '2150', '2160', '2170', '2180'];
   const acctMap = await ensurePayrollAccounts(companyId, accountCodes, db);
+  const expense = await resolvePayrollExpenseAccounts(companyId, ['wages', 'employerTaxes'], db);
 
   // Build journal entry lines (only include non-zero amounts)
   const lines: JournalEntryLineInput[] = [];
 
   // DEBITS
   if (totals.grossPay > 0) {
-    lines.push({ accountId: acctMap.get('6000')!, description: 'Gross wages', debit: round2(totals.grossPay), credit: 0 });
+    lines.push({ accountId: expense.wages, description: 'Gross wages', debit: round2(totals.grossPay), credit: 0 });
   }
 
   const employerTaxTotal = totals.employerSocialSecurity + totals.employerMedicare + totals.employerFUTA + totals.employerSUI + totals.employerRSF;
   if (employerTaxTotal > 0) {
-    lines.push({ accountId: acctMap.get('6010')!, description: 'Employer payroll taxes', debit: round2(employerTaxTotal), credit: 0 });
+    lines.push({ accountId: expense.employerTaxes, description: 'Employer payroll taxes', debit: round2(employerTaxTotal), credit: 0 });
   }
 
   // CREDITS
@@ -462,8 +478,8 @@ export async function createPayrollJournalEntries(
     // and leaves no clearing-account residue.
     const diff = validation.totalDebits - validation.totalCredits;
     const wageLine =
-      lines.find((l) => l.accountId === acctMap.get('6010') && l.debit > 0) ||
-      lines.find((l) => l.accountId === acctMap.get('6000') && l.debit > 0);
+      lines.find((l) => l.accountId === expense.employerTaxes && l.debit > 0) ||
+      lines.find((l) => l.accountId === expense.wages && l.debit > 0);
     if (wageLine && Math.abs(diff) <= 0.02) {
       // diff = debits - credits. To balance, reduce a debit by diff.
       wageLine.debit = round2(wageLine.debit - diff);

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { BuildingOffice2Icon, CurrencyDollarIcon, BellAlertIcon } from '@heroicons/react/24/outline';
+import PayrollAccountsCard from './PayrollAccountsCard';
 
 interface Company {
   id: string;
@@ -779,6 +780,8 @@ function PayrollSettings({
           </p>
         </div>
       </div>
+
+      <PayrollAccountsCard />
 
       <PayrollBackfillCard />
     </div>

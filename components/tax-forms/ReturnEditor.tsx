@@ -453,6 +453,7 @@ interface FilingPreviewResponse {
   supersedesEntryId: string | null;
   payment: { components: PaymentComponents; total: number; returnBalanceDue: number };
   returnPayments: Array<{ id: string; depositDate: string; totalAmount: number }>;
+  adjustmentsAccount: { label: string; problem: string | null };
 }
 
 interface Account {
@@ -927,11 +928,16 @@ export function FileReturnModal({
                     <td colSpan={4} className="px-3 py-2 text-xs text-gray-600">
                       One journal entry dated the last day of the quarter.{' '}
                       {netAdjustment !== 0 &&
-                        `${netAdjustment > 0 ? 'Debits' : 'Credits'} 6020 Payroll Tax Adjustments ${money(Math.abs(netAdjustment))}.`}
+                        `${netAdjustment > 0 ? 'Debits' : 'Credits'} ${preview.adjustmentsAccount.label} ${money(Math.abs(netAdjustment))}.`}
                     </td>
                   </tr>
                 </tfoot>
               </table>
+            )}
+            {netAdjustment !== 0 && preview.adjustmentsAccount.problem && (
+              <p className="border-t border-gray-200 px-3 py-2 text-xs text-red-700">
+                {preview.adjustmentsAccount.problem}
+              </p>
             )}
             {preview.supersedesEntryId && (
               <p className="border-t border-gray-200 px-3 py-2 text-xs text-gray-600">

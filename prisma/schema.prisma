@@ -119,6 +119,14 @@ model Company {
   nys1FilerDays          Int     @default(5)
   reminderLeadDays       Int     @default(7)          // Days before deadline to show warnings
 
+  // Expense accounts the payroll bridge and the filing service post to
+  // (lib/payroll-accounts.ts). Null = the standard code (6000 / 6010 / 6020),
+  // used only when the account there is the right kind. Set from Settings →
+  // Payroll when a company's chart uses those codes for something else.
+  payrollWagesAccountId          String?
+  payrollTaxExpenseAccountId     String?
+  payrollTaxAdjustmentsAccountId String?
+
   // PTO/Leave Policies
   defaultPTODays    Int?     @default(0)
   defaultSickDays   Int?     @default(5) // NY requires minimum 40 hours (5 days) for 5-99 employees
