@@ -63,6 +63,18 @@ export default function PayrollDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [justProcessed, setJustProcessed] = useState<{ count: number; payDate: string } | null>(null);
+
+  // Run Payroll lands here with ?processed=N&payDate=YYYY-MM-DD. Read it once
+  // and drop it from the URL so a reload doesn't show the banner again.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const processed = params.get('processed');
+    const payDate = params.get('payDate');
+    if (processed === null || !payDate) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setJustProcessed({ count: Number(processed) || 0, payDate });
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,6 +137,27 @@ export default function PayrollDashboardPage() {
         <h1 className="text-3xl font-bold text-gray-900">Payroll Dashboard</h1>
         <p className="mt-2 text-gray-600">Common payroll actions and pending items.</p>
       </div>
+
+      {justProcessed && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <div className="flex gap-2">
+            <CheckCircleIcon className="h-5 w-5 flex-shrink-0 text-green-600" />
+            <span>
+              Payroll processed — {justProcessed.count} employee{justProcessed.count === 1 ? '' : 's'}, pay date{' '}
+              <strong>{formatDateDisplay(justProcessed.payDate)}</strong>. Mark it paid below once checks or
+              deposits go out.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setJustProcessed(null)}
+            className="text-green-700 hover:text-green-900"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

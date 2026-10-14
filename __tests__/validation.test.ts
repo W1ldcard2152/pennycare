@@ -205,6 +205,33 @@ describe('processPayrollSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts a pay date in a later quarter than the work week (retroactive/late pay)', () => {
+    const result = processPayrollSchema.safeParse({
+      startDate: '2026-06-21',
+      endDate: '2026-06-27',
+      payDate: '2026-07-02',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a pay date before the pay period starts', () => {
+    const result = processPayrollSchema.safeParse({
+      startDate: '2026-06-21',
+      endDate: '2026-06-27',
+      payDate: '2026-06-20',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a malformed pay date', () => {
+    const result = processPayrollSchema.safeParse({
+      startDate: '2026-06-21',
+      endDate: '2026-06-27',
+      payDate: '7/2/2026',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ── Create Deduction Schema ───────────────────────────

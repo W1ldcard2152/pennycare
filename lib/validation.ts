@@ -100,10 +100,15 @@ export const updateEmployeeSchema = z.object({
 export const processPayrollSchema = z.object({
   startDate: z.string().min(1, 'Start date is required'),
   endDate: z.string().min(1, 'End date is required'),
-  payDate: z.string().min(1, 'Pay date is required'),
+  payDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pay date must be YYYY-MM-DD'),
 }).refine(
   (data) => new Date(data.startDate) <= new Date(data.endDate),
   { message: 'Start date must be before end date', path: ['startDate'] }
+).refine(
+  // The pay date decides the tax year and the 941 / NYS-45 quarter, so it is
+  // the date employees are actually paid — never before the work it pays for.
+  (data) => data.payDate >= data.startDate.slice(0, 10),
+  { message: 'Pay date cannot be before the pay period starts', path: ['payDate'] }
 );
 
 export const voidPayrollSchema = z.object({

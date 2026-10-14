@@ -1,7 +1,18 @@
 'use client';
 
-import { useState } from 'react';
-import { CalendarIcon, CurrencyDollarIcon, ChevronDownIcon, ChevronUpIcon, UserIcon, ClockIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  CalendarIcon,
+  CurrencyDollarIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  UserIcon,
+  ClockIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+} from '@heroicons/react/24/outline';
 import { formatCurrency, PayrollResult } from '@/lib/payrollCalculations';
 
 interface PayrollPreview {
@@ -23,8 +34,9 @@ interface PayrollPreview {
 export default function PayrollPage() {
   const [selectedWeek, setSelectedWeek] = useState<Date>(getStartOfWeek(new Date()));
   const [payrollPreview, setPayrollPreview] = useState<PayrollPreview[]>([]);
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [processing, setProcessing] = useState(false);
+  const [processDialogOpen, setProcessDialogOpen] = useState(false);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
 
   const generatePreview = async () => {
@@ -45,41 +57,6 @@ export default function PayrollPage() {
       console.error('Error generating preview:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const processPayroll = async () => {
-    if (!confirm('Are you sure you want to process payroll for this week? This action cannot be undone.')) {
-      return;
-    }
-
-    setProcessing(true);
-    try {
-      const startDate = formatDate(selectedWeek);
-      const endDate = formatDate(getEndOfWeek(selectedWeek));
-
-      const res = await fetch('/api/payroll/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate,
-          endDate,
-          payDate: formatDate(getEndOfWeek(selectedWeek)),
-        }),
-      });
-
-      if (res.ok) {
-        alert('Payroll processed successfully!');
-        setPayrollPreview([]);
-      } else {
-        const error = await res.json();
-        alert(`Error: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error processing payroll:', error);
-      alert('Failed to process payroll');
-    } finally {
-      setProcessing(false);
     }
   };
 
@@ -453,14 +430,23 @@ export default function PayrollPage() {
               Cancel
             </button>
             <button
-              onClick={processPayroll}
-              disabled={processing}
-              className="rounded-lg bg-green-600 px-6 py-2 text-white hover:bg-green-700 disabled:bg-gray-400"
+              onClick={() => setProcessDialogOpen(true)}
+              className="rounded-lg bg-green-600 px-6 py-2 text-white hover:bg-green-700"
             >
-              {processing ? 'Processing...' : 'Process Payroll'}
+              Process Payroll
             </button>
           </div>
         </div>
+      )}
+
+      {processDialogOpen && (
+        <ProcessPayrollDialog
+          periodStart={formatDate(selectedWeek)}
+          periodEnd={formatDate(getEndOfWeek(selectedWeek))}
+          previewTotals={summarize(payrollPreview)}
+          onClose={() => setProcessDialogOpen(false)}
+          onProcessed={(count, payDate) => router.push(`/payroll?processed=${count}&payDate=${payDate}`)}
+        />
       )}
 
       {/* Empty State */}
@@ -473,6 +459,292 @@ export default function PayrollPage() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+interface RunTotals {
+  employees: number;
+  gross: number;
+  net: number;
+  employerCost: number;
+}
+
+function summarize(rows: PayrollPreview[]): RunTotals {
+  return {
+    employees: rows.length,
+    gross: rows.reduce((s, p) => s + p.grossPay, 0),
+    net: rows.reduce((s, p) => s + p.netPay, 0),
+    employerCost: rows.reduce((s, p) => s + (p.details?.totalEmployerCost || 0), 0),
+  };
+}
+
+function quarterOf(iso: string): { year: number; quarter: number } {
+  return { year: Number(iso.slice(0, 4)), quarter: Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1 };
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return formatDate(d);
+}
+
+function displayIso(iso: string): string {
+  return formatDateDisplay(new Date(`${iso}T12:00:00Z`));
+}
+
+/**
+ * Process Payroll → pay date → confirmation. The pay date decides the tax
+ * year (YTD, wage bases) and the 941 / NYS-45 quarter the wages land in, so
+ * the confirmation step re-runs the preview at that date and shows the totals
+ * that will actually be saved.
+ */
+function ProcessPayrollDialog({
+  periodStart,
+  periodEnd,
+  previewTotals,
+  onClose,
+  onProcessed,
+}: {
+  periodStart: string;
+  periodEnd: string;
+  previewTotals: RunTotals;
+  onClose: () => void;
+  onProcessed: (count: number, payDate: string) => void;
+}) {
+  // Local calendar date — toISOString() is already tomorrow after 8pm Eastern.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const [step, setStep] = useState<'date' | 'confirm'>('date');
+  const [payDate, setPayDate] = useState(periodEnd);
+  const [filedForms, setFiledForms] = useState<string[]>([]);
+  const [laterPayroll, setLaterPayroll] = useState(false);
+  const [totals, setTotals] = useState<RunTotals | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate);
+  const beforePeriod = validDate && payDate < periodStart;
+  const payQ = validDate ? quarterOf(payDate) : null;
+  const workQ = quarterOf(periodEnd);
+  const crossesQuarter = !!payQ && (payQ.year !== workQ.year || payQ.quarter !== workQ.quarter);
+
+  // Context for the chosen date: returns already filed for its quarter, and
+  // payroll already processed after it (its YTD won't include this run).
+  useEffect(() => {
+    if (!validDate || beforePeriod) return;
+    let cancelled = false;
+    const { year, quarter } = quarterOf(payDate);
+    fetch(`/api/bookkeeping/tax-filings?year=${year}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: Array<{ formType: string; quarter: number | null; status: string }>) => {
+        if (cancelled || !Array.isArray(list)) return;
+        setFiledForms(
+          list
+            .filter((f) => f.quarter === quarter && f.status === 'filed' && ['941', 'nys45'].includes(f.formType))
+            .map((f) => (f.formType === 'nys45' ? 'NYS-45' : 'Form 941'))
+        );
+      })
+      .catch(() => {});
+    fetch(`/api/payroll/history?startDate=${addDaysIso(payDate, 1)}&limit=1`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((body) => {
+        if (cancelled) return;
+        const rows = Array.isArray(body) ? body : body.records || [];
+        setLaterPayroll(rows.length > 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [payDate, validDate, beforePeriod]);
+
+  const goToConfirm = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch(
+        `/api/payroll/preview?startDate=${periodStart}&endDate=${periodEnd}&payDate=${payDate}`
+      );
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) throw new Error(data.error || 'Failed to calculate payroll');
+      if (data.length === 0) throw new Error('No employees have pay for this period');
+      setTotals(summarize(data));
+      setStep('confirm');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to calculate payroll');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const process = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/payroll/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: periodStart, endDate: periodEnd, payDate }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to process payroll');
+      onProcessed(body.recordsProcessed ?? 0, payDate);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to process payroll');
+      setBusy(false);
+    }
+  };
+
+  const differsFromPreview =
+    !!totals &&
+    (Math.abs(totals.gross - previewTotals.gross) >= 0.005 ||
+      Math.abs(totals.net - previewTotals.net) >= 0.005 ||
+      Math.abs(totals.employerCost - previewTotals.employerCost) >= 0.005);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900">
+          {step === 'date' ? 'When are employees paid?' : 'Process payroll?'}
+        </h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Pay period {displayIso(periodStart)} – {displayIso(periodEnd)}
+        </p>
+
+        {err && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+        )}
+
+        {step === 'date' ? (
+          <div className="mt-4 space-y-3">
+            <div>
+              <label htmlFor="payDate" className="block text-sm font-medium text-gray-700">
+                Pay date
+              </label>
+              <input
+                id="payDate"
+                type="date"
+                value={payDate}
+                min={periodStart}
+                onChange={(e) => setPayDate(e.target.value)}
+                className="mt-1 block w-48 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                The date the checks or deposits reach employees. It sets the tax year and the quarter
+                the wages are reported in.
+              </p>
+            </div>
+
+            {beforePeriod && (
+              <p className="text-sm text-red-700">The pay date can&apos;t be before the pay period starts.</p>
+            )}
+
+            {payQ && !beforePeriod && (
+              <div
+                className={`flex gap-2 rounded-md border px-3 py-2 text-sm ${
+                  crossesQuarter ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-gray-200 bg-gray-50 text-gray-700'
+                }`}
+              >
+                <InformationCircleIcon className={`h-5 w-5 flex-shrink-0 ${crossesQuarter ? 'text-amber-600' : 'text-gray-400'}`} />
+                <span>
+                  Reported on the <strong>Q{payQ.quarter} {payQ.year}</strong> Form 941 and NYS-45
+                  {crossesQuarter
+                    ? ` — not Q${workQ.quarter} ${workQ.year}, when the work was done. Returns follow the date employees are paid.`
+                    : '.'}
+                  {payDate < today && ' This is a past date — use the day employees were actually paid.'}
+                </span>
+              </div>
+            )}
+
+            {validDate && !beforePeriod && filedForms.length > 0 && payQ && (
+              <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-amber-600" />
+                <span>
+                  The Q{payQ.quarter} {payQ.year} {filedForms.join(' and ')}{' '}
+                  {filedForms.length > 1 ? 'are' : 'is'} already marked filed. This payroll changes that
+                  quarter&apos;s figures — you may need an amended return.
+                </span>
+              </div>
+            )}
+
+            {validDate && !beforePeriod && laterPayroll && (
+              <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-amber-600" />
+                <span>
+                  Payroll paid after {displayIso(payDate)} has already been processed. Those pay stubs&apos;
+                  year-to-date totals, and the wage-base limits applied to them, won&apos;t include this run.
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          totals && (
+            <div className="mt-4 space-y-3">
+              <dl className="divide-y divide-gray-100 rounded-md border border-gray-200 text-sm">
+                {(
+                  [
+                    ['Pay date', displayIso(payDate)],
+                    ['Reported in', payQ ? `Q${payQ.quarter} ${payQ.year}` : '—'],
+                    ['Employees', String(totals.employees)],
+                    ['Gross pay', formatCurrency(totals.gross)],
+                    ['Net pay', formatCurrency(totals.net)],
+                    ['Employer taxes', formatCurrency(totals.employerCost)],
+                    ['Total cash required', formatCurrency(totals.gross + totals.employerCost)],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label} className="flex justify-between px-3 py-2">
+                    <dt className="text-gray-600">{label}</dt>
+                    <dd className="font-medium tabular-nums text-gray-900">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {differsFromPreview && (
+                <p className="flex gap-2 text-xs text-amber-800">
+                  <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0 text-amber-600" />
+                  These totals differ from the preview on the page because the pay date falls in a
+                  different tax year — year-to-date amounts and wage bases restart each January.
+                </p>
+              )}
+              <p className="text-xs text-gray-500">
+                This creates the payroll records and their journal entry. To undo it, void the run from
+                Payroll History.
+              </p>
+            </div>
+          )
+        )}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={step === 'date' ? onClose : () => setStep('date')}
+            disabled={busy}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {step === 'date' ? 'Cancel' : 'Back'}
+          </button>
+          {step === 'date' ? (
+            <button
+              type="button"
+              onClick={goToConfirm}
+              disabled={busy || !validDate || beforePeriod}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? 'Calculating…' : 'Next'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={process}
+              disabled={busy}
+              className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {busy ? 'Processing…' : 'Process payroll'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
