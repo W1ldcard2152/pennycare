@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.2] — 2026-10-14
+
+Upgrading: back up first (Admin → Backup / Restore). The first launch adds three new settings to the database; your data folder is kept. If Process Payroll says your wages account is wrong after upgrading, choose it under Settings → Payroll → Payroll Accounts.
+
+### Added
+- Switching payroll providers mid-quarter: on the 941 and NYS-45, enter how much of the deposits line your previous payroll service paid (shown under line 13 / line 15 while editing). Filing leaves those deposits out of the books, so the old provider's withholding is no longer booked as an expense and the quarter no longer looks unpaid by the amount it deposited.
+- Process Payroll asks when employees are paid, then confirms the totals for that pay date before saving and returns to the Payroll Dashboard. It shows which quarter's 941 / NYS-45 the wages are reported on, and warns when that quarter's return is already filed or later payroll has already been processed.
+- A filed 941 or NYS-45 shows the payments recorded with it (voided ones struck through) and offers **Edit details** — filed date, method, confirmation #, notes — and **Record payment**, neither of which files the return again or changes its figures.
+- Tax Filings links each 941 and NYS-45 to its return (**Edit return** / **Open draft**).
+- Settings → Payroll → **Payroll Accounts**: choose the expense accounts payroll posts gross wages, employer payroll taxes and filed-return adjustments to.
+
+### Fixed
+- Payroll posted gross wages to whichever account had code 6000, even when that account wasn't for wages (for example Shop Supplies), and filed-return adjustments to whichever account had code 6020. It now refuses and asks you to choose the account. Payroll already booked to the wrong account can be moved with Bulk reclassify on that account's page.
+- **File again** reset the filed date to today and cleared the filing method, confirmation # and notes. It now keeps them.
+- **File again** recorded the return's payment again every time. It's now off by default when a payment is already recorded, with a warning if switched on.
+- A filed date saved from the older filing-status form could show as the day before.
+
 ## [1.2.1] — 2026-10-06
 
 Upgrading from 1.1.x: back up first (Admin → Backup / Restore). The first launch updates the database automatically; your data folder is kept.
