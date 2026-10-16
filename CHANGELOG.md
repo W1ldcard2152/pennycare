@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.3] — 2026-10-16
+
+Upgrading: back up first (Admin → Backup / Restore). No database changes; your data folder is kept.
+
+### Fixed
+- Voiding a tax deposit's journal entry from the journal entry page left the deposit recorded, so Tax Liability and the 941 / NYS-45 still counted it as paid for its quarter. That void is now refused with a pointer to Tax Deposits, which voids the deposit and its entry together.
+- A deposit left that way couldn't be voided afterwards ("Failed to void tax deposit"). It now can, and Tax Deposits marks it **Entry voided** so it's easy to find.
+
 ## [1.2.2] — 2026-10-14
 
 Upgrading: back up first (Admin → Backup / Restore). The first launch adds three new settings to the database; your data folder is kept. If Process Payroll says your wages account is wrong after upgrading, choose it under Settings → Payroll → Payroll Accounts.
