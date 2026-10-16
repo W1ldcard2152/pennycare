@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
 import { logAudit } from '@/lib/audit';
 import { voidEntry } from '@/lib/journal-entry-service';
+import { JE_STATUS } from '@/lib/je-status';
 import { changeTaxDepositPeriodSchema, validateRequest, voidTaxDepositSchema } from '@/lib/validation';
 
 // GET /api/bookkeeping/tax-deposits/[id]
@@ -141,7 +142,17 @@ export async function DELETE(
         },
       });
 
-      if (existing.journalEntryId) {
+      // An entry voided on its own (from the journal entry page, before 1.2.3)
+      // left the deposit counted as paid. Voiding it again is an illegal
+      // voided → voided transition that would roll this back, so skip it.
+      const entry = existing.journalEntryId
+        ? await tx.journalEntry.findUnique({
+            where: { id: existing.journalEntryId },
+            select: { status: true },
+          })
+        : null;
+      const entryAlreadyVoided = entry?.status === JE_STATUS.VOIDED;
+      if (existing.journalEntryId && !entryAlreadyVoided) {
         // Void via the JE service (closed-period + reconciled guards, tier-1
         // audit) on the same transaction as the deposit void.
         await voidEntry(
@@ -152,7 +163,7 @@ export async function DELETE(
         );
       }
 
-      return updated;
+      return { updated, entryAlreadyVoided };
     });
 
     await logAudit({
@@ -165,11 +176,12 @@ export async function DELETE(
         taxAuthority: existing.taxAuthority,
         totalAmount: existing.totalAmount,
         journalEntryId: existing.journalEntryId,
+        entryAlreadyVoided: result.entryAlreadyVoided,
         reason,
       },
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(result.updated);
   } catch (err) {
     console.error('Error voiding tax deposit:', err);
     return NextResponse.json({ error: 'Failed to void tax deposit' }, { status: 500 });

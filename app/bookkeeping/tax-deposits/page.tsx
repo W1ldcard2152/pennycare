@@ -8,6 +8,7 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   TrashIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 
 interface TaxDeposit {
@@ -198,7 +199,15 @@ export default function TaxDepositsPage() {
                     {formatCurrency(d.totalAmount)}
                   </td>
                   <td className="px-4 py-3">
-                    {d.status === 'recorded' ? (
+                    {d.status === 'recorded' && d.journalEntry?.status === 'voided' ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium"
+                        title="Its journal entry was voided, but the deposit still counts as paid for its quarter. Void the deposit if it wasn't a real payment."
+                      >
+                        <ExclamationTriangleIcon className="h-3 w-3" />
+                        Entry voided
+                      </span>
+                    ) : d.status === 'recorded' ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium">
                         <CheckCircleIcon className="h-3 w-3" />
                         Recorded

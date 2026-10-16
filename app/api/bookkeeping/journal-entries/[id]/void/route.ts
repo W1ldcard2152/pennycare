@@ -22,10 +22,18 @@ export async function POST(
     // Company-scope the lookup (the service works by id alone).
     const entry = await prisma.journalEntry.findFirst({
       where: { id, companyId: companyId! },
-      select: { id: true },
+      select: { id: true, taxDeposit: { select: { status: true } } },
     });
     if (!entry) {
       return NextResponse.json({ error: 'Journal entry not found' }, { status: 404 });
+    }
+    // Voiding a deposit's entry alone left the deposit counted as paid on Tax
+    // Liability and the 941 / NYS-45. The deposit void voids both together.
+    if (entry.taxDeposit?.status === 'recorded') {
+      return NextResponse.json(
+        { error: 'This entry records a tax deposit. Void the deposit on the Tax Deposits page instead, so the payment is removed from the quarter along with the entry.' },
+        { status: 409 }
+      );
     }
 
     // Void via the service. The closed-period and reconciled-line guards live
