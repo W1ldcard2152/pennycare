@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.4] — 2026-10-18
+
+Upgrading: back up first (Admin → Backup / Restore). No database changes; your data folder is kept.
+
+### Changed
+- Voiding a tax deposit's journal entry now voids the deposit too, instead of being refused. Voiding from either Tax Deposits or the journal entry removes the payment from its quarter and the entry from the books together.
+
+### Fixed
+- **Void** on Tax Deposits did nothing in the desktop app. It now opens a dialog asking for the reason. This is also how to clear a deposit marked **Entry voided**.
+- **Reset password** (Admin → Users) did nothing in the desktop app. It now opens a dialog for the temporary password.
+- **Rename** on a backup target (Admin → Backup) did nothing in the desktop app. It now edits the name in place.
+
 ## [1.2.3] — 2026-10-16
 
 Upgrading: back up first (Admin → Backup / Restore). No database changes; your data folder is kept.
