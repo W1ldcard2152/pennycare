@@ -57,6 +57,7 @@ export default function TaxDepositsPage() {
   const [deposits, setDeposits] = useState<TaxDeposit[]>([]);
   const [loading, setLoading] = useState(true);
   const [changing, setChanging] = useState<TaxDeposit | null>(null);
+  const [voiding, setVoiding] = useState<TaxDeposit | null>(null);
 
   const fetchDeposits = useCallback(async () => {
     setLoading(true);
@@ -77,22 +78,6 @@ export default function TaxDepositsPage() {
   useEffect(() => {
     fetchDeposits();
   }, [fetchDeposits]);
-
-  const handleVoid = async (id: string) => {
-    const reason = prompt('Reason for voiding this deposit?');
-    if (!reason) return;
-    const res = await fetch(`/api/bookkeeping/tax-deposits/${id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      alert(body.error || 'Failed to void deposit');
-      return;
-    }
-    fetchDeposits();
-  };
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 space-y-6">
@@ -232,7 +217,7 @@ export default function TaxDepositsPage() {
                     {d.status === 'recorded' && (
                       <button
                         type="button"
-                        onClick={() => handleVoid(d.id)}
+                        onClick={() => setVoiding(d)}
                         className="inline-flex items-center gap-1 text-red-600 hover:text-red-800 text-xs"
                       >
                         <TrashIcon className="h-3 w-3" />
@@ -265,6 +250,104 @@ export default function TaxDepositsPage() {
           }}
         />
       )}
+
+      {voiding && (
+        <VoidDepositModal
+          deposit={voiding}
+          onClose={() => setVoiding(null)}
+          onVoided={() => {
+            setVoiding(null);
+            fetchDeposits();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// An in-page dialog, not window.prompt(): Electron doesn't implement prompt(),
+// so in the desktop app it returned nothing and Void silently did nothing.
+function VoidDepositModal({
+  deposit,
+  onClose,
+  onVoided,
+}: {
+  deposit: TaxDeposit;
+  onClose: () => void;
+  onVoided: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const entryAlreadyVoided = deposit.journalEntry?.status === 'voided';
+
+  const confirm = async () => {
+    setSaving(true);
+    setErr('');
+    try {
+      const res = await fetch(`/api/bookkeeping/tax-deposits/${deposit.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to void deposit');
+      }
+      onVoided();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to void deposit');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900">Void deposit</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          The {formatCurrency(deposit.totalAmount)} deposit paid {formatDate(deposit.depositDate)} will no longer count
+          toward {deposit.taxPeriodQuarter ? `${deposit.taxPeriodQuarter} ${deposit.taxPeriodYear}` : deposit.taxPeriodYear}.
+          {entryAlreadyVoided
+            ? ` Its journal entry (JE #${deposit.journalEntry!.entryNumber}) is already voided.`
+            : deposit.journalEntry
+              ? ` Its journal entry (JE #${deposit.journalEntry.entryNumber}) is voided with it.`
+              : ''}{' '}
+          This can&apos;t be undone.
+        </p>
+
+        {err && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
+
+        <label className="mt-4 block text-sm font-medium text-gray-700">Reason for voiding *</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          autoFocus
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+          placeholder="e.g. Duplicate entry"
+        />
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={saving || !reason.trim()}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {saving ? 'Voiding…' : 'Void deposit'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

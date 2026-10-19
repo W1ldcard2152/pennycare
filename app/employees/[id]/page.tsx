@@ -90,7 +90,6 @@ export default function EmployeeDetailPage() {
   const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ id: string; fileName: string; filePath: string } | null>(null);
 
   useEffect(() => {
@@ -107,37 +106,6 @@ export default function EmployeeDetailPage() {
       console.error('Error fetching employee:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const documentType = prompt('Document type (w4, i9, license, other):') || 'other';
-    const description = prompt('Description (optional):') || '';
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('documentType', documentType);
-      formData.append('description', description);
-
-      const response = await fetch(`/api/employees/${params.id}/documents`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Failed to upload document');
-
-      fetchEmployee();
-      alert('Document uploaded successfully');
-    } catch (error) {
-      console.error('Error uploading document:', error);
-      alert('Failed to upload document');
-    } finally {
-      setUploading(false);
     }
   };
 

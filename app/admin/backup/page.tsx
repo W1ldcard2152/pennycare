@@ -116,6 +116,10 @@ export default function BackupRestorePage() {
   const [newTargetPath, setNewTargetPath] = useState('');
   const [addingTarget, setAddingTarget] = useState(false);
   const [targetError, setTargetError] = useState('');
+  // Inline rename — not window.prompt(), which Electron doesn't implement
+  // (in the desktop app Rename did nothing).
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -226,9 +230,17 @@ export default function BackupRestorePage() {
     }
   };
 
+  const startRename = (target: BackupTarget) => {
+    setRenamingId(target.id);
+    setRenameValue(target.name);
+  };
+
   const renameTarget = async (target: BackupTarget) => {
-    const name = prompt('New name for this backup target:', target.name);
-    if (!name || name.trim() === target.name) return;
+    const name = renameValue.trim();
+    if (!name || name === target.name) {
+      setRenamingId(null);
+      return;
+    }
     try {
       const res = await fetch(`/api/admin/backup/targets/${target.id}`, {
         method: 'PATCH',
@@ -240,6 +252,7 @@ export default function BackupRestorePage() {
         alert(data.error || 'Failed to rename backup target');
         return;
       }
+      setRenamingId(null);
       fetchTargets();
     } catch {
       alert('Failed to rename backup target');
@@ -671,7 +684,20 @@ export default function BackupRestorePage() {
                       <div className={`w-2.5 h-2.5 rounded-full mt-1.5 ${meta.dot}`} title={meta.description} />
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-gray-900">{target.name}</p>
+                          {renamingId === target.id ? (
+                            <input
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') renameTarget(target);
+                                if (e.key === 'Escape') setRenamingId(null);
+                              }}
+                              autoFocus
+                              className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-900"
+                            />
+                          ) : (
+                            <p className="font-medium text-gray-900">{target.name}</p>
+                          )}
                           <span className="text-xs text-gray-500">{meta.label}</span>
                         </div>
                         <p className="text-xs text-gray-500 font-mono break-all mt-0.5">{target.folderPath}</p>
@@ -686,12 +712,29 @@ export default function BackupRestorePage() {
                       </div>
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => renameTarget(target)}
-                        className="text-xs text-blue-600 hover:text-blue-800"
-                      >
-                        Rename
-                      </button>
+                      {renamingId === target.id ? (
+                        <>
+                          <button
+                            onClick={() => renameTarget(target)}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setRenamingId(null)}
+                            className="text-xs text-gray-600 hover:text-gray-800"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => startRename(target)}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          Rename
+                        </button>
+                      )}
                       <button
                         onClick={() => removeTarget(target)}
                         className="text-xs text-red-600 hover:text-red-800"
