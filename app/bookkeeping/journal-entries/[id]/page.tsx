@@ -857,6 +857,11 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               <p className="text-sm text-gray-600 mb-4">
                 Voiding this entry will reverse its effect on account balances. This action cannot be undone.
               </p>
+              {entry.source === 'tax_deposit' && (
+                <p className="text-sm text-gray-600 mb-4">
+                  The tax deposit this entry records is voided with it, so the payment no longer counts toward its quarter.
+                </p>
+              )}
 
               {voidError && (
                 <div className="mb-4 p-2 bg-red-50 text-red-600 rounded text-sm">{voidError}</div>

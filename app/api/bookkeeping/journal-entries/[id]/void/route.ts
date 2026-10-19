@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireCompanyAccess } from '@/lib/api-utils';
+import { logAudit } from '@/lib/audit';
 import { voidEntry, JournalEntryStateError } from '@/lib/journal-entry-service';
 
 // POST /api/bookkeeping/journal-entries/[id]/void
@@ -22,19 +23,18 @@ export async function POST(
     // Company-scope the lookup (the service works by id alone).
     const entry = await prisma.journalEntry.findFirst({
       where: { id, companyId: companyId! },
-      select: { id: true, taxDeposit: { select: { status: true } } },
+      select: {
+        id: true,
+        taxDeposit: { select: { id: true, status: true, taxAuthority: true, totalAmount: true } },
+      },
     });
     if (!entry) {
       return NextResponse.json({ error: 'Journal entry not found' }, { status: 404 });
     }
-    // Voiding a deposit's entry alone left the deposit counted as paid on Tax
-    // Liability and the 941 / NYS-45. The deposit void voids both together.
-    if (entry.taxDeposit?.status === 'recorded') {
-      return NextResponse.json(
-        { error: 'This entry records a tax deposit. Void the deposit on the Tax Deposits page instead, so the payment is removed from the quarter along with the entry.' },
-        { status: 409 }
-      );
-    }
+    // Payment math counts TaxDeposit rows, not the entry, so voiding a
+    // deposit's entry alone left the deposit counted as paid on Tax Liability
+    // and the 941 / NYS-45. Void the deposit with it.
+    const deposit = entry.taxDeposit?.status === 'recorded' ? entry.taxDeposit : null;
 
     // Void via the service. The closed-period and reconciled-line guards live
     // there now. We still clear any in-progress reconciliation "cleared items"
@@ -49,8 +49,37 @@ export async function POST(
       if (lineIds.length > 0) {
         await tx.reconciledItem.deleteMany({ where: { journalEntryLineId: { in: lineIds } } });
       }
-      return voidEntry({ userId: session!.userId, role: role! }, id, reason.trim(), tx);
+      const voided = await voidEntry({ userId: session!.userId, role: role! }, id, reason.trim(), tx);
+      if (deposit) {
+        await tx.taxDeposit.update({
+          where: { id: deposit.id },
+          data: {
+            status: 'voided',
+            voidedAt: new Date(),
+            voidedBy: session!.userId,
+            voidReason: reason.trim(),
+          },
+        });
+      }
+      return voided;
     });
+
+    if (deposit) {
+      await logAudit({
+        companyId: companyId!,
+        userId: session!.userId,
+        action: 'tax_deposit.void',
+        entityType: 'TaxDeposit',
+        entityId: deposit.id,
+        metadata: {
+          taxAuthority: deposit.taxAuthority,
+          totalAmount: deposit.totalAmount,
+          journalEntryId: id,
+          voidedFrom: 'journal_entry',
+          reason: reason.trim(),
+        },
+      });
+    }
 
     return NextResponse.json(updated);
   } catch (err) {
